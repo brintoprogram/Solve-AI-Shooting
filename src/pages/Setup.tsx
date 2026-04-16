@@ -48,12 +48,17 @@ export function Setup() {
       const cleanUrl = url.trim().replace(/\/$/, "");
       const client = createTempClient(cleanUrl, key.trim());
       const { error } = await client.from("meta_connections").select("id").limit(1);
-      const isConnError =
+      // Connection is OK if: no error, OR error is just "table not found" (tables haven't been created yet)
+      const isTableNotFound =
         error &&
-        !error.message.includes("does not exist") &&
-        !error.message.includes("relation") &&
-        !error.message.includes("42P01") &&
-        !error.message.includes("PGRST");
+        (error.message.includes("does not exist") ||
+         error.message.includes("relation") ||
+         error.message.includes("42P01") ||
+         error.message.includes("schema cache") ||
+         error.message.includes("Could not find") ||
+         error.code?.startsWith("PGRST") ||
+         error.code === "42P01");
+      const isConnError = error && !isTableNotFound;
       if (isConnError) {
         setTestOk(false);
         setTestError(error?.message ?? "Não foi possível conectar. Verifique a URL e a chave.");
