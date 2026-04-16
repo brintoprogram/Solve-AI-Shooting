@@ -27,7 +27,9 @@ export function PhonePreviewFrame({
   return (
     <div className="flex flex-col items-center">
       {/* Phone frame */}
-      <div className="relative w-[280px] h-[560px] bg-gray-900 rounded-[36px] shadow-2xl border-[6px] border-gray-800 overflow-hidden">
+      <div className="relative w-[280px] h-[560px] bg-gray-900 rounded-[36px] shadow-2xl overflow-hidden"
+        style={{ border: "6px solid #111827", boxShadow: "0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)" }}
+      >
         {/* Notch */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-gray-900 rounded-b-2xl z-10" />
 
@@ -39,11 +41,11 @@ export function PhonePreviewFrame({
             <div className="flex items-center gap-1">
               <div className="flex gap-0.5">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className={`w-0.5 rounded-sm bg-white`} style={{ height: `${(i + 1) * 3}px` }} />
+                  <div key={i} className="w-0.5 rounded-sm bg-white" style={{ height: `${(i + 1) * 3}px` }} />
                 ))}
               </div>
-              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M1.5 8.5a13 13 0 0 1 21 0M5.25 12.25a8 8 0 0 1 13.5 0M9 16a3 3 0 0 1 6 0" stroke="currentColor" strokeWidth={2} fill="none" strokeLinecap="round" />
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" d="M1.5 8.5a13 13 0 0 1 21 0M5.25 12.25a8 8 0 0 1 13.5 0M9 16a3 3 0 0 1 6 0" />
               </svg>
               <div className="w-5 h-2.5 rounded-sm border border-white relative">
                 <div className="absolute right-0 top-0 bottom-0 my-auto w-0.5 h-1.5 bg-white rounded-r-sm -mr-0.5" />
@@ -61,9 +63,7 @@ export function PhonePreviewFrame({
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-white truncate">
-                {recipientName ?? "Contato"}
-              </p>
+              <p className="text-xs font-semibold text-white truncate">{recipientName ?? "Contato"}</p>
               <p className="text-[9px] text-green-200">online</p>
             </div>
             <div className="flex items-center gap-2.5">
@@ -73,7 +73,7 @@ export function PhonePreviewFrame({
             </div>
           </div>
 
-          {/* Messages area */}
+          {/* Messages */}
           <div className="flex-1 overflow-hidden px-2 py-3 flex flex-col justify-end">
             <WhatsAppPreview
               template={template}
@@ -103,17 +103,19 @@ export function PhonePreviewFrame({
           <button
             onClick={onPrev}
             disabled={currentIndex === 0}
-            className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-40 px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
+            className="text-xs text-agro-muted hover:text-agro-text disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+            style={{ border: "1px solid rgba(63,176,108,0.15)" }}
           >
             ← Anterior
           </button>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-agro-muted-2">
             {(currentIndex ?? 0) + 1} / {totalRows}
           </span>
           <button
             onClick={onNext}
             disabled={(currentIndex ?? 0) >= totalRows - 1}
-            className="text-xs text-gray-500 hover:text-gray-700 disabled:opacity-40 px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
+            className="text-xs text-agro-muted hover:text-agro-text disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
+            style={{ border: "1px solid rgba(63,176,108,0.15)" }}
           >
             Próximo →
           </button>

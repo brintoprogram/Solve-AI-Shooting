@@ -2,21 +2,11 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
-  Users,
-  MessageSquare,
-  Wifi,
-  Calendar,
-  Gauge,
-  AlertTriangle,
-  Rocket,
-  Clock,
+  Users, MessageSquare, Wifi, Calendar, Gauge, AlertTriangle, Rocket, Clock,
 } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { estimateDuration } from "@/lib/utils";
 import type { WizardState, MetaTemplate, MetaConnection } from "@/types/shooting";
+import { cn } from "@/lib/utils";
 
 interface StepConfirmationProps {
   state: WizardState;
@@ -26,37 +16,31 @@ interface StepConfirmationProps {
   submitting: boolean;
 }
 
-export function StepConfirmation({
-  state,
-  template,
-  connection,
-  onSubmit,
-  submitting,
-}: StepConfirmationProps) {
+export function StepConfirmation({ state, template, connection, onSubmit, submitting }: StepConfirmationProps) {
   const [consented, setConsented] = useState(false);
 
   const summaryCards = [
     {
       icon: MessageSquare,
-      title: "Template",
+      label: "Template",
       value: template?.template_name ?? "—",
       sub: template ? `${template.category} · ${template.language}` : "",
     },
     {
       icon: Users,
-      title: "Destinatários",
+      label: "Destinatários",
       value: state.totalRecipients.toLocaleString("pt-BR"),
       sub: state.dataSource === "contacts" ? "Contatos cadastrados" : "Planilha XLSX",
     },
     {
       icon: Wifi,
-      title: "Conexão",
+      label: "Conexão",
       value: connection?.display_phone ?? "—",
       sub: connection?.business_name ?? "",
     },
     {
       icon: Calendar,
-      title: "Agendamento",
+      label: "Agendamento",
       value:
         state.scheduleMode === "now"
           ? "Envio imediato"
@@ -67,86 +51,128 @@ export function StepConfirmation({
     },
     {
       icon: Gauge,
-      title: "Velocidade",
+      label: "Velocidade",
       value: `${state.sendingSpeed} msg/min`,
-      sub: `Duração estimada: ${estimateDuration(state.totalRecipients, state.sendingSpeed)}`,
+      sub: `Duração: ${estimateDuration(state.totalRecipients, state.sendingSpeed)}`,
     },
     {
       icon: Clock,
-      title: "Tempo estimado",
+      label: "Tempo estimado",
       value: estimateDuration(state.totalRecipients, state.sendingSpeed),
-      sub: `Para ${state.totalRecipients.toLocaleString("pt-BR")} mensagens`,
+      sub: `Para ${state.totalRecipients.toLocaleString("pt-BR")} msgs`,
     },
   ];
+
+  const canSubmit = consented && !submitting && state.totalRecipients > 0;
 
   return (
     <div className="space-y-6">
       {/* Summary grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {summaryCards.map((card) => (
-          <div
-            key={card.title}
-            className="rounded-xl border border-gray-200 bg-white p-4"
+          <div key={card.label} className="p-4 rounded-xl"
+            style={{
+              background: "rgba(13,26,17,0.6)",
+              border: "1px solid rgba(63,176,108,0.1)",
+            }}
           >
             <div className="flex items-center gap-2 mb-2">
-              <card.icon className="w-4 h-4 text-green-600" />
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {card.title}
+              <card.icon className="w-4 h-4 text-agro-green" />
+              <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
+                {card.label}
               </p>
             </div>
-            <p className="font-semibold text-gray-900 text-sm">{card.value}</p>
-            {card.sub && <p className="text-xs text-gray-400 mt-0.5">{card.sub}</p>}
+            <p className="font-semibold text-agro-text text-sm leading-snug">{card.value}</p>
+            {card.sub && <p className="text-xs text-agro-muted mt-0.5">{card.sub}</p>}
           </div>
         ))}
       </div>
 
       {/* Warning */}
-      <Alert variant="warning">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>Atenção antes de continuar</AlertTitle>
-        <AlertDescription className="space-y-1 mt-1">
-          <p>Uma vez iniciado, o disparo pode ser pausado mas as mensagens já enviadas não podem ser revertidas.</p>
-          <p>Certifique-se de que sua conta possui saldo suficiente e que o número está com quality rating GREEN.</p>
-        </AlertDescription>
-      </Alert>
-
-      {/* Consent checkbox */}
-      <div className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-gray-50">
-        <Checkbox
-          id="consent"
-          checked={consented}
-          onCheckedChange={(v) => setConsented(v === true)}
-          className="mt-0.5"
-        />
-        <Label htmlFor="consent" className="font-normal text-sm text-gray-700 cursor-pointer leading-relaxed">
-          Confirmo que os destinatários consentiram em receber mensagens via WhatsApp e que estou em conformidade com os Termos de Serviço da Meta e a legislação vigente (LGPD).
-        </Label>
+      <div className="flex items-start gap-3 p-4 rounded-xl"
+        style={{
+          background: "rgba(245,158,11,0.06)",
+          border: "1px solid rgba(245,158,11,0.2)",
+        }}
+      >
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: "rgba(245,158,11,0.12)" }}
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-amber-400">Atenção antes de continuar</p>
+          <p className="text-xs text-agro-muted mt-1 leading-relaxed">
+            Uma vez iniciado, o disparo pode ser pausado mas as mensagens já enviadas não podem ser revertidas.
+            Certifique-se de que sua conta possui saldo suficiente e que o número está com quality rating GREEN.
+          </p>
+        </div>
       </div>
 
-      {/* Submit button */}
-      <Button
-        size="xl"
-        className="w-full"
-        disabled={!consented || submitting || state.totalRecipients === 0}
+      {/* Consent */}
+      <div
+        className="flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-300"
+        style={consented ? {
+          background: "rgba(63,176,108,0.08)",
+          border: "1px solid rgba(63,176,108,0.25)",
+        } : {
+          background: "rgba(13,26,17,0.5)",
+          border: "1px solid rgba(63,176,108,0.1)",
+        }}
+        onClick={() => setConsented(!consented)}
+      >
+        <div
+          className={cn(
+            "w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5 transition-all duration-300",
+            consented ? "glow-green-sm" : "",
+          )}
+          style={consented ? {
+            background: "linear-gradient(135deg, #3fb06c, #16A34A)",
+          } : {
+            border: "2px solid rgba(63,176,108,0.3)",
+          }}
+        >
+          {consented && <span className="text-white text-xs leading-none">✓</span>}
+        </div>
+        <p className="text-sm text-agro-muted leading-relaxed cursor-pointer">
+          Confirmo que os destinatários consentiram em receber mensagens via WhatsApp e que estou em conformidade
+          com os Termos de Serviço da Meta e a legislação vigente (LGPD).
+        </p>
+      </div>
+
+      {/* Submit */}
+      <button
+        disabled={!canSubmit}
         onClick={onSubmit}
+        className={cn(
+          "w-full flex items-center justify-center gap-3 py-4 rounded-xl text-sm font-bold text-white transition-all duration-300",
+          canSubmit ? "btn-agro" : "opacity-30 cursor-not-allowed",
+        )}
+        style={!canSubmit ? {
+          background: "rgba(63,176,108,0.15)",
+          border: "1px solid rgba(63,176,108,0.1)",
+        } : undefined}
       >
         {submitting ? (
-          "Processando..."
+          <>
+            <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            Processando...
+          </>
         ) : state.scheduleMode === "now" ? (
           <>
-            <Rocket className="w-5 h-5 mr-2" />
-            Iniciar Disparo ({state.totalRecipients.toLocaleString("pt-BR")} mensagens)
+            <Rocket className="w-5 h-5" />
+            Iniciar Disparo · {state.totalRecipients.toLocaleString("pt-BR")} mensagens
           </>
         ) : (
           <>
-            <Calendar className="w-5 h-5 mr-2" />
+            <Calendar className="w-5 h-5" />
             Agendar Disparo
           </>
         )}
-      </Button>
+      </button>
 
       {state.totalRecipients === 0 && (
-        <p className="text-center text-xs text-red-500">
+        <p className="text-center text-xs text-red-400">
           Nenhum destinatário selecionado. Volte ao passo anterior.
         </p>
       )}

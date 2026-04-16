@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
-import { CloudUpload, FileSpreadsheet, AlertCircle, CheckCircle2, ChevronDown, ChevronUp, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { CloudUpload, FileSpreadsheet, AlertCircle, ChevronDown, ChevronUp, X } from "lucide-react";
 import { useXlsxParser } from "@/hooks/useXlsxParser";
 import type { XlsxValidationResult } from "@/types/shooting";
 
@@ -20,9 +18,7 @@ export function XlsxUploader({ onResult, onClear, result }: XlsxUploaderProps) {
   async function handleFile(file: File) {
     if (!file) return;
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if (!["xlsx", "csv", "xls"].includes(ext ?? "")) {
-      return;
-    }
+    if (!["xlsx", "csv", "xls"].includes(ext ?? "")) return;
     const res = await parseFile(file);
     onResult(res, file);
   }
@@ -36,57 +32,74 @@ export function XlsxUploader({ onResult, onClear, result }: XlsxUploaderProps) {
 
   if (result) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-5">
         {/* Summary */}
-        <div className="flex items-start justify-between p-4 rounded-xl border border-green-200 bg-green-50">
+        <div className="flex items-start justify-between p-4 rounded-xl"
+          style={{
+            background: "rgba(63,176,108,0.08)",
+            border: "1px solid rgba(63,176,108,0.25)",
+          }}
+        >
           <div className="flex items-start gap-3">
-            <FileSpreadsheet className="w-5 h-5 text-green-600 mt-0.5" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center glow-green-sm shrink-0"
+              style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+            >
+              <FileSpreadsheet className="w-4.5 h-4.5 text-white" />
+            </div>
             <div>
-              <p className="text-sm font-semibold text-green-900">Planilha carregada com sucesso</p>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="text-xs text-green-700">
-                  <span className="font-medium">{result.validRows.length}</span> linhas válidas
+              <p className="text-sm font-semibold text-agro-text">Planilha carregada com sucesso</p>
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                <span className="text-xs text-agro-green font-medium">
+                  {result.validRows.length} linhas válidas
                 </span>
                 {result.invalidRows.length > 0 && (
-                  <span className="text-xs text-amber-600">
-                    <span className="font-medium">{result.invalidRows.length}</span> inválidas
+                  <span className="text-xs text-amber-400 font-medium">
+                    {result.invalidRows.length} inválidas
                   </span>
                 )}
                 {result.phoneColumn && (
-                  <span className="text-xs text-gray-500">
-                    Coluna de telefone: <span className="font-medium">{result.phoneColumn}</span>
+                  <span className="text-xs text-agro-muted">
+                    Coluna tel: <span className="font-medium text-agro-text">{result.phoneColumn}</span>
                   </span>
                 )}
               </div>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClear} className="h-7 w-7">
+          <button
+            onClick={onClear}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors hover:bg-white/10"
+          >
             <X className="w-4 h-4" />
-          </Button>
+          </button>
         </div>
 
         {/* Preview table */}
         {result.previewData.length > 0 && (
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">
+            <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest mb-2">
               Primeiras {Math.min(5, result.previewData.length)} linhas
             </p>
-            <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <div className="overflow-x-auto rounded-xl"
+              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+            >
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
+                  <tr style={{ background: "rgba(13,26,17,0.8)", borderBottom: "1px solid rgba(63,176,108,0.12)" }}>
                     {result.headers.map((h) => (
-                      <th key={h} className="px-3 py-2 text-left font-semibold text-gray-500 truncate max-w-[120px]">
+                      <th key={h} className="px-3 py-2.5 text-left font-semibold text-agro-muted-2 uppercase tracking-wider truncate max-w-[120px]">
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                   {result.previewData.map((row, i) => (
-                    <tr key={i}>
+                    <tr key={i}
+                      style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}
+                      className="hover:bg-white/5 transition-colors"
+                    >
                       {result.headers.map((h) => (
-                        <td key={h} className="px-3 py-2 text-gray-700 truncate max-w-[120px]">
+                        <td key={h} className="px-3 py-2 text-agro-text truncate max-w-[120px]">
                           {String(row[h] ?? "")}
                         </td>
                       ))}
@@ -103,7 +116,7 @@ export function XlsxUploader({ onResult, onClear, result }: XlsxUploaderProps) {
           <div>
             <button
               onClick={() => setShowErrors(!showErrors)}
-              className="flex items-center gap-2 text-xs font-medium text-amber-600 hover:text-amber-700"
+              className="flex items-center gap-2 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
             >
               <AlertCircle className="w-3.5 h-3.5" />
               {result.invalidRows.length} linhas com problema
@@ -112,8 +125,12 @@ export function XlsxUploader({ onResult, onClear, result }: XlsxUploaderProps) {
             {showErrors && (
               <div className="mt-2 space-y-1 max-h-40 overflow-y-auto scrollbar-thin">
                 {result.invalidRows.map((err) => (
-                  <div key={err.rowIndex} className="flex items-center gap-2 text-xs text-gray-600">
-                    <Badge variant="amber">Linha {err.rowIndex}</Badge>
+                  <div key={err.rowIndex} className="flex items-center gap-2 text-xs text-agro-muted">
+                    <span className="px-2 py-0.5 rounded-md text-amber-400 font-mono font-medium"
+                      style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)" }}
+                    >
+                      Linha {err.rowIndex}
+                    </span>
                     <span>{err.error}</span>
                   </div>
                 ))}
@@ -132,30 +149,50 @@ export function XlsxUploader({ onResult, onClear, result }: XlsxUploaderProps) {
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
-        className={`flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed cursor-pointer transition-colors py-12 px-6 ${
-          dragging
-            ? "border-green-400 bg-green-50"
-            : "border-gray-300 hover:border-green-400 hover:bg-gray-50"
-        }`}
+        className="flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed cursor-pointer py-14 px-6 transition-all duration-300"
+        style={dragging ? {
+          background: "rgba(63,176,108,0.08)",
+          borderColor: "#3fb06c",
+          boxShadow: "0 0 30px rgba(63,176,108,0.15)",
+        } : {
+          background: "rgba(13,26,17,0.4)",
+          borderColor: "rgba(63,176,108,0.2)",
+        }}
       >
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${dragging ? "bg-green-100" : "bg-gray-100"}`}>
-          <CloudUpload className={`w-6 h-6 ${dragging ? "text-green-600" : "text-gray-400"}`} />
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300"
+          style={dragging ? {
+            background: "linear-gradient(135deg, #3fb06c, #16A34A)",
+            boxShadow: "0 0 20px rgba(63,176,108,0.4)",
+          } : {
+            background: "rgba(63,176,108,0.08)",
+            border: "1px solid rgba(63,176,108,0.15)",
+          }}
+        >
+          <CloudUpload className={`w-7 h-7 transition-colors ${dragging ? "text-white" : "text-agro-muted-2"}`} />
         </div>
+
         <div className="text-center">
-          <p className="text-sm font-medium text-gray-700">
-            {parsing ? "Processando..." : "Arraste sua planilha ou clique para selecionar"}
+          <p className="text-sm font-semibold text-agro-text">
+            {parsing ? "Processando planilha..." : "Arraste sua planilha ou clique para selecionar"}
           </p>
-          <p className="text-xs text-gray-400 mt-1">.xlsx, .xls, .csv · Máx. 50MB · 50.000 linhas</p>
+          <p className="text-xs text-agro-muted mt-1">
+            .xlsx, .xls, .csv · Máx. 50MB · 50.000 linhas
+          </p>
         </div>
+
         {parsing && (
-          <div className="w-32 h-1 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-green-500 rounded-full animate-pulse w-3/4" />
+          <div className="w-40 h-1 rounded-full overflow-hidden"
+            style={{ background: "rgba(63,176,108,0.12)" }}
+          >
+            <div className="h-full rounded-full animate-pulse"
+              style={{ width: "75%", background: "linear-gradient(90deg, #3fb06c, #16A34A)" }}
+            />
           </div>
         )}
       </div>
 
       {error && (
-        <div className="mt-3 flex items-center gap-2 text-sm text-red-600">
+        <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>

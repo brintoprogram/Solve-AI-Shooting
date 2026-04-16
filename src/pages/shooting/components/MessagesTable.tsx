@@ -1,16 +1,6 @@
 import { useState } from "react";
 import { Search, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MessageTimeline } from "./MessageTimeline";
@@ -19,14 +9,14 @@ import type { ShootingMessage, MessageStatus } from "@/types/shooting";
 import { MESSAGE_STATUS_LABELS } from "@/types/shooting";
 import * as XLSX from "xlsx";
 
-const STATUS_BADGE: Record<MessageStatus, { label: string; variant: string; className: string }> = {
-  pending: { label: "Na fila", variant: "gray", className: "bg-gray-100 text-gray-600" },
-  sent: { label: "Enviado", variant: "blue", className: "bg-blue-100 text-blue-700" },
-  delivered: { label: "Entregue", variant: "green", className: "bg-green-100 text-green-700" },
-  read: { label: "Lido ✓✓", variant: "green", className: "bg-green-200 text-green-800" },
-  replied: { label: "Respondido 💬", variant: "green", className: "bg-green-300 text-green-900" },
-  failed: { label: "Falhou", variant: "destructive", className: "bg-red-100 text-red-700" },
-  undeliverable: { label: "Não entregável", variant: "destructive", className: "bg-red-200 text-red-800" },
+const STATUS_STYLE: Record<MessageStatus, { bg: string; color: string; border: string; label: string }> = {
+  pending:      { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)",  label: "Na fila"         },
+  sent:         { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)",   label: "Enviado"         },
+  delivered:    { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)",   label: "Entregue"        },
+  read:         { bg: "rgba(52,211,153,0.1)",   color: "#34d399", border: "rgba(52,211,153,0.2)",   label: "Lido ✓✓"         },
+  replied:      { bg: "rgba(52,211,153,0.15)",  color: "#34d399", border: "rgba(52,211,153,0.3)",   label: "Respondido 💬"   },
+  failed:       { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)",    label: "Falhou"          },
+  undeliverable:{ bg: "rgba(239,68,68,0.08)",   color: "#f87171", border: "rgba(239,68,68,0.15)",   label: "Não entregável"  },
 };
 
 interface MessagesTableProps {
@@ -63,91 +53,94 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
 
   return (
     <>
-      {/* Filters bar */}
+      {/* Filters */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-agro-muted-2" />
+          <input
+            className="input-agro w-full pl-9"
             placeholder="Buscar por nome ou telefone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
           />
         </div>
-        <Select
+
+        <select
+          className="input-agro w-44"
           value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as MessageStatus | "all")}
+          onChange={(e) => setStatusFilter(e.target.value as MessageStatus | "all")}
         >
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos os status</SelectItem>
-            {(Object.keys(MESSAGE_STATUS_LABELS) as MessageStatus[]).map((s) => (
-              <SelectItem key={s} value={s}>
-                {MESSAGE_STATUS_LABELS[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button variant="outline" size="sm" onClick={exportToXlsx}>
-          <Download className="w-3.5 h-3.5 mr-1.5" />
+          <option value="all">Todos os status</option>
+          {(Object.keys(MESSAGE_STATUS_LABELS) as MessageStatus[]).map((s) => (
+            <option key={s} value={s}>{MESSAGE_STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+
+        <button
+          onClick={exportToXlsx}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+          style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+        >
+          <Download className="w-3.5 h-3.5" />
           Exportar
-        </Button>
+        </button>
       </div>
 
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-agro-muted mb-3">
         {total.toLocaleString("pt-BR")} mensagens no total
       </p>
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl overflow-hidden"
+        style={{ border: "1px solid rgba(63,176,108,0.1)" }}
+      >
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Destinatário</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Telefone</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Enviado</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Entregue</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Lido</th>
-              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Erro</th>
+            <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
+              {["Destinatário", "Telefone", "Status", "Enviado", "Entregue", "Lido", "Erro"].map((h) => (
+                <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody>
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>
+                  <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
                     {Array.from({ length: 7 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
-                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" style={{ background: "rgba(63,176,108,0.06)" }} />
                       </td>
                     ))}
                   </tr>
                 ))
-              : messages.map((msg) => {
-                  const s = STATUS_BADGE[msg.status];
+              : messages.map((msg, i) => {
+                  const s = STATUS_STYLE[msg.status];
                   return (
                     <tr
                       key={msg.id}
-                      className="hover:bg-gray-50 cursor-pointer"
+                      className="cursor-pointer transition-all duration-200 hover:bg-white/5"
+                      style={{ borderBottom: i < messages.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none" }}
                       onClick={() => setDetail(msg)}
                     >
-                      <td className="px-4 py-3 font-medium text-gray-900">
+                      <td className="px-4 py-3 font-medium text-agro-text text-sm">
                         {msg.recipient_name ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                      <td className="px-4 py-3 text-agro-muted font-mono text-xs">
                         {msg.recipient_phone}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${s.className}`}>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}
+                        >
                           {s.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{fmt(msg.sent_at)}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{fmt(msg.delivered_at)}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{fmt(msg.read_at)}</td>
-                      <td className="px-4 py-3 text-xs text-red-500">
+                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.sent_at)}</td>
+                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.delivered_at)}</td>
+                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.read_at)}</td>
+                      <td className="px-4 py-3 text-xs text-red-400">
                         {msg.error_code ? `#${msg.error_code}` : "—"}
                       </td>
                     </tr>
@@ -160,25 +153,35 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <p className="text-xs text-gray-500">
-            Página {page + 1} de {totalPages}
-          </p>
+          <p className="text-xs text-agro-muted">Página {page + 1} de {totalPages}</p>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Button>
+            <button
+              disabled={page === 0}
+              onClick={() => setPage(page - 1)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text disabled:opacity-40 transition-colors"
+              style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage(page + 1)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text disabled:opacity-40 transition-colors"
+              style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
       {/* Detail sheet */}
       <Sheet open={!!detail} onOpenChange={() => setDetail(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto"
+          style={{ background: "rgba(13,26,17,0.98)", borderLeft: "1px solid rgba(63,176,108,0.15)" }}
+        >
           <SheetHeader>
-            <SheetTitle>Detalhes da Mensagem</SheetTitle>
+            <SheetTitle className="text-agro-text">Detalhes da Mensagem</SheetTitle>
           </SheetHeader>
           {detail && <MessageTimeline message={detail} />}
         </SheetContent>

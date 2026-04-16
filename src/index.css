@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,53 +6,156 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
     --primary: 142.1 76.2% 36.3%;
     --primary-foreground: 355.7 100% 97.3%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
     --ring: 142.1 76.2% 36.3%;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
   }
 
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
+
+  html { color-scheme: dark; }
 
   body {
-    @apply bg-white text-gray-900 font-sans antialiased;
+    background-color: #0a110e;
+    color: #e8f0ea;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Noise texture */
+    background-image:
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 90% 70% at 50% 100%, rgba(63,176,108,0.06) 0%, transparent 65%);
+    background-size: 256px 256px, 100% 100%;
+    min-height: 100vh;
   }
 }
 
 @layer utilities {
+  /* Glassmorphism card */
+  .glass {
+    background: rgba(26, 46, 34, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(63, 176, 108, 0.12);
+  }
+
+  .glass-light {
+    background: rgba(63, 176, 108, 0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(63, 176, 108, 0.15);
+  }
+
+  /* Glow effects */
+  .glow-green {
+    box-shadow: 0 0 20px rgba(63,176,108,0.35), 0 0 60px rgba(63,176,108,0.12);
+  }
+  .glow-green-sm {
+    box-shadow: 0 0 10px rgba(63,176,108,0.3);
+  }
+  .glow-green-lg {
+    box-shadow: 0 0 40px rgba(63,176,108,0.4), 0 0 80px rgba(63,176,108,0.15);
+  }
+  .glow-text-green {
+    text-shadow: 0 0 20px rgba(63,176,108,0.5);
+  }
+
+  /* Grid pattern background */
+  .grid-pattern {
+    background-image:
+      linear-gradient(rgba(63,176,108,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(63,176,108,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #e5e7eb transparent;
+    scrollbar-color: #253d2e transparent;
   }
-
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
+  .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #e5e7eb;
+    background-color: #253d2e;
     border-radius: 3px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: #3fb06c40; }
+
+  /* Font display */
+  .font-display { font-family: "Outfit", system-ui, sans-serif; }
+
+  /* Agro gradient button */
+  .btn-agro {
+    background: linear-gradient(135deg, #3fb06c 0%, #16A34A 100%);
+    box-shadow: 0 4px 20px rgba(63,176,108,0.3);
+    transition: all 0.2s ease;
+  }
+  .btn-agro:hover {
+    box-shadow: 0 8px 30px rgba(63,176,108,0.45);
+    transform: translateY(-1px);
+  }
+  .btn-agro:active {
+    transform: scale(0.98) translateY(0);
+    box-shadow: 0 2px 10px rgba(63,176,108,0.25);
+  }
+
+  /* Floating label input */
+  .input-agro {
+    background: rgba(15, 26, 19, 0.8);
+    border: 1px solid #253d2e;
+    border-radius: 0.75rem;
+    color: #e8f0ea;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    transition: all 0.2s ease;
+  }
+  .input-agro::placeholder { color: #6b8f77; }
+  .input-agro:focus {
+    border-color: #3fb06c;
+    box-shadow: 0 0 0 3px rgba(63,176,108,0.12);
+    outline: none;
+  }
+  .input-agro option {
+    background: #0d1a11;
+    color: #e8f0ea;
+  }
+  .input-agro:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Card selected state */
+  .card-selected {
+    border-color: #3fb06c !important;
+    background: rgba(63,176,108,0.08) !important;
+    box-shadow: 0 0 20px rgba(63,176,108,0.2), inset 0 0 40px rgba(63,176,108,0.04) !important;
+  }
+
+  /* Connector animation */
+  .connector-fill {
+    background: linear-gradient(90deg, #3fb06c, #16A34A);
+    animation: connector-fill 0.6s ease-out forwards;
+  }
+  @keyframes connector-fill {
+    from { width: 0% }
+    to   { width: 100% }
   }
 }

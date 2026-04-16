@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Label } from "@/components/ui/label";
 import { TemplatePicker } from "./TemplatePicker";
 import { VariableMapper, buildVariablesFromRow } from "./VariableMapper";
 import { PhonePreviewFrame } from "./PhonePreviewFrame";
@@ -13,19 +12,13 @@ interface StepMessageProps {
   onChange: (patch: Partial<WizardState>) => void;
 }
 
-export function StepMessage({
-  state,
-  templates,
-  xlsxResult,
-  onChange,
-}: StepMessageProps) {
+export function StepMessage({ state, templates, xlsxResult, onChange }: StepMessageProps) {
   const [previewIndex, setPreviewIndex] = useState(0);
 
   const selectedTemplate = templates.find((t) => t.id === state.templateId);
 
   const availableColumns =
-    xlsxResult?.headers ??
-    ["nome", "telefone", "valor", "data_vencimento", "link"];
+    xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"];
 
   const previewRows = xlsxResult?.validRows ?? [
     { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/01/2025", link: "https://pay.example.com/abc" },
@@ -38,24 +31,32 @@ export function StepMessage({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Left: Template selection + Variable mapping */}
+      {/* Left: template + mapping */}
       <div className="space-y-6">
         <div className="space-y-2">
-          <Label className="text-sm font-semibold text-gray-700">Template *</Label>
+          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+            Template *
+          </p>
           <TemplatePicker
             templates={templates}
             value={state.templateId}
-            onChange={(id) =>
-              onChange({ templateId: id, columnMapping: { phone_column: "" } })
-            }
+            onChange={(id) => onChange({ templateId: id, columnMapping: { phone_column: "" } })}
           />
         </div>
 
         {selectedTemplate && (
-          <div className="space-y-2">
-            <Label className="text-sm font-semibold text-gray-700">Mapeamento de variáveis *</Label>
-            <p className="text-xs text-gray-500">
-              Conecte cada <span className="font-mono bg-amber-100 text-amber-700 px-1 rounded">{"{{variável}}"}</span> do template a uma coluna dos seus dados
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+              Mapeamento de variáveis *
+            </p>
+            <p className="text-xs text-agro-muted">
+              Conecte cada{" "}
+              <span className="font-mono px-1 rounded text-amber-400"
+                style={{ background: "rgba(245,158,11,0.1)" }}
+              >
+                {"{{variável}}"}
+              </span>{" "}
+              do template a uma coluna dos seus dados
             </p>
             <VariableMapper
               template={selectedTemplate}
@@ -67,13 +68,13 @@ export function StepMessage({
         )}
       </div>
 
-      {/* Right: Phone preview */}
+      {/* Right: phone preview */}
       <div className="flex flex-col items-center">
         {selectedTemplate ? (
-          <div className="space-y-4 w-full flex flex-col items-center">
+          <div className="space-y-3 w-full flex flex-col items-center">
             <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700">Preview em tempo real</p>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-sm font-semibold text-agro-text">Preview em tempo real</p>
+              <p className="text-xs text-agro-muted mt-0.5">
                 Dados da linha {previewIndex + 1} dos destinatários
               </p>
             </div>
@@ -88,12 +89,14 @@ export function StepMessage({
             />
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center py-16">
-            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+          <div className="flex flex-col items-center justify-center h-full text-center py-16 w-full">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+              style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}
+            >
               <span className="text-3xl">📱</span>
             </div>
-            <p className="text-gray-500 font-medium">Selecione um template</p>
-            <p className="text-sm text-gray-400 mt-1">O preview aparecerá aqui</p>
+            <p className="text-agro-muted font-medium text-sm">Selecione um template</p>
+            <p className="text-xs text-agro-muted-2 mt-1">O preview aparecerá aqui</p>
           </div>
         )}
       </div>
