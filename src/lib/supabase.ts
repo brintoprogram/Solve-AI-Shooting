@@ -1,27 +1,40 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { getConfig } from "./config";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    "[Supabase] VITE_SUPABASE_URL ou VITE_SUPABASE_ANON_KEY não configuradas. " +
-    "Adicione essas variáveis de ambiente nas configurações do projeto na Vercel."
-  );
+function resolveCredentials() {
+  // 1. Tenta variáveis de ambiente (Vercel)
+  const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (envUrl && envKey && envUrl !== "https://placeholder.supabase.co") {
+    return { url: envUrl, key: envKey };
+  }
+  // 2. Tenta localStorage (Setup Wizard)
+  const cfg = getConfig();
+  if (cfg) {
+    return { url: cfg.supabaseUrl, key: cfg.supabaseAnonKey };
+  }
+  // 3. Placeholder — app carrega mas sem funcionalidade de banco
+  return {
+    url: "https://placeholder.supabase.co",
+    key: "placeholder",
+  };
 }
 
-export const supabase = createClient<Database>(
-  supabaseUrl ?? "https://placeholder.supabase.co",
-  supabaseAnonKey ?? "placeholder",
+const { url, key } = resolveCredentials();
+
+export const supabase: SupabaseClient<Database> = createClient<Database>(
+  url,
+  key,
   {
-    realtime: {
-      params: {
-        eventsPerSecond: 10,
-      },
-    },
+    realtime: { params: { eventsPerSecond: 10 } },
   }
 );
+
+/** Cria um cliente temporário com credenciais específicas (usado no Setup) */
+export function createTempClient(supabaseUrl: string, supabaseAnonKey: string) {
+  return createClient(supabaseUrl, supabaseAnonKey);
+}
 
 export async function getCurrentWorkspaceId(): Promise<string> {
   const {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw, CheckCircle, XCircle, Copy, Wifi } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2, Trash2 } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { getPhoneNumberInfo } from "@/services/metaApi";
+import { getConfig, clearConfig } from "@/lib/config";
 import { useToast } from "@/hooks/use-toast";
 
 const WORKSPACE_ID = "demo-workspace-id";
@@ -21,6 +22,14 @@ function genVerifyToken() {
 export function Settings() {
   const { connections, upsertConnection } = useMetaConnections(WORKSPACE_ID);
   const { toast } = useToast();
+  const currentConfig = getConfig();
+
+  function handleResetSetup() {
+    if (confirm("Isso vai apagar as credenciais do Supabase e voltar para a tela de configuração. Continuar?")) {
+      clearConfig();
+      window.location.reload();
+    }
+  }
 
   const [form, setForm] = useState({
     waba_id: "",
@@ -78,12 +87,45 @@ export function Settings() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Topbar breadcrumbs={[{ label: "Configurações" }, { label: "WhatsApp Business API" }]} />
+      <Topbar breadcrumbs={[{ label: "Configurações" }]} />
 
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Configurações</h1>
+            <p className="text-gray-500 mt-1">Gerencie suas integrações</p>
+          </div>
+        </div>
+
+        {/* Supabase info */}
+        {currentConfig && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
+                  <Settings2 className="w-4.5 h-4.5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Supabase conectado</p>
+                  <p className="text-xs text-gray-400 font-mono truncate max-w-xs">{currentConfig.supabaseUrl}</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                onClick={handleResetSetup}
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Reconfigurar
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">WhatsApp Business API</h1>
-          <p className="text-gray-500 mt-1">Configure sua integração com a Cloud API da Meta</p>
+          <h2 className="text-base font-semibold text-gray-900 mb-1">WhatsApp Business API</h2>
+          <p className="text-gray-500 text-sm">Configure sua integração com a Cloud API da Meta</p>
         </div>
 
         {/* Existing connections */}

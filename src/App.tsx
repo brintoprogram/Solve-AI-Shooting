@@ -5,8 +5,15 @@ import { ShootingPage } from "@/pages/shooting/ShootingPage";
 import { CampaignWizard } from "@/pages/shooting/CampaignWizard";
 import { CampaignDetail } from "@/pages/shooting/CampaignDetail";
 import { Settings } from "@/pages/Settings";
+import { Setup } from "@/pages/Setup";
+import { isConfigured } from "@/lib/config";
 
 export function App() {
+  // Se não houver credenciais configuradas, mostra o Setup Wizard
+  if (!isConfigured()) {
+    return <Setup />;
+  }
+
   return (
     <BrowserRouter>
       <Routes>
@@ -17,11 +24,9 @@ export function App() {
           <Route path="/shooting/new" element={<CampaignWizard />} />
           <Route path="/shooting/campaigns/:id" element={<CampaignDetail />} />
           <Route path="/settings" element={<Settings />} />
-          {/* Placeholder routes */}
           <Route path="/contacts" element={<PlaceholderPage title="Contatos" />} />
           <Route path="/inbox" element={<PlaceholderPage title="Inbox" />} />
           <Route path="/automations" element={<PlaceholderPage title="Automações" />} />
-          {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
