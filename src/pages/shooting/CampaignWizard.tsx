@@ -45,7 +45,12 @@ export function CampaignWizard() {
   const step = state.step;
 
   function canProceed(): boolean {
-    if (step === 1) return !!state.dataSource && !!state.connectionId;
+    if (step === 1) {
+      if (!state.dataSource) return false;
+      // Só exige connectionId se houver conexões disponíveis
+      if (connections.length > 0 && !state.connectionId) return false;
+      return true;
+    }
     if (step === 2) return state.totalRecipients > 0;
     if (step === 3) {
       if (!state.templateId) return false;
