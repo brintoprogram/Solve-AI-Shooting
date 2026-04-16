@@ -1,30 +1,33 @@
 /**
  * meta-webhook-proxy
  *
- * Recebe todos os eventos da Meta e repassa em paralelo para:
+ * Recebe eventos da Meta e repassa em paralelo para:
  *   1. Chatwoot  → https://chatwoot.solveai.consulting/webhooks/whatsapp/+5511950239278
- *   2. Solve.AI  → função meta-webhook do próprio Supabase
+ *   2. Solve.AI  → SOLVE_WEBHOOK_URL (secret)
  *
- * Variáveis de ambiente (defina via Supabase Dashboard → Edge Functions → Secrets):
- *   WEBHOOK_VERIFY_TOKEN  – token que você cadastra no painel da Meta
- *   SOLVE_WEBHOOK_URL     – URL da função meta-webhook deste projeto
+ * No painel da Meta for Developers, troque apenas a URL do webhook para esta
+ * função. O Verify Token permanece o mesmo do Chatwoot: 73c0163c89186e2fb98921d14d8d1ec4
+ *
+ * Secrets necessários (Supabase Dashboard → Edge Functions → Secrets):
+ *   SOLVE_WEBHOOK_URL  – URL da função meta-webhook deste projeto Supabase
  */
 
-const VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN") ?? "";
-const SOLVE_URL    = Deno.env.get("SOLVE_WEBHOOK_URL")    ?? "";
+// Token de verificação do Chatwoot — o mesmo já cadastrado na Meta
+const CHATWOOT_VERIFY_TOKEN = "73c0163c89186e2fb98921d14d8d1ec4";
+const CHATWOOT_URL          = "https://chatwoot.solveai.consulting/webhooks/whatsapp/+5511950239278";
 
-const CHATWOOT_URL = "https://chatwoot.solveai.consulting/webhooks/whatsapp/+5511950239278";
+const SOLVE_URL = Deno.env.get("SOLVE_WEBHOOK_URL") ?? "";
 
 Deno.serve(async (req: Request) => {
 
-  // ── GET: verificação do webhook pela Meta ──────────────────────────────────
+  // ── GET: verificação pela Meta (usa o mesmo token do Chatwoot) ─────────────
   if (req.method === "GET") {
     const params    = new URL(req.url).searchParams;
     const mode      = params.get("hub.mode");
     const token     = params.get("hub.verify_token");
     const challenge = params.get("hub.challenge");
 
-    if (mode === "subscribe" && token === VERIFY_TOKEN && challenge) {
+    if (mode === "subscribe" && token === CHATWOOT_VERIFY_TOKEN && challenge) {
       console.log("[proxy] webhook verificado pela Meta ✓");
       return new Response(challenge, { status: 200 });
     }
@@ -32,7 +35,7 @@ Deno.serve(async (req: Request) => {
     return new Response("Forbidden", { status: 403 });
   }
 
-  // ── POST: evento recebido → repassa para Chatwoot e Solve.AI ──────────────
+  // ── POST: evento recebido → repassa para Chatwoot E Solve.AI ──────────────
   if (req.method === "POST") {
     const body = await req.text();
 
@@ -41,7 +44,7 @@ Deno.serve(async (req: Request) => {
       ...(SOLVE_URL ? [{ name: "solve", url: SOLVE_URL }] : []),
     ];
 
-    // Dispara os dois em paralelo — falha de um não afeta o outro
+    // Dispara em paralelo — falha de um não afeta o outro
     const results = await Promise.allSettled(
       targets.map(({ name, url }) =>
         fetch(url, {
@@ -55,9 +58,9 @@ Deno.serve(async (req: Request) => {
     );
 
     const ok = results.filter((r) => r.status === "fulfilled").length;
-    console.log(`[proxy] concluído — ${ok}/${targets.length} destinos OK`);
+    console.log(`[proxy] ${ok}/${targets.length} destinos OK`);
 
-    // A Meta só precisa de um 200 rápido
+    // Meta precisa de 200 rápido
     return new Response("ok", { status: 200 });
   }
 
