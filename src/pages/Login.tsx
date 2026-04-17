@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Leaf, Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export function Login() {
@@ -52,12 +52,12 @@ export function Login() {
         >
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: "linear-gradient(135deg, #3fb06c 0%, #16A34A 100%)" }}
-            >
-              <Leaf className="w-7 h-7 text-white" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="Solve AI"
+              className="h-32 w-auto object-contain mb-3"
+              style={{ filter: "drop-shadow(0 0 24px rgba(63,176,108,0.35))" }}
+            />
             <p className="font-display text-lg font-bold tracking-widest text-agro-text uppercase">
               SOLVE <span className="text-agro-green">.AI</span>
             </p>
