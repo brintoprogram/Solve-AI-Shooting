@@ -193,7 +193,7 @@ async function processWebhook(body: Record<string, unknown>) {
         }
       }
 
-      // ── 2. Status updates → shooting_messages ──────────────────
+      // ── 2. Status updates → inbox_messages + shooting_messages ──
       const statuses = (value?.statuses as unknown[]) ?? [];
       for (const s of statuses) {
         const status = s as Record<string, unknown>;
@@ -201,6 +201,41 @@ async function processWebhook(body: Record<string, unknown>) {
         const st     = status.status as string;
         const ts     = new Date(Number(status.timestamp) * 1000).toISOString();
 
+        // ── 2a. Tenta atualizar inbox_messages (mensagens do Inbox) ─
+        const { data: inboxMsg } = await supabase
+          .from("inbox_messages")
+          .select("id, status")
+          .eq("wamid", wamid)
+          .maybeSingle();
+
+        if (inboxMsg) {
+          const inboxUpdates: Record<string, unknown> = {};
+
+          if (st === "sent" && inboxMsg.status === "sending") {
+            inboxUpdates.status  = "sent";
+            inboxUpdates.sent_at = ts;
+          } else if (st === "delivered" && !["delivered","read"].includes(inboxMsg.status)) {
+            inboxUpdates.status       = "delivered";
+            inboxUpdates.delivered_at = ts;
+          } else if (st === "read" && inboxMsg.status !== "read") {
+            inboxUpdates.status  = "read";
+            inboxUpdates.read_at = ts;
+          } else if (st === "failed") {
+            inboxUpdates.status    = "failed";
+            inboxUpdates.failed_at = ts;
+          }
+
+          if (Object.keys(inboxUpdates).length > 0) {
+            await supabase
+              .from("inbox_messages")
+              .update(inboxUpdates)
+              .eq("id", inboxMsg.id);
+            console.log(`[status] inbox_message ${wamid} → ${st}`);
+          }
+          continue; // wamid encontrado no inbox, não precisa checar shooting
+        }
+
+        // ── 2b. Tenta atualizar shooting_messages (campanhas) ───────
         const { data: shootingMsg } = await supabase
           .from("shooting_messages")
           .select("id, campaign_id, status")
@@ -236,6 +271,7 @@ async function processWebhook(body: Record<string, unknown>) {
 
         if (Object.keys(updates).length > 0) {
           await supabase.from("shooting_messages").update(updates).eq("id", shootingMsg.id);
+          console.log(`[status] shooting_message ${wamid} → ${st}`);
         }
       }
     }
