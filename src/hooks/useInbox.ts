@@ -73,7 +73,7 @@ export function useInboxMessages(conversationId: string | null) {
         setLoading(false);
       });
 
-    // Realtime: append new messages as they arrive
+    // Realtime: append new messages and update existing (status changes)
     const channel = db
       .channel(`inbox-msgs-${conversationId}`)
       .on(
@@ -86,10 +86,23 @@ export function useInboxMessages(conversationId: string | null) {
         },
         (payload: { new: InboxMessage }) => {
           setMessages((prev) => {
-            // Guard against duplicates
             if (prev.some((m) => m.id === payload.new.id)) return prev;
             return [...prev, payload.new];
           });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "inbox_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: { new: InboxMessage }) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === payload.new.id ? payload.new : m))
+          );
         }
       )
       .subscribe();

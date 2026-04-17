@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, Download, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Clock, Check, CheckCheck, AlertCircle, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,14 +9,20 @@ import type { ShootingMessage, MessageStatus } from "@/types/shooting";
 import { MESSAGE_STATUS_LABELS } from "@/types/shooting";
 import * as XLSX from "xlsx";
 
-const STATUS_STYLE: Record<MessageStatus, { bg: string; color: string; border: string; label: string }> = {
-  pending:      { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)",  label: "Na fila"         },
-  sent:         { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)",   label: "Enviado"         },
-  delivered:    { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)",   label: "Entregue"        },
-  read:         { bg: "rgba(52,211,153,0.1)",   color: "#34d399", border: "rgba(52,211,153,0.2)",   label: "Lido ✓✓"         },
-  replied:      { bg: "rgba(52,211,153,0.15)",  color: "#34d399", border: "rgba(52,211,153,0.3)",   label: "Respondido 💬"   },
-  failed:       { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)",    label: "Falhou"          },
-  undeliverable:{ bg: "rgba(239,68,68,0.08)",   color: "#f87171", border: "rgba(239,68,68,0.15)",   label: "Não entregável"  },
+interface StatusDef {
+  bg: string; color: string; border: string; label: string;
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  iconStyle?: React.CSSProperties;
+}
+
+const STATUS_STYLE: Record<MessageStatus, StatusDef> = {
+  pending:      { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)",  label: "Na fila",        Icon: Clock,       iconStyle: {} },
+  sent:         { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)",   label: "Enviado",        Icon: Check,       iconStyle: {} },
+  delivered:    { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)",   label: "Entregue",       Icon: CheckCheck,  iconStyle: {} },
+  read:         { bg: "rgba(52,211,153,0.1)",   color: "#34d399", border: "rgba(52,211,153,0.2)",   label: "Lido",           Icon: Eye,         iconStyle: {} },
+  replied:      { bg: "rgba(52,211,153,0.15)",  color: "#34d399", border: "rgba(52,211,153,0.3)",   label: "Respondido",     Icon: CheckCheck,  iconStyle: {} },
+  failed:       { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)",    label: "Falhou",         Icon: AlertCircle, iconStyle: {} },
+  undeliverable:{ bg: "rgba(239,68,68,0.08)",   color: "#f87171", border: "rgba(239,68,68,0.15)",   label: "Não entregável", Icon: AlertCircle, iconStyle: {} },
 };
 
 interface MessagesTableProps {
@@ -131,15 +137,37 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
                         {msg.recipient_phone}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold"
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}
                         >
+                          <s.Icon className="w-3 h-3 shrink-0" />
                           {s.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.sent_at)}</td>
-                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.delivered_at)}</td>
-                      <td className="px-4 py-3 text-agro-muted text-xs">{fmt(msg.read_at)}</td>
+                      <td className="px-4 py-3 text-agro-muted text-xs">
+                        {msg.sent_at ? (
+                          <span className="flex items-center gap-1">
+                            <Check className="w-3 h-3 text-agro-muted-2" />
+                            {fmt(msg.sent_at)}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-agro-muted text-xs">
+                        {msg.delivered_at ? (
+                          <span className="flex items-center gap-1">
+                            <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2" />
+                            {fmt(msg.delivered_at)}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {msg.read_at ? (
+                          <span className="flex items-center gap-1" style={{ color: "#34d4fb" }}>
+                            <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />
+                            {fmt(msg.read_at)}
+                          </span>
+                        ) : "—"}
+                      </td>
                       <td className="px-4 py-3 text-xs text-red-400">
                         {msg.error_code ? `#${msg.error_code}` : "—"}
                       </td>

@@ -55,5 +55,9 @@ export interface InboxMessage {
   reaction_emoji: string | null;
   reaction_wamid: string | null;
   status: "sending" | "sent" | "delivered" | "read" | "failed";
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  failed_at: string | null;
   created_at: string;
 }

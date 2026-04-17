@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { Download, MapPin, FileText } from "lucide-react";
+import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle } from "lucide-react";
 import type { InboxMessage } from "@/types/inbox";
 
 interface Props {
@@ -27,12 +27,30 @@ export function MessageBubble({ message }: Props) {
         }
       >
         <MessageContent message={message} />
-        <p className="text-[10px] text-agro-muted-2 text-right mt-1 select-none leading-none">
-          {time}
-        </p>
+        <div className="flex items-center justify-end gap-1 mt-1 select-none">
+          <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
+          {!isInbound && <StatusTicks message={message} />}
+        </div>
       </div>
     </div>
   );
+}
+
+function StatusTicks({ message }: { message: InboxMessage }) {
+  if (message.failed_at) {
+    return <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />;
+  }
+  if (message.read_at) {
+    return <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />;
+  }
+  if (message.delivered_at) {
+    return <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2 shrink-0" />;
+  }
+  if (message.sent_at) {
+    return <Check className="w-3 h-3 text-agro-muted-2 shrink-0" />;
+  }
+  // "sending" — relógio
+  return <Clock className="w-3 h-3 text-agro-muted-2 shrink-0 opacity-60" />;
 }
 
 function MessageContent({ message }: { message: InboxMessage }) {

@@ -223,6 +223,11 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   reaction_wamid   TEXT,
   -- status (relevante para outbound)
   status           TEXT DEFAULT 'delivered' CHECK (status IN ('sending','sent','delivered','read','failed')),
+  -- timestamps de status (preenchidos pelo webhook ao receber callbacks da Meta)
+  sent_at          TIMESTAMPTZ,
+  delivered_at     TIMESTAMPTZ,
+  read_at          TIMESTAMPTZ,
+  failed_at        TIMESTAMPTZ,
   created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
