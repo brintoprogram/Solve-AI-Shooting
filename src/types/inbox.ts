@@ -13,6 +13,7 @@ export interface InboxConversation {
   workspace_id: string;
   meta_connection_id: string;
   contact_id: string;
+  assigned_to: string | null;
   status: "open" | "resolved" | "pending";
   unread_count: number;
   last_message_at: string | null;

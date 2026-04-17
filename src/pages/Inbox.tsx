@@ -3,6 +3,7 @@ import { MessageSquare } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { getWorkspaceId } from "@/lib/config";
 import { useInboxConversations } from "@/hooks/useInbox";
+import { useTeamMembers } from "@/hooks/useTeamMembers";
 import { ConversationList } from "./inbox/ConversationList";
 import { ConversationPanel } from "./inbox/ConversationPanel";
 import type { InboxConversation } from "@/types/inbox";
@@ -10,6 +11,7 @@ import type { InboxConversation } from "@/types/inbox";
 export function Inbox() {
   const workspaceId = getWorkspaceId();
   const { conversations, loading, markAsRead } = useInboxConversations(workspaceId);
+  const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
 
   // Keep selected conversation in sync when Realtime refreshes the list
@@ -32,18 +34,21 @@ export function Inbox() {
     >
       <Topbar breadcrumbs={[{ label: "Inbox" }]} />
 
-      {/* Master-detail layout — fills remaining height */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <ConversationList
           conversations={conversations}
           loading={loading}
           selectedId={selectedConv?.id ?? null}
           onSelect={handleSelect}
+          teamMembers={teamMembers}
         />
 
         {selectedConv ? (
-          /* key forces re-mount when switching conversations, resetting scroll & messages */
-          <ConversationPanel key={selectedConv.id} conversation={selectedConv} />
+          <ConversationPanel
+            key={selectedConv.id}
+            conversation={selectedConv}
+            teamMembers={teamMembers}
+          />
         ) : (
           <EmptyState />
         )}
