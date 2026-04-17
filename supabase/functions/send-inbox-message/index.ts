@@ -141,7 +141,8 @@ Deno.serve(async (req: Request) => {
     media_url:      media_url      ?? null,
     media_filename: media_filename ?? null,
     media_caption:  captionText,
-    status:         "sent",
+    status:         "sending",   // relógio até o callback "sent" da Meta chegar
+    sent_at:        null,
     created_at:     now,
   });
 

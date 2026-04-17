@@ -204,14 +204,16 @@ async function processWebhook(body: Record<string, unknown>) {
         // ── 2a. Tenta atualizar inbox_messages (mensagens do Inbox) ─
         const { data: inboxMsg } = await supabase
           .from("inbox_messages")
-          .select("id, status")
+          .select("id, status, sent_at")
           .eq("wamid", wamid)
           .maybeSingle();
 
         if (inboxMsg) {
           const inboxUpdates: Record<string, unknown> = {};
 
-          if (st === "sent" && inboxMsg.status === "sending") {
+          // Checa sent_at (não status) para ser robusto independente do
+          // valor gravado pelo send-inbox-message no momento do envio
+          if (st === "sent" && !inboxMsg.sent_at) {
             inboxUpdates.status  = "sent";
             inboxUpdates.sent_at = ts;
           } else if (st === "delivered" && !["delivered","read"].includes(inboxMsg.status)) {
