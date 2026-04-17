@@ -1,0 +1,8 @@
+[functions.meta-webhook]
+verify_jwt = false
+
+[functions.send-inbox-message]
+verify_jwt = false
+
+[functions.campaign-engine]
+verify_jwt = false

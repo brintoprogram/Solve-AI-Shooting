@@ -6,6 +6,7 @@ import { CampaignWizard } from "@/pages/shooting/CampaignWizard";
 import { CampaignDetail } from "@/pages/shooting/CampaignDetail";
 import { Settings } from "@/pages/Settings";
 import { Setup } from "@/pages/Setup";
+import { Inbox } from "@/pages/Inbox";
 import { isConfigured } from "@/lib/config";
 
 export function App() {
@@ -25,7 +26,7 @@ export function App() {
           <Route path="/shooting/campaigns/:id" element={<CampaignDetail />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/contacts" element={<PlaceholderPage title="Contatos" />} />
-          <Route path="/inbox" element={<PlaceholderPage title="Inbox" />} />
+          <Route path="/inbox" element={<Inbox />} />
           <Route path="/automations" element={<PlaceholderPage title="Automações" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

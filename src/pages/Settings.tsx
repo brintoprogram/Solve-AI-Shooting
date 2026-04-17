@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2, Trash2, Terminal, ExternalLink, ChevronDown, ChevronUp, GitBranch } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2, Trash2, Terminal, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { getPhoneNumberInfo } from "@/services/metaApi";
-import { getConfig, clearConfig } from "@/lib/config";
+import { getConfig, clearConfig, getWorkspaceId } from "@/lib/config";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-const WORKSPACE_ID = "demo-workspace-id";
+const WORKSPACE_ID = getWorkspaceId();
 
-// Token de verificação do Chatwoot — já cadastrado na Meta
+// Verify token cadastrado como secret na Edge Function
 const CHATWOOT_VERIFY_TOKEN = "73c0163c89186e2fb98921d14d8d1ec4";
-const CHATWOOT_WEBHOOK_URL  = "https://chatwoot.solveai.consulting/webhooks/whatsapp/+5511950239278";
 
 function DarkCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -72,14 +71,13 @@ export function Settings() {
     ? currentConfig.supabaseUrl.replace("https://", "").split(".supabase.co")[0]
     : "SEU_PROJECT_REF";
 
-  const proxyUrl   = `https://${supabaseRef}.supabase.co/functions/v1/meta-webhook-proxy`;
-  const solveUrl   = `https://${supabaseRef}.supabase.co/functions/v1/meta-webhook`;
+  const solveUrl = `https://${supabaseRef}.supabase.co/functions/v1/meta-webhook`;
 
   const [form, setForm] = useState({ waba_id: "", phone_number_id: "", access_token: "" });
   const [testing, setTesting]   = useState(false);
   const [saving, setSaving]     = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
-  const [proxyOpen, setProxyOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
 
   function copy(text: string, label = "Copiado!") {
     navigator.clipboard.writeText(text);
@@ -134,8 +132,34 @@ export function Settings() {
   const QUALITY_COLOR: Record<string, string> = { GREEN: "rgba(63,176,108,0.1)", YELLOW: "rgba(245,158,11,0.1)", RED: "rgba(239,68,68,0.1)" };
   const QUALITY_TEXT:  Record<string, string> = { GREEN: "#3fb06c",              YELLOW: "#fbbf24",              RED: "#f87171"             };
 
-  const cmd_deploy  = `npx supabase functions deploy meta-webhook-proxy --project-ref ${supabaseRef}`;
-  const cmd_secrets = `npx supabase secrets set \\\n  SOLVE_WEBHOOK_URL="${solveUrl}" \\\n  --project-ref ${supabaseRef}`;
+  // ── Deploy & Storage tutorial ────────────────────────────────
+  const cmd_all_steps = `# 1. Instale o CLI e autentique (se ainda não fez)
+npm install -g supabase
+supabase login
+
+# 2. Vincule o projeto (rode na pasta do projeto)
+supabase link --project-ref ${supabaseRef}
+
+# 3. Publique as Edge Functions
+supabase functions deploy meta-webhook
+supabase functions deploy send-inbox-message`;
+
+  const sql_bucket = `-- Bucket para mídias do Inbox (50 MB por arquivo)
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('inbox_media', 'inbox_media', true, 52428800)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "inbox_media_select" ON storage.objects;
+CREATE POLICY "inbox_media_select" ON storage.objects
+  FOR SELECT USING (bucket_id = 'inbox_media');
+
+DROP POLICY IF EXISTS "inbox_media_insert" ON storage.objects;
+CREATE POLICY "inbox_media_insert" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'inbox_media');
+
+DROP POLICY IF EXISTS "inbox_media_delete" ON storage.objects;
+CREATE POLICY "inbox_media_delete" ON storage.objects
+  FOR DELETE USING (bucket_id = 'inbox_media');`;
 
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
@@ -284,36 +308,36 @@ export function Settings() {
           </DarkCard>
         </div>
 
-        {/* ── Webhook proxy tutorial ───────────── */}
+
+
+        {/* ── Deploy & Storage tutorial ─────────── */}
         <div className="animate-fade-up-delay-1">
           <div className="rounded-2xl overflow-hidden"
             style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(20px)", border: "1px solid rgba(63,176,108,0.1)" }}
           >
-            {/* Header — clicável para expandir */}
             <button
-              onClick={() => setProxyOpen(!proxyOpen)}
+              onClick={() => setDeployOpen(!deployOpen)}
               className="w-full flex items-center justify-between p-6 text-left"
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.2)" }}
+                  style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)" }}
                 >
-                  <GitBranch className="w-4.5 h-4.5" style={{ color: "#a78bfa" }} />
+                  <Terminal className="w-4 h-4" style={{ color: "#34d399" }} />
                 </div>
                 <div className="text-left">
-                  <p className="text-base font-semibold text-agro-text">Proxy de Webhook (Chatwoot + Solve.AI)</p>
-                  <p className="text-sm text-agro-muted mt-0.5">Como receber eventos da Meta nos dois sistemas ao mesmo tempo</p>
+                  <p className="text-base font-semibold text-agro-text">Deploy das Edge Functions & Storage</p>
+                  <p className="text-sm text-agro-muted mt-0.5">Publique o webhook e o envio de mensagens, e crie o bucket de mídia</p>
                 </div>
               </div>
-              {proxyOpen
-                ? <ChevronUp  className="w-4 h-4 text-agro-muted shrink-0" />
+              {deployOpen
+                ? <ChevronUp   className="w-4 h-4 text-agro-muted shrink-0" />
                 : <ChevronDown className="w-4 h-4 text-agro-muted shrink-0" />}
             </button>
 
-            {proxyOpen && (
-              <div className="px-6 pb-6 space-y-6"
-                style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}
-              >
+            {deployOpen && (
+              <div className="px-6 pb-6 space-y-6" style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
+
                 {/* Diagrama */}
                 <div className="mt-5 p-4 rounded-xl text-center"
                   style={{ background: "rgba(8,16,10,0.8)", border: "1px solid rgba(63,176,108,0.08)" }}
@@ -321,147 +345,83 @@ export function Settings() {
                   <p className="text-xs font-mono text-agro-muted leading-loose">
                     <span className="text-agro-green font-semibold">Meta</span>
                     {" → "}
-                    <span className="text-purple-400 font-semibold">meta-webhook-proxy</span>
+                    <span style={{ color: "#34d399" }} className="font-semibold">meta-webhook</span>
                     {" → "}
-                    <span className="text-blue-400 font-semibold">Chatwoot</span>
-                    {" + "}
-                    <span className="text-agro-green font-semibold">Solve.AI</span>
+                    <span className="text-agro-green font-semibold">Supabase DB</span>
+                    {"  |  "}
+                    <span className="text-agro-text font-semibold">Inbox UI</span>
+                    {" → "}
+                    <span style={{ color: "#34d399" }} className="font-semibold">send-inbox-message</span>
+                    {" → "}
+                    <span className="text-agro-green font-semibold">Meta</span>
                   </p>
                   <p className="text-[10px] text-agro-muted-2 mt-2">
-                    Você só muda a URL no painel da Meta — Chatwoot não precisa de nenhuma alteração
+                    Duas funções precisam estar no ar: recebimento (meta-webhook) e envio (send-inbox-message)
                   </p>
                 </div>
 
-                {/* Passo 1 */}
+                {/* Passo 1 — CLI + deploy (tudo junto) */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
                     <StepBadge n={1} />
                     <div>
-                      <p className="text-sm font-semibold text-agro-text">Instale o Supabase CLI</p>
-                      <p className="text-xs text-agro-muted">Se ainda não tiver instalado</p>
+                      <p className="text-sm font-semibold text-agro-text">Autentique, vincule e publique as funções</p>
+                      <p className="text-xs text-agro-muted">Execute no terminal, na pasta do projeto</p>
                     </div>
                   </div>
                   <CodeBlock
-                    code="npm install -g supabase"
-                    onCopy={() => copy("npm install -g supabase")}
+                    code={cmd_all_steps}
+                    onCopy={() => copy(cmd_all_steps, "Comandos copiados!")}
                   />
+                  <p className="text-xs text-agro-muted pl-1">
+                    Não tem o CLI? Instale primeiro com{" "}
+                    <code className="text-agro-green font-mono text-[11px]">npm install -g supabase</code>
+                  </p>
                 </div>
 
-                {/* Passo 2 */}
+                {/* Passo 2 — SQL do bucket */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
                     <StepBadge n={2} />
                     <div>
-                      <p className="text-sm font-semibold text-agro-text">Faça login e link o projeto</p>
-                      <p className="text-xs text-agro-muted">Na pasta do projeto clonado do GitHub</p>
-                    </div>
-                  </div>
-                  <CodeBlock
-                    code={`supabase login\nsupabase link --project-ref ${supabaseRef}`}
-                    onCopy={() => copy(`supabase login\nsupabase link --project-ref ${supabaseRef}`)}
-                  />
-                </div>
-
-                {/* Passo 3 */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={3} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Deploy da Edge Function</p>
-                      <p className="text-xs text-agro-muted">Publica o proxy no seu Supabase</p>
-                    </div>
-                  </div>
-                  <CodeBlock
-                    code={cmd_deploy}
-                    onCopy={() => copy(cmd_deploy)}
-                  />
-                </div>
-
-                {/* Passo 4 */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={4} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Configure o secret</p>
-                      <p className="text-xs text-agro-muted">Informa ao proxy onde está o Solve.AI</p>
-                    </div>
-                  </div>
-                  <CodeBlock
-                    code={cmd_secrets}
-                    onCopy={() => copy(`npx supabase secrets set SOLVE_WEBHOOK_URL="${solveUrl}" --project-ref ${supabaseRef}`)}
-                  />
-                </div>
-
-                {/* Passo 5 — Meta */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={5} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Troque a URL no painel da Meta</p>
+                      <p className="text-sm font-semibold text-agro-text">Crie o bucket de mídia no Supabase</p>
                       <p className="text-xs text-agro-muted">
-                        Meta for Developers → Seu App → WhatsApp → Configuration → Webhook
+                        Cole no <strong className="text-agro-text">SQL Editor</strong> do seu projeto Supabase e clique em Run
                       </p>
                     </div>
                   </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <FieldLabel>Nova URL do Webhook</FieldLabel>
-                      <div className="flex gap-2">
-                        <input className="input-agro flex-1 font-mono text-xs" value={proxyUrl} readOnly />
-                        <button
-                          onClick={() => copy(proxyUrl)}
-                          className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
-                          style={{ border: "1px solid rgba(63,176,108,0.15)", background: "rgba(13,26,17,0.6)" }}
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <FieldLabel>Verify Token (mesmo de antes — não muda)</FieldLabel>
-                      <div className="flex gap-2">
-                        <input className="input-agro flex-1 font-mono text-xs" value={CHATWOOT_VERIFY_TOKEN} readOnly />
-                        <button
-                          onClick={() => copy(CHATWOOT_VERIFY_TOKEN)}
-                          className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
-                          style={{ border: "1px solid rgba(63,176,108,0.15)", background: "rgba(13,26,17,0.6)" }}
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <p className="text-xs text-agro-muted mt-1.5">
-                        Este é o token já cadastrado no Chatwoot — não precisa alterar nada no Chatwoot.
-                      </p>
-                    </div>
-                  </div>
-
+                  <CodeBlock
+                    code={sql_bucket}
+                    onCopy={() => copy(sql_bucket, "SQL copiado!")}
+                  />
                   <a
-                    href="https://developers.facebook.com/apps"
+                    href={`https://supabase.com/dashboard/project/${supabaseRef}/sql`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-2 text-xs font-semibold text-purple-400 hover:text-purple-300 transition-colors"
+                    className="inline-flex items-center gap-2 text-xs font-semibold hover:opacity-80 transition-opacity"
+                    style={{ color: "#34d399" }}
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    Abrir Meta for Developers
+                    Abrir SQL Editor do projeto
                   </a>
                 </div>
 
                 {/* Resultado */}
                 <div className="p-4 rounded-xl"
-                  style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.15)" }}
+                  style={{ background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.18)" }}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <Terminal className="w-4 h-4 text-agro-green" />
-                    <p className="text-xs font-semibold text-agro-green">Após configurar</p>
+                    <CheckCircle className="w-4 h-4 shrink-0" style={{ color: "#34d399" }} />
+                    <p className="text-xs font-semibold" style={{ color: "#34d399" }}>Após concluir</p>
                   </div>
                   <ul className="space-y-1 text-xs text-agro-muted">
-                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Chatwoot continua recebendo tudo normalmente</li>
-                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Solve.AI passa a receber os mesmos eventos em paralelo</li>
-                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Falha em um não afeta o outro</li>
+                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Mensagens do WhatsApp chegam e são salvas no banco</li>
+                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Inbox exibe tudo em tempo real via Realtime</li>
+                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Respostas (texto e mídia) são enviadas pela Graph API</li>
+                    <li className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 text-agro-green shrink-0" /> Bucket <code className="font-mono text-[10px] text-agro-green">inbox_media</code> armazena arquivos enviados pelo agente</li>
                   </ul>
                 </div>
+
               </div>
             )}
           </div>
@@ -469,15 +429,24 @@ export function Settings() {
 
         {/* ── Webhook info ─────────────────────── */}
         <div className="animate-fade-up-delay-1">
-          <DarkCard title="Informações do Webhook Solve.AI">
+          <DarkCard
+            title="Configurar Webhook na Meta"
+            subtitle="Cole esses valores no painel Meta for Developers → WhatsApp → Configuration → Webhook"
+          >
             <div className="space-y-4">
+
+              {/* URL de callback */}
               <div>
-                <FieldLabel>URL do Webhook (Solve.AI)</FieldLabel>
+                <FieldLabel>URL de Callback</FieldLabel>
                 <div className="flex gap-2">
-                  <input className="input-agro flex-1 font-mono text-xs" value={solveUrl} readOnly />
+                  <input
+                    className="input-agro flex-1 font-mono text-xs"
+                    value={`${solveUrl}?workspace_id=${WORKSPACE_ID}`}
+                    readOnly
+                  />
                   <button
-                    onClick={() => copy(solveUrl)}
-                    className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
+                    onClick={() => copy(`${solveUrl}?workspace_id=${WORKSPACE_ID}`, "URL copiada!")}
+                    className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors shrink-0"
                     style={{ border: "1px solid rgba(63,176,108,0.15)", background: "rgba(13,26,17,0.6)" }}
                   >
                     <Copy className="w-4 h-4" />
@@ -485,14 +454,69 @@ export function Settings() {
                 </div>
               </div>
 
+              {/* Verify Token */}
+              <div>
+                <FieldLabel>Verificar Token</FieldLabel>
+                <div className="flex gap-2">
+                  <input
+                    className="input-agro flex-1 font-mono text-xs"
+                    value={CHATWOOT_VERIFY_TOKEN}
+                    readOnly
+                  />
+                  <button
+                    onClick={() => copy(CHATWOOT_VERIFY_TOKEN, "Token copiado!")}
+                    className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors shrink-0"
+                    style={{ border: "1px solid rgba(63,176,108,0.15)", background: "rgba(13,26,17,0.6)" }}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-agro-muted mt-1.5">
+                  Clique em <strong className="text-agro-text">Verificar e salvar</strong> — a Meta vai chamar nossa função e confirmar o token.
+                </p>
+              </div>
+
+              {/* Workspace ID (referência) */}
+              <div>
+                <FieldLabel>Workspace ID (referência)</FieldLabel>
+                <div className="flex gap-2">
+                  <input
+                    className="input-agro flex-1 font-mono text-xs"
+                    value={WORKSPACE_ID}
+                    readOnly
+                  />
+                  <button
+                    onClick={() => copy(WORKSPACE_ID, "Workspace ID copiado!")}
+                    className="w-10 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors shrink-0"
+                    style={{ border: "1px solid rgba(63,176,108,0.15)", background: "rgba(13,26,17,0.6)" }}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-agro-muted mt-1.5">
+                  Já incluído na URL acima — mostrado aqui apenas para referência.
+                </p>
+              </div>
+
+              {/* Subscriptions */}
               <div className="p-3 rounded-xl"
                 style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
               >
-                <p className="text-xs font-semibold text-blue-400 mb-1">Subscriptions necessárias:</p>
+                <p className="text-xs font-semibold text-blue-400 mb-1">Campos do webhook (Subscriptions):</p>
                 <p className="text-xs text-agro-muted">
                   ✓ messages &nbsp; ✓ message_deliveries &nbsp; ✓ message_reads &nbsp; ✓ messaging_postbacks
                 </p>
               </div>
+
+              <a
+                href="https://developers.facebook.com/apps"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 text-xs font-semibold text-agro-green hover:text-agro-text transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Abrir Meta for Developers
+              </a>
             </div>
           </DarkCard>
         </div>

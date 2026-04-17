@@ -21,20 +21,34 @@ Deno.serve(async (req: Request) => {
     const token     = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    if (mode !== "subscribe" || !token || !workspaceId) {
+    if (mode !== "subscribe" || !token || !challenge) {
       return new Response("Bad Request", { status: 400 });
     }
 
-    const { data: conn } = await supabase
-      .from("meta_connections")
-      .select("webhook_verify_token")
-      .eq("workspace_id", workspaceId)
-      .eq("webhook_verify_token", token)
-      .single();
+    // 1. Try env variable (set via: supabase secrets set WEBHOOK_VERIFY_TOKEN=...)
+    const envToken = Deno.env.get("WEBHOOK_VERIFY_TOKEN");
+    if (envToken && token === envToken) {
+      console.log("[webhook] verificado via env token ✓");
+      return new Response(challenge, { status: 200 });
+    }
 
-    if (!conn) return new Response("Forbidden", { status: 403 });
+    // 2. Try DB lookup (works after saving a connection in Settings)
+    if (workspaceId) {
+      const { data: conn } = await supabase
+        .from("meta_connections")
+        .select("webhook_verify_token")
+        .eq("workspace_id", workspaceId)
+        .eq("webhook_verify_token", token)
+        .maybeSingle();
 
-    return new Response(challenge, { status: 200 });
+      if (conn) {
+        console.log("[webhook] verificado via DB ✓");
+        return new Response(challenge, { status: 200 });
+      }
+    }
+
+    console.warn("[webhook] token inválido:", token);
+    return new Response("Forbidden", { status: 403 });
   }
 
   // ── POST: Incoming webhook events ──────────────────────────────
@@ -225,7 +239,6 @@ async function upsertContact(
   profileName: string | undefined,
   ts: string,
 ): Promise<string | null> {
-  // Try to find existing contact
   const { data: existing } = await supabase
     .from("inbox_contacts")
     .select("id, name")
@@ -235,7 +248,6 @@ async function upsertContact(
 
   if (existing) {
     const patch: Record<string, unknown> = { last_seen_at: ts };
-    // Only update name if we got one and contact has none yet
     if (profileName && !existing.name) patch.name = profileName;
     await supabase.from("inbox_contacts").update(patch).eq("id", existing.id);
     return existing.id as string;
@@ -301,8 +313,6 @@ async function upsertConversation(
   return (created?.id as string) ?? null;
 }
 
-// ── Message field extraction by type ────────────────────────────
-
 interface MessageFields {
   message_type:      string;
   body?:             string;
@@ -326,7 +336,6 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
       const t = msg.text as Record<string, unknown>;
       return { message_type: "text", body: t?.body as string };
     }
-
     case "image":
     case "video":
     case "audio":
@@ -340,7 +349,6 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
         media_size:      m?.file_size as number,
       };
     }
-
     case "document": {
       const d = msg.document as Record<string, unknown>;
       return {
@@ -352,7 +360,6 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
         media_size:      d?.file_size as number,
       };
     }
-
     case "location": {
       const l = msg.location as Record<string, unknown>;
       return {
@@ -363,7 +370,6 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
         location_address: l?.address   as string,
       };
     }
-
     case "reaction": {
       const r = msg.reaction as Record<string, unknown>;
       return {
@@ -372,13 +378,11 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
         reaction_wamid: r?.message_id as string,
       };
     }
-
     default:
       return { message_type: "unsupported" };
   }
 }
 
-// Short preview string shown in the conversation list
 function buildShortBody(type: string, msg: Record<string, unknown>): string {
   switch (type) {
     case "text":     return ((msg.text as Record<string, unknown>)?.body as string) ?? "";

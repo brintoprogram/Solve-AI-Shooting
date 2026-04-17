@@ -29,10 +29,16 @@ export function clearConfig(): void {
 }
 
 export function isConfigured(): boolean {
-  // Aceita tanto localStorage quanto variáveis de ambiente
   const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   if (envUrl && envUrl !== "https://placeholder.supabase.co") return true;
   return getConfig() !== null;
+}
+
+/** Lê workspace_id: env var primeiro, depois localStorage */
+export function getWorkspaceId(): string {
+  const envWs = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
+  if (envWs) return envWs;
+  return getConfig()?.workspaceId ?? "demo-workspace-id";
 }
 
 export function generateWorkspaceId(): string {

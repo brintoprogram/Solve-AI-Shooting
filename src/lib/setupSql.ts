@@ -164,9 +164,118 @@ CREATE TRIGGER meta_connections_updated_at
   BEFORE UPDATE ON meta_connections
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- =====================================================
+-- Inbox — Contatos, Conversas e Mensagens
+-- =====================================================
+
+-- Contatos que enviaram mensagens pelo WhatsApp
+CREATE TABLE IF NOT EXISTS inbox_contacts (
+  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id    UUID NOT NULL,
+  phone           TEXT NOT NULL,
+  name            TEXT,
+  profile_pic_url TEXT,
+  first_seen_at   TIMESTAMPTZ DEFAULT NOW(),
+  last_seen_at    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (workspace_id, phone)
+);
+
+-- Uma conversa por contato
+CREATE TABLE IF NOT EXISTS inbox_conversations (
+  id                  UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id        UUID NOT NULL,
+  meta_connection_id  UUID NOT NULL REFERENCES meta_connections(id),
+  contact_id          UUID NOT NULL REFERENCES inbox_contacts(id),
+  status              TEXT DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'pending')),
+  unread_count        INT DEFAULT 0,
+  last_message_at     TIMESTAMPTZ,
+  last_message_body   TEXT,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (workspace_id, contact_id)
+);
+
+-- Mensagens do inbox (inbound + outbound), com suporte a todos os tipos de mídia
+CREATE TABLE IF NOT EXISTS inbox_messages (
+  id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id     UUID NOT NULL,
+  conversation_id  UUID NOT NULL REFERENCES inbox_conversations(id) ON DELETE CASCADE,
+  contact_id       UUID NOT NULL REFERENCES inbox_contacts(id),
+  wamid            TEXT UNIQUE,
+  direction        TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+  message_type     TEXT NOT NULL CHECK (message_type IN ('text','image','audio','video','document','sticker','location','reaction','unsupported')),
+  -- texto
+  body             TEXT,
+  -- mídia (image, audio, video, document, sticker)
+  media_id         TEXT,
+  media_url        TEXT,
+  media_mime_type  TEXT,
+  media_filename   TEXT,
+  media_size       BIGINT,
+  media_caption    TEXT,
+  -- localização
+  location_lat     NUMERIC,
+  location_lng     NUMERIC,
+  location_name    TEXT,
+  location_address TEXT,
+  -- reação
+  reaction_emoji   TEXT,
+  reaction_wamid   TEXT,
+  -- status (relevante para outbound)
+  status           TEXT DEFAULT 'delivered' CHECK (status IN ('sending','sent','delivered','read','failed')),
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Índices do Inbox
+CREATE INDEX IF NOT EXISTS idx_inbox_contacts_workspace   ON inbox_contacts(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_inbox_contacts_phone       ON inbox_contacts(workspace_id, phone);
+CREATE INDEX IF NOT EXISTS idx_inbox_conversations_ws     ON inbox_conversations(workspace_id, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_conversations_status ON inbox_conversations(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_inbox_messages_conversation ON inbox_messages(conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inbox_messages_wamid       ON inbox_messages(wamid) WHERE wamid IS NOT NULL;
+
+-- Desabilita RLS nas tabelas do Inbox
+ALTER TABLE inbox_contacts       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE inbox_conversations  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE inbox_messages       DISABLE ROW LEVEL SECURITY;
+
+-- REPLICA IDENTITY FULL necessário para filtros no Supabase Realtime
+ALTER TABLE inbox_conversations  REPLICA IDENTITY FULL;
+ALTER TABLE inbox_messages       REPLICA IDENTITY FULL;
+
+-- Trigger updated_at para inbox_conversations
+DROP TRIGGER IF EXISTS inbox_conversations_updated_at ON inbox_conversations;
+CREATE TRIGGER inbox_conversations_updated_at
+  BEFORE UPDATE ON inbox_conversations
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =====================================================
+-- Storage — Bucket para mídias do Inbox
+-- =====================================================
+
+-- Cria o bucket público (50 MB por arquivo)
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('inbox_media', 'inbox_media', true, 52428800)
+ON CONFLICT (id) DO NOTHING;
+
+-- Políticas de acesso sem autenticação (app sem auth)
+DROP POLICY IF EXISTS "inbox_media_select" ON storage.objects;
+CREATE POLICY "inbox_media_select" ON storage.objects
+  FOR SELECT USING (bucket_id = 'inbox_media');
+
+DROP POLICY IF EXISTS "inbox_media_insert" ON storage.objects;
+CREATE POLICY "inbox_media_insert" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'inbox_media');
+
+DROP POLICY IF EXISTS "inbox_media_delete" ON storage.objects;
+CREATE POLICY "inbox_media_delete" ON storage.objects
+  FOR DELETE USING (bucket_id = 'inbox_media');
+
 -- Ativa Realtime nas tabelas principais
 ALTER PUBLICATION supabase_realtime ADD TABLE shooting_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE shooting_campaigns;
+ALTER PUBLICATION supabase_realtime ADD TABLE inbox_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE inbox_conversations;
 `;
 
 export const TABLES_TO_CHECK = [
@@ -176,4 +285,7 @@ export const TABLES_TO_CHECK = [
   "shooting_messages",
   "shooting_uploads",
   "webhook_events",
+  "inbox_contacts",
+  "inbox_conversations",
+  "inbox_messages",
 ] as const;
