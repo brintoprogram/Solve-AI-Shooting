@@ -6,27 +6,27 @@ import type { InboxConversation, InboxMessage } from "@/types/inbox";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-export function useInboxConversations(workspaceId: string) {
+export function useInboxConversations(_workspaceId?: string) {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
-    const { data } = await db
+    // Busca todas as conversas sem filtrar por workspace_id
+    // (app single-tenant — o Supabase já isola por projeto)
+    const { data, error } = await db
       .from("inbox_conversations")
       .select("*, inbox_contacts(*)")
-      .eq("workspace_id", workspaceId)
       .order("last_message_at", { ascending: false, nullsFirst: false });
+    if (error) console.error("[useInbox] erro ao carregar conversas:", error.message);
     setConversations(data ?? []);
     setLoading(false);
-  }, [workspaceId]);
+  }, []);
 
   useEffect(() => {
     load();
 
-    // Realtime: reload conversation list on any inbox change
     const channel = db
-      .channel(`inbox-convs-${workspaceId}`)
+      .channel("inbox-convs-all")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "inbox_conversations" },
@@ -35,7 +35,7 @@ export function useInboxConversations(workspaceId: string) {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [workspaceId, load]);
+  }, [load]);
 
   async function markAsRead(conversationId: string) {
     await db
