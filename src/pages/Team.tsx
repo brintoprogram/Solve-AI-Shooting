@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { UserCog, ExternalLink, Check, Loader2 } from "lucide-react";
+import { UserCog, UserPlus, Check, Loader2, X, Mail, User } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
@@ -14,7 +14,6 @@ const db = supabase as any;
 
 type RoleOption = UserProfile["role"];
 
-// Avatar background palette (cycles by index)
 const AVATAR_COLORS = [
   "linear-gradient(135deg,#3fb06c,#16A34A)",
   "linear-gradient(135deg,#60a5fa,#3b82f6)",
@@ -23,14 +22,193 @@ const AVATAR_COLORS = [
   "linear-gradient(135deg,#f87171,#ef4444)",
 ];
 
+// ── Invite Modal ────────────────────────────────────────────────
+
+interface InviteModalProps {
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function InviteModal({ onClose, onSuccess }: InviteModalProps) {
+  const [email, setEmail]         = useState("");
+  const [fullName, setFullName]   = useState("");
+  const [role, setRole]           = useState<RoleOption>("agent");
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const { toast } = useToast();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session?.access_token ?? ""}`,
+            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ email: email.trim(), full_name: fullName.trim(), role }),
+        },
+      );
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setError(json.error ?? "Erro ao enviar convite.");
+      } else {
+        toast({ title: "Convite enviado!", description: `${email} receberá um e-mail de acesso.`, variant: "success" });
+        onSuccess();
+        onClose();
+      }
+    } catch (err) {
+      setError("Erro de conexão. Tente novamente.");
+      console.error("[invite] error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 relative"
+        style={{
+          background: "#0d1a11",
+          border: "1px solid rgba(63,176,108,0.2)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.2)" }}
+            >
+              <UserPlus className="w-4 h-4 text-agro-green" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-agro-text">Convidar Membro</h2>
+              <p className="text-[11px] text-agro-muted-2">Um e-mail de acesso será enviado</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-text hover:bg-white/5 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Email */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-agro-muted">E-mail</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-agro-muted-2" />
+              <input
+                type="email"
+                required
+                placeholder="nome@empresa.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input-agro w-full pl-9"
+              />
+            </div>
+          </div>
+
+          {/* Full name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-agro-muted">Nome Completo</label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-agro-muted-2" />
+              <input
+                type="text"
+                required
+                placeholder="João Silva"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="input-agro w-full pl-9"
+              />
+            </div>
+          </div>
+
+          {/* Role */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-agro-muted">Cargo</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as RoleOption)}
+              className="input-agro w-full"
+            >
+              <option value="agent">Agente</option>
+              <option value="manager">Gerente</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-red-400"
+              style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
+            >
+              <X className="w-4 h-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 btn-agro py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Enviando...
+                </span>
+              ) : (
+                "Enviar Convite"
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Team Page ───────────────────────────────────────────────────
+
 export function Team() {
   const { profile: myProfile } = useAuth();
   const { toast } = useToast();
-  const [members, setMembers]   = useState<UserProfile[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [updating, setUpdating] = useState<string | null>(null); // profile id being saved
+  const [members, setMembers]     = useState<UserProfile[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [updating, setUpdating]   = useState<string | null>(null);
+  const [showInvite, setShowInvite] = useState(false);
 
-  // Only admin and manager can access this page
   if (!myProfile || !["admin", "manager"].includes(myProfile.role)) {
     return <Navigate to="/" replace />;
   }
@@ -91,39 +269,16 @@ export function Team() {
             </p>
           </div>
 
-          {/* Invite info badge */}
           {isAdmin && (
-            <a
-              href="https://supabase.com/dashboard"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
-              style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+            <button
+              onClick={() => setShowInvite(true)}
+              className="btn-agro flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Convidar via Supabase Auth
-            </a>
+              <UserPlus className="w-4 h-4" />
+              Convidar Membro
+            </button>
           )}
         </div>
-
-        {/* ── Info card (admin only) ──────────── */}
-        {isAdmin && (
-          <div
-            className="px-4 py-3 rounded-xl text-sm text-agro-muted flex items-start gap-3 animate-fade-up"
-            style={{
-              background: "rgba(59,130,246,0.06)",
-              border: "1px solid rgba(59,130,246,0.15)",
-            }}
-          >
-            <span className="text-blue-400 mt-0.5 shrink-0">ℹ</span>
-            <span>
-              Para adicionar novos membros, crie o usuário em{" "}
-              <strong className="text-agro-text">Supabase → Authentication → Users → Invite</strong>.
-              O perfil será criado automaticamente com cargo <em>Agente</em>.
-              Altere o cargo aqui após o primeiro login.
-            </span>
-          </div>
-        )}
 
         {/* ── Members table ──────────────────── */}
         <div
@@ -160,8 +315,8 @@ export function Team() {
             </p>
           ) : (
             members.map((member, i) => {
-              const rs = ROLE_STYLE[member.role];
-              const isMe = member.id === myProfile.id;
+              const rs      = ROLE_STYLE[member.role];
+              const isMe    = member.id === myProfile.id;
               const isSaving = updating === member.id;
 
               return (
@@ -210,11 +365,7 @@ export function Team() {
                   {/* Role badge */}
                   <span
                     className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0"
-                    style={{
-                      background: rs.bg,
-                      color: rs.color,
-                      border: `1px solid ${rs.border}`,
-                    }}
+                    style={{ background: rs.bg, color: rs.color, border: `1px solid ${rs.border}` }}
                   >
                     {ROLE_LABELS[member.role]}
                   </span>
@@ -257,8 +408,7 @@ export function Team() {
               const count = members.filter((m) => m.role === r).length;
               return count > 0 ? (
                 <span key={r}>
-                  <span style={{ color: ROLE_STYLE[r].color }}>{ROLE_LABELS[r]}:</span>{" "}
-                  {count}
+                  <span style={{ color: ROLE_STYLE[r].color }}>{ROLE_LABELS[r]}:</span> {count}
                 </span>
               ) : null;
             })}
@@ -266,6 +416,14 @@ export function Team() {
           </div>
         )}
       </div>
+
+      {/* ── Invite Modal ───────────────────────────────────────── */}
+      {showInvite && (
+        <InviteModal
+          onClose={() => setShowInvite(false)}
+          onSuccess={load}
+        />
+      )}
     </div>
   );
 }

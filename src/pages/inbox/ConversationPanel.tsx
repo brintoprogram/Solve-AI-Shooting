@@ -57,6 +57,13 @@ export function ConversationPanel({ conversation, teamMembers }: Props) {
 
           <StatusBadge status={conversation.status} />
 
+          <img
+            src="/logo.png"
+            alt="Solve AI"
+            className="h-6 w-auto object-contain opacity-40"
+            style={{ filter: "drop-shadow(0 0 4px rgba(63,176,108,0.3))" }}
+          />
+
           <button
             className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
             style={{ border: "1px solid rgba(63,176,108,0.1)" }}

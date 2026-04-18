@@ -11,6 +11,7 @@ import { Settings } from "@/pages/Settings";
 import { Setup } from "@/pages/Setup";
 import { Inbox } from "@/pages/Inbox";
 import { Team } from "@/pages/Team";
+import { Templates } from "@/pages/Templates";
 import { isConfigured } from "@/lib/config";
 
 export function App() {
@@ -47,6 +48,7 @@ function AppRoutes() {
         <Route path="/inbox"                    element={<Inbox />} />
         <Route path="/automations"              element={<PlaceholderPage title="Automações" />} />
         <Route path="/team"                     element={<Team />} />
+        <Route path="/templates"               element={<Templates />} />
         <Route path="*"                         element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

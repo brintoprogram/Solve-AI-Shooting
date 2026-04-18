@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Send,
   History,
@@ -7,9 +7,9 @@ import {
   Users,
   MessageSquare,
   Zap,
-  Leaf,
   UserCog,
   LogOut,
+  LayoutTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -27,6 +27,7 @@ const BASE_NAV: NavItem[] = [
   { to: "/shooting/history",  icon: History,         label: "Histórico",    subtitle: "Campanhas anteriores" },
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes"     },
   { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas"     },
+  { to: "/templates",          icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"   },
   { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"  },
   { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações"  },
 ];
@@ -40,6 +41,12 @@ const TEAM_NAV: NavItem = {
 
 export function Sidebar() {
   const { profile, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/login");
+  }
 
   const canSeeTeam = profile && ["admin", "manager"].includes(profile.role);
   const navItems   = canSeeTeam ? [...BASE_NAV, TEAM_NAV] : BASE_NAV;
@@ -61,28 +68,21 @@ export function Sidebar() {
 
       {/* Logo */}
       <div
-        className="relative px-5 py-6"
+        className="relative px-4 py-5 flex flex-col items-center"
         style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
       >
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center glow-green-sm"
-              style={{ background: "linear-gradient(135deg, #3fb06c 0%, #16A34A 100%)" }}
-            >
-              <Leaf className="w-4.5 h-4.5 text-white" />
-            </div>
-            <div className="absolute inset-0 rounded-xl border border-agro-green opacity-40 animate-ping" />
-          </div>
-          <div>
-            <p className="font-display text-sm font-bold tracking-widest text-agro-text uppercase">
-              SOLVE <span className="text-agro-green">.AI</span>
-            </p>
-            <p className="text-[9px] text-agro-muted-2 leading-tight tracking-wide">
-              A inteligência que cultiva resultados
-            </p>
-          </div>
-        </div>
+        <img
+          src="/logo.png"
+          alt="Solve AI"
+          className="h-11 w-auto object-contain mb-2"
+          style={{ filter: "drop-shadow(0 0 10px rgba(63,176,108,0.3))" }}
+        />
+        <p className="font-display text-sm font-bold tracking-widest text-agro-text uppercase">
+          SOLVE <span className="text-agro-green">.AI</span>
+        </p>
+        <p className="text-[9px] text-agro-muted-2 leading-tight tracking-wide">
+          A inteligência que cultiva resultados
+        </p>
       </div>
 
       {/* Nav */}
@@ -207,7 +207,7 @@ export function Sidebar() {
 
           {/* Logout button */}
           <button
-            onClick={signOut}
+            onClick={handleSignOut}
             title="Sair"
             className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 shrink-0"
           >
