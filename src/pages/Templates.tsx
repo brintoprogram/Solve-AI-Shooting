@@ -360,7 +360,7 @@ export function Templates() {
       if (!res.ok) {
         toast({
           title: "Erro ao sincronizar",
-          description: json.error ?? "Erro desconhecido",
+          description: json.error ?? json.message ?? "Erro desconhecido",
           variant: "destructive",
         });
       } else {

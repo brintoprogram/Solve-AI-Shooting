@@ -35,10 +35,15 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  if (req.method === "GET")  return handleList(req);
-  if (req.method === "POST") return handleCreate(req);
-
-  return json({ error: "Method not allowed" }, 405);
+  try {
+    if (req.method === "GET")  return await handleList(req);
+    if (req.method === "POST") return await handleCreate(req);
+    return json({ error: "Method not allowed" }, 405);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[meta-templates] unhandled error:", msg);
+    return json({ error: msg }, 500);
+  }
 });
 
 // ── GET: list & sync ─────────────────────────────────────────────

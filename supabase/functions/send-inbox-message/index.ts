@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
   // 6. Save outbound message
   const now = new Date().toISOString();
 
-  await supabase.from("inbox_messages").insert({
+  const { error: insertErr } = await supabase.from("inbox_messages").insert({
     workspace_id,
     conversation_id,
     contact_id:     conv.contact_id,
@@ -141,10 +141,15 @@ Deno.serve(async (req: Request) => {
     media_url:      media_url      ?? null,
     media_filename: media_filename ?? null,
     media_caption:  captionText,
-    status:         "sending",   // relógio até o callback "sent" da Meta chegar
+    status:         "sending",
     sent_at:        null,
     created_at:     now,
   });
+
+  if (insertErr) {
+    console.error("[send] erro ao salvar mensagem no DB:", insertErr.message);
+    return json({ error: `Mensagem enviada mas não salva: ${insertErr.message}` }, 500);
+  }
 
   // 7. Update conversation preview
   await supabase
