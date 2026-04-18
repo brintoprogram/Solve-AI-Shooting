@@ -6,12 +6,83 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const META_API = "https://graph.facebook.com/v25.0";
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
 const ENV_VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN") ?? "";
+
+// ── Media helpers ────────────────────────────────────────────────
+
+function mimeToExt(mime: string): string {
+  const map: Record<string, string> = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
+    "audio/ogg":  ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/aac": ".aac",
+    "video/mp4":  ".mp4", "video/3gpp": ".3gp",
+    "application/pdf": ".pdf",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "text/plain": ".txt",
+  };
+  return map[mime] ?? ".bin";
+}
+
+async function fetchAndStoreMedia(
+  mediaId:     string,
+  accessToken: string,
+  workspaceId: string,
+  messageId:   string,
+  mimeType:    string | undefined,
+): Promise<void> {
+  try {
+    // 1. Get the temporary CDN URL from Meta
+    const infoRes = await fetch(`${META_API}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!infoRes.ok) {
+      console.error(`[media] info error ${mediaId}: ${infoRes.status}`);
+      return;
+    }
+    const info = await infoRes.json() as { url: string; mime_type?: string; file_size?: number };
+
+    // 2. Download binary from CDN (Meta requires the same token)
+    const dlRes = await fetch(info.url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!dlRes.ok) {
+      console.error(`[media] download error ${mediaId}: ${dlRes.status}`);
+      return;
+    }
+    const buffer = await dlRes.arrayBuffer();
+    const mime   = mimeType ?? info.mime_type ?? "application/octet-stream";
+    const ext    = mimeToExt(mime);
+    const path   = `${workspaceId}/${messageId}${ext}`;
+
+    // 3. Upload to Supabase Storage bucket "inbox-media"
+    const { error: upErr } = await supabase.storage
+      .from("inbox-media")
+      .upload(path, buffer, { contentType: mime, upsert: true });
+    if (upErr) {
+      console.error(`[media] upload error: ${upErr.message}`);
+      return;
+    }
+
+    // 4. Get public URL and update the message row
+    const { data: { publicUrl } } = supabase.storage.from("inbox-media").getPublicUrl(path);
+    await supabase.from("inbox_messages")
+      .update({ media_url: publicUrl, media_size: info.file_size ?? buffer.byteLength })
+      .eq("id", messageId);
+
+    console.log(`[media] ✓ ${mediaId} → ${path}`);
+  } catch (err) {
+    console.error(`[media] error for ${mediaId}:`, err instanceof Error ? err.message : String(err));
+  }
+}
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -83,18 +154,20 @@ async function processWebhook(body: Record<string, unknown>) {
 
       let connectionId: string | null = null;
       let workspaceId:  string | null = null;
+      let accessToken:  string | null = null;
 
       if (phoneNumId) {
         const { data: conn, error: connErr } = await supabase
           .from("meta_connections")
-          .select("id, workspace_id")
+          .select("id, workspace_id, access_token")
           .eq("phone_number_id", phoneNumId)
           .maybeSingle();
 
         if (connErr) console.error("[webhook] erro ao buscar conexão:", connErr.message);
 
-        connectionId = conn?.id          ?? null;
+        connectionId = conn?.id           ?? null;
         workspaceId  = conn?.workspace_id ?? null;
+        accessToken  = conn?.access_token ?? null;
 
         console.log(`[webhook] phone_number_id=${phoneNumId} → connection=${connectionId} workspace=${workspaceId}`);
       }
@@ -153,7 +226,7 @@ async function processWebhook(body: Record<string, unknown>) {
 
         const fields = extractMessageFields(type, msg);
 
-        const { error: msgErr } = await supabase.from("inbox_messages").upsert(
+        const { data: savedMsg, error: msgErr } = await supabase.from("inbox_messages").upsert(
           {
             workspace_id:     workspaceId,
             conversation_id:  conversationId,
@@ -178,12 +251,20 @@ async function processWebhook(body: Record<string, unknown>) {
             created_at:       ts,
           },
           { onConflict: "wamid", ignoreDuplicates: true }
-        );
+        ).select("id").maybeSingle();
 
         if (msgErr) {
           console.error("[inbox] erro ao salvar mensagem:", msgErr.message);
         } else {
           console.log(`[inbox] ✓ ${type} de ${from} → conv ${conversationId}`);
+
+          // Fire-and-forget: download media and store permanently
+          const MEDIA_TYPES = ["image", "audio", "video", "document", "sticker"];
+          if (savedMsg?.id && fields.media_id && accessToken && MEDIA_TYPES.includes(type)) {
+            fetchAndStoreMedia(
+              fields.media_id, accessToken, workspaceId, savedMsg.id, fields.media_mime_type,
+            ).catch((e) => console.error("[media] bg error:", e?.message));
+          }
         }
       }
 

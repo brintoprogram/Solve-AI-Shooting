@@ -130,13 +130,26 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return (
         <div className="space-y-1">
           {message.media_url ? (
-            <img
-              src={message.media_url}
-              alt="Imagem"
-              className="rounded-xl object-cover"
-              style={{ maxWidth: 240, maxHeight: 320 }}
-              loading="lazy"
-            />
+            <div className="relative group">
+              <img
+                src={message.media_url}
+                alt="Imagem"
+                className="rounded-xl object-cover block"
+                style={{ maxWidth: 240, maxHeight: 320 }}
+                loading="lazy"
+              />
+              <a
+                href={message.media_url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+                title="Baixar imagem"
+              >
+                <Download className="w-3.5 h-3.5 text-white" />
+              </a>
+            </div>
           ) : (
             <MediaPlaceholder icon="📷" label="Imagem" mediaId={message.media_id} />
           )}
