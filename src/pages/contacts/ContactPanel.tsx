@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   X, Mail, Phone, Building2, Hash, MapPin,
-  User, CreditCard, Loader2,
+  User, CreditCard, Loader2, Pencil, Plus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { ContactFormModal } from "./ContactFormModal";
+import { InvoiceFormModal } from "./InvoiceFormModal";
+import type { Invoice } from "./InvoiceFormModal";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -28,28 +31,18 @@ export interface Contact {
   created_at:          string;
 }
 
-interface Invoice {
-  id:            string;
-  valor:         number;
-  vencimento:    string | null;
-  status:        string;
-  numero_nf:     string | null;
-  codigo_barras: string | null;
-  created_at:    string;
-}
-
 // ── Helpers ────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
 export const TAG_PALETTE = [
-  { bg: "rgba(63,176,108,0.12)",  text: "#3fb06c", border: "rgba(63,176,108,0.3)" },
-  { bg: "rgba(59,130,246,0.12)",  text: "#60a5fa", border: "rgba(59,130,246,0.3)" },
-  { bg: "rgba(168,85,247,0.12)",  text: "#c084fc", border: "rgba(168,85,247,0.3)" },
-  { bg: "rgba(245,158,11,0.12)",  text: "#fbbf24", border: "rgba(245,158,11,0.3)" },
-  { bg: "rgba(239,68,68,0.12)",   text: "#f87171", border: "rgba(239,68,68,0.3)"  },
-  { bg: "rgba(20,184,166,0.12)",  text: "#2dd4bf", border: "rgba(20,184,166,0.3)" },
+  { bg: "rgba(63,176,108,0.12)",  text: "#3fb06c", border: "rgba(63,176,108,0.3)"  },
+  { bg: "rgba(59,130,246,0.12)",  text: "#60a5fa", border: "rgba(59,130,246,0.3)"  },
+  { bg: "rgba(168,85,247,0.12)",  text: "#c084fc", border: "rgba(168,85,247,0.3)"  },
+  { bg: "rgba(245,158,11,0.12)",  text: "#fbbf24", border: "rgba(245,158,11,0.3)"  },
+  { bg: "rgba(239,68,68,0.12)",   text: "#f87171", border: "rgba(239,68,68,0.3)"   },
+  { bg: "rgba(20,184,166,0.12)",  text: "#2dd4bf", border: "rgba(20,184,166,0.3)"  },
 ];
 
 export function tagColor(tag: string) {
@@ -65,25 +58,25 @@ function initials(name: string | null) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-const formatBRL = (v: number) =>
+export const formatBRL = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
-const formatDate = (d: string | null) => {
+export const formatDate = (d: string | null) => {
   if (!d) return "—";
   const [y, m, day] = d.split("-");
   return `${day}/${m}/${y}`;
 };
 
 const INVOICE_STATUS: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  pendente:  { label: "Pendente",  bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)" },
-  pago:      { label: "Pago",      bg: "rgba(63,176,108,0.12)", text: "#3fb06c", border: "rgba(63,176,108,0.3)" },
-  vencido:   { label: "Vencido",   bg: "rgba(239,68,68,0.12)",  text: "#f87171", border: "rgba(239,68,68,0.3)"  },
-  cancelado: { label: "Cancelado", bg: "rgba(107,127,110,0.12)",text: "#6b7f6e", border: "rgba(107,127,110,0.3)"},
+  pendente:  { label: "Pendente",  bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)"  },
+  pago:      { label: "Pago",      bg: "rgba(63,176,108,0.12)", text: "#3fb06c", border: "rgba(63,176,108,0.3)"  },
+  vencido:   { label: "Vencido",   bg: "rgba(239,68,68,0.12)",  text: "#f87171", border: "rgba(239,68,68,0.3)"   },
+  cancelado: { label: "Cancelado", bg: "rgba(107,127,110,0.12)",text: "#6b7f6e", border: "rgba(107,127,110,0.3)" },
 };
 
 // ── Sub-components ─────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status: string }) {
   const cfg = INVOICE_STATUS[status] ?? INVOICE_STATUS.pendente;
   return (
     <span
@@ -96,14 +89,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string | null | undefined;
-}) {
+  icon: Icon, label, value,
+}: { icon: React.ComponentType<{ className?: string }>; label: string; value: string | null | undefined }) {
   if (!value) return null;
   return (
     <div className="flex items-start gap-3 py-2.5 border-b border-[#1e2e22] last:border-0">
@@ -134,11 +121,23 @@ function SummaryCard({ label, value, color }: { label: string; value: string; co
 
 // ── Main Component ─────────────────────────────────────────────────
 
-export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: () => void }) {
+interface ContactPanelProps {
+  contact:    Contact;
+  onClose:    () => void;
+  onUpdated?: (c: Contact) => void;
+}
+
+export function ContactPanel({ contact: initialContact, onClose, onUpdated }: ContactPanelProps) {
+  const [contact,    setContact]    = useState<Contact>(initialContact);
   const [tab,        setTab]        = useState<"cadastro" | "financeiro">("cadastro");
   const [invoices,   setInvoices]   = useState<Invoice[]>([]);
   const [invLoading, setInvLoading] = useState(false);
   const [visible,    setVisible]    = useState(false);
+
+  // Modals
+  const [showEdit,        setShowEdit]        = useState(false);
+  const [editingInvoice,  setEditingInvoice]  = useState<Invoice | null | undefined>(undefined); // undefined = closed
+  const isInvoiceModalOpen = editingInvoice !== undefined;
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 10);
@@ -190,6 +189,11 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
   const totalVencido  = invoices.filter((i) => i.status === "vencido").reduce((s, i) => s + i.valor, 0);
   const totalPago     = invoices.filter((i) => i.status === "pago").reduce((s, i) => s + i.valor, 0);
 
+  function handleContactSaved(updated: Contact) {
+    setContact(updated);
+    onUpdated?.(updated);
+  }
+
   return (
     <>
       {/* Backdrop */}
@@ -219,9 +223,16 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
           <div className="flex-1 min-w-0">
             <p className="text-base font-semibold text-white truncate">{contact.name ?? "Sem nome"}</p>
             <p className="text-xs text-[#6b7f6e] truncate">
-              {contact.empresa ?? contact.email ?? contact.phone ?? "—"}
+              {[contact.phone, contact.empresa].filter(Boolean).join(" · ") || "—"}
             </p>
           </div>
+          <button
+            onClick={() => setShowEdit(true)}
+            title="Editar contato"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#6b7f6e] hover:text-[#3fb06c] hover:bg-[#1e2e22] transition-colors shrink-0"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-[#6b7f6e] hover:text-white hover:bg-[#1e2e22] transition-colors shrink-0"
@@ -292,11 +303,8 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
                     {contact.tags.map((tag) => {
                       const c = tagColor(tag);
                       return (
-                        <span
-                          key={tag}
-                          className="px-2.5 py-1 rounded-full text-xs font-medium"
-                          style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
-                        >
+                        <span key={tag} className="px-2.5 py-1 rounded-full text-xs font-medium"
+                          style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}>
                           {tag}
                         </span>
                       );
@@ -304,19 +312,44 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
                   </div>
                 </div>
               )}
+
+              {/* Edit shortcut when panel has no data */}
+              {!contact.phone && !contact.email && !contact.empresa && (
+                <button
+                  onClick={() => setShowEdit(true)}
+                  className="w-full py-3 rounded-xl text-sm text-[#3fb06c] hover:bg-[#1e2e22] transition-colors"
+                  style={{ border: "1px dashed rgba(63,176,108,0.3)" }}
+                >
+                  <Pencil className="w-4 h-4 inline mr-2" />
+                  Preencher dados do contato
+                </button>
+              )}
             </div>
           )}
 
           {/* ── Financeiro ────────────────────────────── */}
           {tab === "financeiro" && (
             <div className="space-y-4">
+              {/* Summary cards */}
               {invoices.length > 0 && (
                 <div className="grid grid-cols-3 gap-3">
-                  <SummaryCard label="A receber"  value={formatBRL(totalPendente)} color="amber" />
-                  <SummaryCard label="Em atraso"  value={formatBRL(totalVencido)}  color="red"   />
-                  <SummaryCard label="Recebido"   value={formatBRL(totalPago)}     color="green" />
+                  <SummaryCard label="A receber" value={formatBRL(totalPendente)} color="amber" />
+                  <SummaryCard label="Em atraso" value={formatBRL(totalVencido)}  color="red"   />
+                  <SummaryCard label="Recebido"  value={formatBRL(totalPago)}     color="green" />
                 </div>
               )}
+
+              {/* Add invoice button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setEditingInvoice(null)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-[#3fb06c] hover:bg-[#1e2e22] transition-colors"
+                  style={{ border: "1px solid rgba(63,176,108,0.25)" }}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Adicionar boleto
+                </button>
+              </div>
 
               {invLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -326,9 +359,16 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <CreditCard className="w-8 h-8 text-[#6b7f6e] mb-3" />
                   <p className="text-sm text-white">Sem boletos cadastrados</p>
-                  <p className="text-xs text-[#6b7f6e] mt-1">
-                    Importe uma planilha com dados financeiros para este contato
+                  <p className="text-xs text-[#6b7f6e] mt-1 mb-4">
+                    Adicione manualmente ou importe via planilha
                   </p>
+                  <button
+                    onClick={() => setEditingInvoice(null)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-[#3fb06c] hover:bg-[#1e2e22] transition-colors"
+                    style={{ border: "1px solid rgba(63,176,108,0.25)" }}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar primeiro boleto
+                  </button>
                 </div>
               ) : (
                 <div className="rounded-xl border border-[#2a3d30] overflow-hidden">
@@ -345,8 +385,10 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
                       {invoices.map((inv, i) => (
                         <tr
                           key={inv.id}
-                          className="transition-colors hover:bg-[#1e2e22]/40"
+                          onClick={() => setEditingInvoice(inv)}
+                          className="cursor-pointer transition-colors hover:bg-[#1e2e22]/60"
                           style={{ borderBottom: i < invoices.length - 1 ? "1px solid #1e2e22" : undefined }}
+                          title="Clique para editar"
                         >
                           <td className="px-3 py-2.5 font-semibold text-white whitespace-nowrap">
                             {formatBRL(inv.valor)}
@@ -370,6 +412,26 @@ export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: 
           )}
         </div>
       </div>
+
+      {/* ── Contact edit modal ─────────────────────────── */}
+      {showEdit && (
+        <ContactFormModal
+          contact={contact}
+          onClose={() => setShowEdit(false)}
+          onSaved={handleContactSaved}
+        />
+      )}
+
+      {/* ── Invoice add / edit modal ───────────────────── */}
+      {isInvoiceModalOpen && (
+        <InvoiceFormModal
+          invoice={editingInvoice ?? undefined}
+          contactId={contact.id}
+          onClose={() => setEditingInvoice(undefined)}
+          onSaved={loadInvoices}
+          onDeleted={loadInvoices}
+        />
+      )}
     </>
   );
 }

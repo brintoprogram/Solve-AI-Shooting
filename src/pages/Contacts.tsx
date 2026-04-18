@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2,
+  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2, Plus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getWorkspaceId } from "@/lib/config";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor } from "./contacts/ContactPanel";
+import { ContactFormModal } from "./contacts/ContactFormModal";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -176,6 +177,7 @@ export function Contacts() {
   const [page,     setPage]     = useState(1);
   const [selected, setSelected] = useState<Contact | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [showNewContact, setShowNewContact] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -205,12 +207,21 @@ export function Contacts() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="btn-agro flex items-center gap-2 px-4 py-2 text-sm"
-        >
-          <Upload className="w-4 h-4" /> Importar planilha
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowNewContact(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-[#3fb06c] transition-colors hover:bg-[#1e2e22]"
+            style={{ border: "1px solid rgba(63,176,108,0.3)" }}
+          >
+            <Plus className="w-4 h-4" /> Novo Contato
+          </button>
+          <button
+            onClick={() => setShowImport(true)}
+            className="btn-agro flex items-center gap-2 px-4 py-2 text-sm"
+          >
+            <Upload className="w-4 h-4" /> Importar planilha
+          </button>
+        </div>
       </div>
 
       {/* ── Search ───────────────────────────────────── */}
@@ -283,11 +294,14 @@ export function Contacts() {
 
                   {/* CPF/CNPJ */}
                   <td className="px-4 py-3 text-xs text-[#6b7f6e] font-mono">
-                    {contact.cpf_cnpj
-                      ? contact.cpf_cnpj.length === 11
-                        ? contact.cpf_cnpj.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4")
-                        : contact.cpf_cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5")
-                      : "—"}
+                    {(() => {
+                      const raw = contact.cpf_cnpj;
+                      if (!raw) return "—";
+                      const d = raw.replace(/\D/g, "");
+                      if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+                      if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+                      return raw;
+                    })()}
                   </td>
 
                   {/* Tags */}
@@ -318,6 +332,10 @@ export function Contacts() {
         <ContactPanel
           contact={selected}
           onClose={() => setSelected(null)}
+          onUpdated={(updated) => {
+            setSelected(updated);
+            refresh();
+          }}
         />
       )}
 
@@ -325,6 +343,17 @@ export function Contacts() {
         <ImportModal
           onClose={() => setShowImport(false)}
           onSuccess={() => { setShowImport(false); refresh(); }}
+        />
+      )}
+
+      {showNewContact && (
+        <ContactFormModal
+          onClose={() => setShowNewContact(false)}
+          onSaved={(c) => {
+            setShowNewContact(false);
+            refresh();
+            setSelected(c);
+          }}
         />
       )}
     </div>
