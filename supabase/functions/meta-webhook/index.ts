@@ -415,6 +415,25 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
       const r = msg.reaction as Record<string, unknown>;
       return { message_type: "reaction", reaction_emoji: r?.emoji as string, reaction_wamid: r?.message_id as string };
     }
+    // Button click on a template (quick reply)
+    case "button": {
+      const b = msg.button as Record<string, unknown>;
+      return { message_type: "button_reply", body: (b?.text as string) ?? "Botão clicado" };
+    }
+    // Interactive response (button_reply or list_reply)
+    case "interactive": {
+      const interactive = msg.interactive as Record<string, unknown>;
+      const iType = interactive?.type as string;
+      if (iType === "button_reply") {
+        const br = interactive.button_reply as Record<string, unknown>;
+        return { message_type: "button_reply", body: (br?.title as string) ?? "Botão clicado" };
+      }
+      if (iType === "list_reply") {
+        const lr = interactive.list_reply as Record<string, unknown>;
+        return { message_type: "button_reply", body: (lr?.title as string) ?? "Opção selecionada" };
+      }
+      return { message_type: "button_reply", body: "Resposta interativa" };
+    }
     default: return { message_type: "unsupported" };
   }
 }
@@ -428,7 +447,18 @@ function buildShortBody(type: string, msg: Record<string, unknown>): string {
     case "document": return "📄 Documento";
     case "sticker":  return "🎯 Sticker";
     case "location": return "📍 Localização";
-    case "reaction": return `Reagiu: ${((msg.reaction as Record<string, unknown>)?.emoji as string) ?? "👍"}`;
-    default:         return "Mensagem";
+    case "reaction":     return `Reagiu: ${((msg.reaction as Record<string, unknown>)?.emoji as string) ?? "👍"}`;
+    case "button": {
+      const b = msg.button as Record<string, unknown>;
+      return `🔘 ${(b?.text as string) ?? "Botão"}`;
+    }
+    case "interactive": {
+      const interactive = msg.interactive as Record<string, unknown>;
+      const iType = interactive?.type as string;
+      if (iType === "button_reply") return `🔘 ${((interactive.button_reply as Record<string, unknown>)?.title as string) ?? "Botão"}`;
+      if (iType === "list_reply")   return `📋 ${((interactive.list_reply as Record<string, unknown>)?.title as string) ?? "Lista"}`;
+      return "🔘 Resposta interativa";
+    }
+    default:             return "Mensagem";
   }
 }

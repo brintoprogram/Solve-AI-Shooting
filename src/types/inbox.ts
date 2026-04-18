@@ -32,6 +32,8 @@ export type MessageType =
   | "sticker"
   | "location"
   | "reaction"
+  | "template"
+  | "button_reply"
   | "unsupported";
 
 export interface InboxMessage {

@@ -183,7 +183,7 @@ function buildComponents(
 // ── Process one message ───────────────────────────────────
 
 interface Message {
-  id:             string;
+  id:              string;
   recipient_phone: string;
   recipient_data:  Record<string, unknown>;
   retry_count:     number;
@@ -193,12 +193,50 @@ interface Message {
 interface Connection { phone_number_id: string; access_token: string }
 interface Template   { template_name: string; language: string; components: TemplateComp[] }
 
+// ── Inbox helpers (mirrors meta-webhook logic) ────────────
+
+async function upsertInboxContact(workspaceId: string, phone: string, ts: string): Promise<string | null> {
+  const { data: existing } = await db.from("inbox_contacts").select("id").eq("workspace_id", workspaceId).eq("phone", phone).maybeSingle();
+  if (existing) return existing.id as string;
+  const { data: created } = await db.from("inbox_contacts").insert({ workspace_id: workspaceId, phone, first_seen_at: ts, last_seen_at: ts }).select("id").single();
+  return (created?.id as string) ?? null;
+}
+
+async function upsertInboxConversation(workspaceId: string, connectionId: string, contactId: string, ts: string, lastBody: string): Promise<string | null> {
+  const { data: existing } = await db.from("inbox_conversations").select("id").eq("workspace_id", workspaceId).eq("contact_id", contactId).maybeSingle();
+  if (existing) {
+    await db.from("inbox_conversations").update({ last_message_at: ts, last_message_body: lastBody, updated_at: ts }).eq("id", existing.id);
+    return existing.id as string;
+  }
+  const { data: created } = await db.from("inbox_conversations").insert({ workspace_id: workspaceId, meta_connection_id: connectionId, contact_id: contactId, status: "open", unread_count: 0, last_message_at: ts, last_message_body: lastBody }).select("id").single();
+  return (created?.id as string) ?? null;
+}
+
+async function saveTemplateToInbox(workspaceId: string, connectionId: string, phone: string, wamid: string, templateName: string, ts: string): Promise<void> {
+  try {
+    const contactId = await upsertInboxContact(workspaceId, phone, ts);
+    if (!contactId) return;
+    const lastBody = `📋 ${templateName}`;
+    const convId   = await upsertInboxConversation(workspaceId, connectionId, contactId, ts, lastBody);
+    if (!convId) return;
+    await db.from("inbox_messages").upsert({
+      workspace_id: workspaceId, conversation_id: convId, contact_id: contactId,
+      wamid, direction: "outbound", message_type: "template",
+      body: lastBody, status: "sent", created_at: ts,
+    }, { onConflict: "wamid", ignoreDuplicates: true });
+  } catch (err) {
+    console.error("[engine] saveTemplateToInbox error:", err instanceof Error ? err.message : String(err));
+  }
+}
+
 async function processMessage(
-  msg:        Message,
-  conn:       Connection,
-  tpl:        Template,
-  mapping:    Record<string, unknown>,
-  campaignId: string,
+  msg:          Message,
+  conn:         Connection,
+  tpl:          Template,
+  mapping:      Record<string, unknown>,
+  campaignId:   string,
+  workspaceId:  string,
+  connectionId: string,
 ): Promise<void> {
   const components = buildComponents(tpl.components, mapping, msg.recipient_data ?? {});
 
@@ -220,6 +258,9 @@ async function processMessage(
     await db.rpc("increment_campaign_counters", {
       p_campaign_id: campaignId, p_counter_name: "sent_count",
     });
+
+    // Save outbound template to inbox so conversation is visible
+    await saveTemplateToInbox(workspaceId, connectionId, msg.recipient_phone, result.wamid, tpl.template_name, now);
 
   } else {
     // Non-retryable Meta error codes (invalid number, opted-out, etc.)
@@ -379,8 +420,10 @@ async function startSendLoop(
     campaign = data;
   }
 
-  const mapping      = (campaign.column_mapping ?? {}) as Record<string, unknown>;
-  const sendingSpeed = Number(campaign.sending_speed ?? 80); // msg/min
+  const mapping        = (campaign.column_mapping ?? {}) as Record<string, unknown>;
+  const workspaceId    = String(campaign.workspace_id     ?? "");
+  const connectionId   = String(campaign.meta_connection_id ?? "");
+  const sendingSpeed   = Number(campaign.sending_speed ?? 80); // msg/min
   // delay between batches = (batchSize / speed) * 60s → ms
   const batchDelayMs = Math.max(1000, Math.ceil((BATCH_SIZE / sendingSpeed) * 60_000));
 
@@ -410,7 +453,7 @@ async function startSendLoop(
     // Process entire batch concurrently; failures don't abort the batch
     await Promise.allSettled(
       (batch as Message[]).map((msg) =>
-        processMessage(msg, conn!, tpl!, mapping, campaignId)
+        processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId)
       )
     );
 

@@ -37,19 +37,10 @@ export function MessageBubble({ message }: Props) {
 }
 
 function StatusTicks({ message }: { message: InboxMessage }) {
-  if (message.failed_at) {
-    return <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />;
-  }
-  if (message.read_at) {
-    return <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />;
-  }
-  if (message.delivered_at) {
-    return <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2 shrink-0" />;
-  }
-  if (message.sent_at) {
-    return <Check className="w-3 h-3 text-agro-muted-2 shrink-0" />;
-  }
-  // "sending" — relógio
+  if (message.status === "failed")    return <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />;
+  if (message.status === "read")      return <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />;
+  if (message.status === "delivered") return <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2 shrink-0" />;
+  if (message.status === "sent")      return <Check className="w-3 h-3 text-agro-muted-2 shrink-0" />;
   return <Clock className="w-3 h-3 text-agro-muted-2 shrink-0 opacity-60" />;
 }
 
@@ -175,6 +166,30 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return (
         <div className="flex items-center justify-center py-1">
           <span className="text-2xl leading-none">{message.reaction_emoji}</span>
+        </div>
+      );
+
+    case "button_reply":
+      return (
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.25)" }}
+        >
+          <span className="text-base leading-none">🔘</span>
+          <p className="text-sm font-medium" style={{ color: "#3fb06c" }}>
+            {message.body ?? "Botão clicado"}
+          </p>
+        </div>
+      );
+
+    case "template":
+      return (
+        <div className="flex items-start gap-2.5">
+          <span className="text-base leading-none mt-0.5">📋</span>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2 mb-0.5">Template</p>
+            <p className="text-sm text-agro-text">{message.body ?? "Mensagem enviada via template"}</p>
+          </div>
         </div>
       );
 
