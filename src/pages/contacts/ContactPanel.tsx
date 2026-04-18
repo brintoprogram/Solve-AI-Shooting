@@ -1,0 +1,375 @@
+import { useEffect, useState } from "react";
+import {
+  X, Mail, Phone, Building2, Hash, MapPin,
+  User, CreditCard, Loader2,
+} from "lucide-react";
+import { supabase } from "@/lib/supabase";
+
+// ── Types ──────────────────────────────────────────────────────────
+
+export interface Contact {
+  id:                  string;
+  name:                string | null;
+  phone:               string | null;
+  cpf_cnpj:            string | null;
+  empresa:             string | null;
+  email:               string | null;
+  email2:              string | null;
+  nome_representante:  string | null;
+  email_representante: string | null;
+  cep:                 string | null;
+  logradouro:          string | null;
+  numero:              string | null;
+  complemento:         string | null;
+  bairro:              string | null;
+  cidade:              string | null;
+  estado:              string | null;
+  tags:                string[];
+  created_at:          string;
+}
+
+interface Invoice {
+  id:            string;
+  valor:         number;
+  vencimento:    string | null;
+  status:        string;
+  numero_nf:     string | null;
+  codigo_barras: string | null;
+  created_at:    string;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
+
+export const TAG_PALETTE = [
+  { bg: "rgba(63,176,108,0.12)",  text: "#3fb06c", border: "rgba(63,176,108,0.3)" },
+  { bg: "rgba(59,130,246,0.12)",  text: "#60a5fa", border: "rgba(59,130,246,0.3)" },
+  { bg: "rgba(168,85,247,0.12)",  text: "#c084fc", border: "rgba(168,85,247,0.3)" },
+  { bg: "rgba(245,158,11,0.12)",  text: "#fbbf24", border: "rgba(245,158,11,0.3)" },
+  { bg: "rgba(239,68,68,0.12)",   text: "#f87171", border: "rgba(239,68,68,0.3)"  },
+  { bg: "rgba(20,184,166,0.12)",  text: "#2dd4bf", border: "rgba(20,184,166,0.3)" },
+];
+
+export function tagColor(tag: string) {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = tag.charCodeAt(i) + ((h << 5) - h);
+  return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length];
+}
+
+function initials(name: string | null) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const formatBRL = (v: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+const formatDate = (d: string | null) => {
+  if (!d) return "—";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+};
+
+const INVOICE_STATUS: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  pendente:  { label: "Pendente",  bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)" },
+  pago:      { label: "Pago",      bg: "rgba(63,176,108,0.12)", text: "#3fb06c", border: "rgba(63,176,108,0.3)" },
+  vencido:   { label: "Vencido",   bg: "rgba(239,68,68,0.12)",  text: "#f87171", border: "rgba(239,68,68,0.3)"  },
+  cancelado: { label: "Cancelado", bg: "rgba(107,127,110,0.12)",text: "#6b7f6e", border: "rgba(107,127,110,0.3)"},
+};
+
+// ── Sub-components ─────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = INVOICE_STATUS[status] ?? INVOICE_STATUS.pendente;
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap"
+      style={{ background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}` }}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | null | undefined;
+}) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b border-[#1e2e22] last:border-0">
+      <div className="w-7 h-7 rounded-lg bg-[#0a110e] flex items-center justify-center shrink-0 mt-0.5">
+        <Icon className="w-3.5 h-3.5 text-[#3fb06c]" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-0.5">{label}</p>
+        <p className="text-sm text-white break-words">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, color }: { label: string; value: string; color: "amber" | "red" | "green" }) {
+  const c = {
+    amber: { bg: "rgba(245,158,11,0.08)",  border: "rgba(245,158,11,0.2)",  text: "#fbbf24" },
+    red:   { bg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.2)",   text: "#f87171" },
+    green: { bg: "rgba(63,176,108,0.08)",  border: "rgba(63,176,108,0.2)",  text: "#3fb06c" },
+  }[color];
+  return (
+    <div className="rounded-xl p-3" style={{ background: c.bg, border: `1px solid ${c.border}` }}>
+      <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-lg font-bold" style={{ color: c.text }}>{value}</p>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────
+
+export function ContactPanel({ contact, onClose }: { contact: Contact; onClose: () => void }) {
+  const [tab,        setTab]        = useState<"cadastro" | "financeiro">("cadastro");
+  const [invoices,   setInvoices]   = useState<Invoice[]>([]);
+  const [invLoading, setInvLoading] = useState(false);
+  const [visible,    setVisible]    = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 10);
+    return () => clearTimeout(t);
+  }, []);
+
+  const loadInvoices = () => {
+    setInvLoading(true);
+    db.from("contact_invoices")
+      .select("*")
+      .eq("contact_id", contact.id)
+      .order("vencimento", { ascending: false })
+      .then(({ data }: { data: Invoice[] | null }) => {
+        setInvoices(data ?? []);
+        setInvLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    if (tab !== "financeiro") return;
+    loadInvoices();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, contact.id]);
+
+  useEffect(() => {
+    if (tab !== "financeiro") return;
+    const ch = supabase
+      .channel(`inv-panel-${contact.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "contact_invoices",
+        filter: `contact_id=eq.${contact.id}`,
+      }, loadInvoices)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, contact.id]);
+
+  const address = [
+    contact.logradouro,
+    contact.numero     && `nº ${contact.numero}`,
+    contact.complemento,
+    contact.bairro,
+    contact.cidade,
+    contact.estado,
+    contact.cep        && `CEP ${contact.cep}`,
+  ].filter(Boolean).join(", ");
+
+  const totalPendente = invoices.filter((i) => i.status === "pendente").reduce((s, i) => s + i.valor, 0);
+  const totalVencido  = invoices.filter((i) => i.status === "vencido").reduce((s, i) => s + i.valor, 0);
+  const totalPago     = invoices.filter((i) => i.status === "pago").reduce((s, i) => s + i.valor, 0);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+        style={{ opacity: visible ? 1 : 0 }}
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div
+        className="fixed inset-y-0 right-0 z-50 flex flex-col w-full max-w-[580px] shadow-2xl transition-transform duration-300"
+        style={{
+          background: "#0d1710",
+          borderLeft: "1px solid #2a3d30",
+          transform: visible ? "translateX(0)" : "translateX(100%)",
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-4 px-5 py-4 shrink-0" style={{ borderBottom: "1px solid #1e2e22" }}>
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-sm shrink-0"
+            style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+          >
+            {initials(contact.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-semibold text-white truncate">{contact.name ?? "Sem nome"}</p>
+            <p className="text-xs text-[#6b7f6e] truncate">
+              {contact.empresa ?? contact.email ?? contact.phone ?? "—"}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#6b7f6e] hover:text-white hover:bg-[#1e2e22] transition-colors shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex shrink-0 px-5 pt-3" style={{ borderBottom: "1px solid #1e2e22" }}>
+          {(["cadastro", "financeiro"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`relative px-4 pb-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                tab === t
+                  ? "text-[#3fb06c] border-[#3fb06c]"
+                  : "text-[#6b7f6e] border-transparent hover:text-white"
+              }`}
+            >
+              {t === "cadastro" ? "Cadastro" : "Financeiro"}
+              {t === "financeiro" && invoices.length > 0 && (
+                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-[#3fb06c]/20 text-[#3fb06c]">
+                  {invoices.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+
+          {/* ── Cadastro ──────────────────────────────── */}
+          {tab === "cadastro" && (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
+                <InfoRow icon={Phone}     label="Telefone / WhatsApp"  value={contact.phone} />
+                <InfoRow icon={Hash}      label="CPF / CNPJ"           value={contact.cpf_cnpj} />
+                <InfoRow icon={Building2} label="Empresa"              value={contact.empresa} />
+                <InfoRow icon={Mail}      label="E-mail"               value={contact.email} />
+                <InfoRow icon={Mail}      label="E-mail secundário"    value={contact.email2} />
+              </div>
+
+              {(contact.nome_representante || contact.email_representante) && (
+                <div>
+                  <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-2 ml-1">Representante</p>
+                  <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
+                    <InfoRow icon={User} label="Nome"   value={contact.nome_representante} />
+                    <InfoRow icon={Mail} label="E-mail" value={contact.email_representante} />
+                  </div>
+                </div>
+              )}
+
+              {address && (
+                <div>
+                  <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-2 ml-1">Endereço</p>
+                  <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
+                    <InfoRow icon={MapPin} label="Endereço completo" value={address} />
+                  </div>
+                </div>
+              )}
+
+              {contact.tags?.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-2 ml-1">Tags</p>
+                  <div className="flex flex-wrap gap-2">
+                    {contact.tags.map((tag) => {
+                      const c = tagColor(tag);
+                      return (
+                        <span
+                          key={tag}
+                          className="px-2.5 py-1 rounded-full text-xs font-medium"
+                          style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
+                        >
+                          {tag}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Financeiro ────────────────────────────── */}
+          {tab === "financeiro" && (
+            <div className="space-y-4">
+              {invoices.length > 0 && (
+                <div className="grid grid-cols-3 gap-3">
+                  <SummaryCard label="A receber"  value={formatBRL(totalPendente)} color="amber" />
+                  <SummaryCard label="Em atraso"  value={formatBRL(totalVencido)}  color="red"   />
+                  <SummaryCard label="Recebido"   value={formatBRL(totalPago)}     color="green" />
+                </div>
+              )}
+
+              {invLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-5 h-5 text-[#3fb06c] animate-spin" />
+                </div>
+              ) : invoices.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <CreditCard className="w-8 h-8 text-[#6b7f6e] mb-3" />
+                  <p className="text-sm text-white">Sem boletos cadastrados</p>
+                  <p className="text-xs text-[#6b7f6e] mt-1">
+                    Importe uma planilha com dados financeiros para este contato
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-[#2a3d30] overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-[#111a14]" style={{ borderBottom: "1px solid #2a3d30" }}>
+                        <th className="px-3 py-2.5 text-left text-[#6b7f6e] font-medium">Valor</th>
+                        <th className="px-3 py-2.5 text-left text-[#6b7f6e] font-medium">Vencimento</th>
+                        <th className="px-3 py-2.5 text-left text-[#6b7f6e] font-medium">NF / Ref.</th>
+                        <th className="px-3 py-2.5 text-left text-[#6b7f6e] font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((inv, i) => (
+                        <tr
+                          key={inv.id}
+                          className="transition-colors hover:bg-[#1e2e22]/40"
+                          style={{ borderBottom: i < invoices.length - 1 ? "1px solid #1e2e22" : undefined }}
+                        >
+                          <td className="px-3 py-2.5 font-semibold text-white whitespace-nowrap">
+                            {formatBRL(inv.valor)}
+                          </td>
+                          <td className="px-3 py-2.5 text-[#6b7f6e] font-mono">
+                            {formatDate(inv.vencimento)}
+                          </td>
+                          <td className="px-3 py-2.5 text-[#6b7f6e] font-mono max-w-[120px] truncate">
+                            {inv.numero_nf ?? "—"}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <StatusBadge status={inv.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
