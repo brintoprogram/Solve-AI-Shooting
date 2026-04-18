@@ -11,7 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const META_API = "https://graph.facebook.com/v21.0";
+const META_API = "https://graph.facebook.com/v25.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -135,12 +135,17 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   const wamid = (metaBody.messages as Array<{ id: string }>)?.[0]?.id ?? null;
-  console.log(`[send] enviado → ${contact.phone} wamid=${wamid}`);
+
+  if (!wamid) {
+    console.warn("[send] ATENÇÃO: Meta não retornou wamid. Resposta:", JSON.stringify(metaBody));
+  } else {
+    console.log(`[send] ✓ enviado → ${contact.phone} wamid=${wamid}`);
+  }
 
   // 6. Save outbound message
   const now = new Date().toISOString();
 
-  const { error: insertErr } = await supabase.from("inbox_messages").insert({
+  const { data: inserted, error: insertErr } = await supabase.from("inbox_messages").insert({
     workspace_id,
     conversation_id,
     contact_id:     conv.contact_id,
@@ -153,12 +158,14 @@ async function handleRequest(req: Request): Promise<Response> {
     media_caption:  captionText,
     status:         "sending",
     created_at:     now,
-  });
+  }).select("id").single();
 
   if (insertErr) {
     console.error("[send] erro ao salvar mensagem no DB:", insertErr.message);
     return json({ error: `Mensagem enviada mas não salva: ${insertErr.message}` }, 500);
   }
+
+  console.log(`[send] ✓ inbox_message salva id=${inserted?.id} wamid=${wamid} status=sending`);
 
   // 7. Update conversation preview
   await supabase

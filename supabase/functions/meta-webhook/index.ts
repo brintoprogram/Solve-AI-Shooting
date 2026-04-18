@@ -26,13 +26,11 @@ Deno.serve(async (req: Request) => {
       return new Response("Bad Request", { status: 400 });
     }
 
-    // 1. Env var (sempre funciona)
     if (ENV_VERIFY_TOKEN && token === ENV_VERIFY_TOKEN) {
       console.log("[webhook] verificado via env ✓");
       return new Response(challenge, { status: 200 });
     }
 
-    // 2. Fallback: qualquer conexão com esse token
     const { data: conn } = await supabase
       .from("meta_connections")
       .select("id")
@@ -57,7 +55,7 @@ Deno.serve(async (req: Request) => {
       return new Response("Invalid JSON", { status: 400 });
     }
 
-    // Processa e responde — Meta exige resposta em até 20s
+    // Meta exige resposta em até 20s — processar e responder
     await processWebhook(body).catch((err) =>
       console.error("[webhook] erro crítico:", err?.message)
     );
@@ -80,9 +78,8 @@ async function processWebhook(body: Record<string, unknown>) {
       const value = c.value as Record<string, unknown>;
 
       // ── Identifica a conexão pelo phone_number_id do payload ───
-      // Isso elimina qualquer dependência de workspace_id na URL
-      const metadata     = value?.metadata as Record<string, unknown> | undefined;
-      const phoneNumId   = metadata?.phone_number_id as string | undefined;
+      const metadata   = value?.metadata as Record<string, unknown> | undefined;
+      const phoneNumId = metadata?.phone_number_id as string | undefined;
 
       let connectionId: string | null = null;
       let workspaceId:  string | null = null;
@@ -96,7 +93,7 @@ async function processWebhook(body: Record<string, unknown>) {
 
         if (connErr) console.error("[webhook] erro ao buscar conexão:", connErr.message);
 
-        connectionId = conn?.id        ?? null;
+        connectionId = conn?.id          ?? null;
         workspaceId  = conn?.workspace_id ?? null;
 
         console.log(`[webhook] phone_number_id=${phoneNumId} → connection=${connectionId} workspace=${workspaceId}`);
@@ -104,7 +101,6 @@ async function processWebhook(body: Record<string, unknown>) {
 
       if (!connectionId || !workspaceId) {
         console.warn("[webhook] conexão não encontrada para phone_number_id:", phoneNumId);
-        // Salva evento mesmo assim para debug
         await supabase.from("webhook_events").insert({
           workspace_id:       "unknown",
           meta_connection_id: "unknown",
@@ -144,7 +140,7 @@ async function processWebhook(body: Record<string, unknown>) {
           (contactEntry?.profile as Record<string, unknown>)?.name as string
         ) ?? undefined;
 
-        console.log(`[inbox] recebido tipo=${type} de=${from}`);
+        console.log(`[inbox] recebido tipo=${type} de=${from} wamid=${wamid}`);
 
         const contactId = await upsertContact(workspaceId, from, profileName, ts);
         if (!contactId) { console.error("[inbox] falhou contato:", from); continue; }
@@ -193,71 +189,98 @@ async function processWebhook(body: Record<string, unknown>) {
 
       // ── 2. Status updates → inbox_messages + shooting_messages ──
       const statuses = (value?.statuses as unknown[]) ?? [];
+
+      if (statuses.length > 0) {
+        console.log(`[status] recebidos ${statuses.length} status update(s)`);
+      }
+
       for (const s of statuses) {
         const status = s as Record<string, unknown>;
         const wamid  = status.id     as string;
         const st     = status.status as string;
         const ts     = new Date(Number(status.timestamp) * 1000).toISOString();
 
-        // ── 2a. Tenta atualizar inbox_messages (mensagens do Inbox) ─
-        const { data: inboxMsg } = await supabase
+        console.log(`[status] wamid=${wamid} status=${st}`);
+
+        // ── 2a. Tenta atualizar inbox_messages ──────────────────────
+        // IMPORTANTE: SELECT sem colunas opcionais (sent_at, etc.) para não
+        // falhar caso a coluna ainda não exista no schema do usuário.
+        const { data: inboxMsg, error: inboxLookupErr } = await supabase
           .from("inbox_messages")
-          .select("id, status, sent_at")
+          .select("id, status")
           .eq("wamid", wamid)
           .maybeSingle();
 
+        if (inboxLookupErr) {
+          console.error(`[status] erro ao buscar inbox_message wamid=${wamid}:`, inboxLookupErr.message);
+        }
+
         if (inboxMsg) {
+          console.log(`[status] inbox_message encontrada id=${inboxMsg.id} status_atual=${inboxMsg.status}`);
+
           const inboxUpdates: Record<string, unknown> = {};
 
-          // Checa sent_at (não status) para ser robusto independente do
-          // valor gravado pelo send-inbox-message no momento do envio
-          if (st === "sent" && !["sent","delivered","read"].includes(inboxMsg.status)) {
+          if (st === "sent" && !["sent", "delivered", "read"].includes(inboxMsg.status)) {
             inboxUpdates.status = "sent";
-            // sent_at omitted — column may not exist in older schema deployments
-          } else if (st === "delivered" && !["delivered","read"].includes(inboxMsg.status)) {
-            inboxUpdates.status       = "delivered";
-            inboxUpdates.delivered_at = ts;
+          } else if (st === "delivered" && !["delivered", "read"].includes(inboxMsg.status)) {
+            inboxUpdates.status = "delivered";
           } else if (st === "read" && inboxMsg.status !== "read") {
-            inboxUpdates.status  = "read";
-            inboxUpdates.read_at = ts;
+            inboxUpdates.status = "read";
           } else if (st === "failed") {
-            inboxUpdates.status    = "failed";
-            inboxUpdates.failed_at = ts;
+            inboxUpdates.status = "failed";
           }
 
           if (Object.keys(inboxUpdates).length > 0) {
-            await supabase
+            const { error: updateErr } = await supabase
               .from("inbox_messages")
               .update(inboxUpdates)
               .eq("id", inboxMsg.id);
-            console.log(`[status] inbox_message ${wamid} → ${st}`);
+
+            if (updateErr) {
+              console.error(`[status] erro ao atualizar inbox_message ${wamid}:`, updateErr.message);
+            } else {
+              console.log(`[status] ✓ inbox_message ${wamid} → ${st}`);
+            }
+          } else {
+            console.log(`[status] inbox_message ${wamid} já em status=${inboxMsg.status}, sem update necessário`);
           }
-          continue; // wamid encontrado no inbox, não precisa checar shooting
+
+          continue; // wamid encontrado no inbox — não checar shooting
         }
 
-        // ── 2b. Tenta atualizar shooting_messages (campanhas) ───────
-        const { data: shootingMsg } = await supabase
+        // ── 2b. Tenta atualizar shooting_messages ───────────────────
+        const { data: shootingMsg, error: shootingLookupErr } = await supabase
           .from("shooting_messages")
           .select("id, campaign_id, status")
           .eq("wamid", wamid)
           .maybeSingle();
 
-        if (!shootingMsg) continue;
+        if (shootingLookupErr) {
+          console.error(`[status] erro ao buscar shooting_message wamid=${wamid}:`, shootingLookupErr.message);
+        }
+
+        if (!shootingMsg) {
+          console.warn(`[status] wamid=${wamid} não encontrado em inbox nem em shooting_messages`);
+          continue;
+        }
 
         const updates: Record<string, unknown> = {};
 
-        if (st === "sent" && !["delivered","read","replied"].includes(shootingMsg.status)) {
-          // Campaign-engine already set status="sent"; webhook confirms and stamps sent_at
+        if (st === "sent" && !["delivered", "read", "replied"].includes(shootingMsg.status)) {
           updates.status  = "sent";
           updates.sent_at = ts;
-        } else if (st === "delivered" && !["delivered","read","replied"].includes(shootingMsg.status)) {
+        } else if (st === "delivered" && !["delivered", "read", "replied"].includes(shootingMsg.status)) {
           updates.status       = "delivered";
           updates.delivered_at = ts;
-          await supabase.rpc("increment_campaign_counters", { p_campaign_id: shootingMsg.campaign_id, p_counter_name: "delivered_count" });
-        } else if (st === "read" && !["read","replied"].includes(shootingMsg.status)) {
+          await supabase.rpc("increment_campaign_counters", {
+            p_campaign_id: shootingMsg.campaign_id, p_counter_name: "delivered_count",
+          });
+        } else if (st === "read" && !["read", "replied"].includes(shootingMsg.status)) {
           updates.status  = "read";
           updates.read_at = ts;
-          await supabase.rpc("increment_campaign_counters", { p_campaign_id: shootingMsg.campaign_id, p_counter_name: "read_count" });
+          await supabase.rpc("increment_campaign_counters", {
+            p_campaign_id: shootingMsg.campaign_id, p_counter_name: "read_count",
+          });
         } else if (st === "failed") {
           const errors = status.errors as Array<Record<string, unknown>> | undefined;
           const err    = errors?.[0];
@@ -266,12 +289,22 @@ async function processWebhook(body: Record<string, unknown>) {
           updates.error_code    = String(err?.code ?? "");
           updates.error_message = String(err?.title ?? err?.message ?? "Unknown error");
           updates.error_details = err ?? null;
-          await supabase.rpc("increment_campaign_counters", { p_campaign_id: shootingMsg.campaign_id, p_counter_name: "failed_count" });
+          await supabase.rpc("increment_campaign_counters", {
+            p_campaign_id: shootingMsg.campaign_id, p_counter_name: "failed_count",
+          });
         }
 
         if (Object.keys(updates).length > 0) {
-          await supabase.from("shooting_messages").update(updates).eq("id", shootingMsg.id);
-          console.log(`[status] shooting_message ${wamid} → ${st}`);
+          const { error: updateErr } = await supabase
+            .from("shooting_messages")
+            .update(updates)
+            .eq("id", shootingMsg.id);
+
+          if (updateErr) {
+            console.error(`[status] erro ao atualizar shooting_message ${wamid}:`, updateErr.message);
+          } else {
+            console.log(`[status] ✓ shooting_message ${wamid} → ${st}`);
+          }
         }
       }
     }
@@ -325,7 +358,7 @@ async function upsertConversation(
 
   if (existing) {
     await supabase.from("inbox_conversations").update({
-      status: "open",
+      status:            "open",
       unread_count:      (existing.unread_count as number) + 1,
       last_message_at:   ts,
       last_message_body: lastBody,
