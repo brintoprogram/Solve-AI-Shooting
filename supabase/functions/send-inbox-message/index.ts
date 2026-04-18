@@ -152,7 +152,6 @@ async function handleRequest(req: Request): Promise<Response> {
     media_filename: media_filename ?? null,
     media_caption:  captionText,
     status:         "sending",
-    sent_at:        null,
     created_at:     now,
   });
 
