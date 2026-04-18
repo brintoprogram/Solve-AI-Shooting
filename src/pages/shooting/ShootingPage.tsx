@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, RefreshCw, Send, AlertTriangle, Zap } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignList } from "./components/CampaignList";
+import { CampaignBuilder } from "./CampaignBuilder";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
@@ -12,6 +14,7 @@ const WORKSPACE_ID = getWorkspaceId();
 
 export function ShootingPage() {
   const navigate = useNavigate();
+  const [showBuilder, setShowBuilder] = useState(false);
   const { campaigns, loading, deleteCampaign, refetch } = useCampaigns(WORKSPACE_ID);
   const { connections } = useMetaConnections(WORKSPACE_ID);
   const { templates, syncing, syncTemplates } = useMetaTemplates(WORKSPACE_ID);
@@ -57,7 +60,7 @@ export function ShootingPage() {
               Atualizar
             </button>
             <button
-              onClick={() => navigate("/shooting/new")}
+              onClick={() => setShowBuilder(true)}
               className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
             >
               <Plus className="w-4 h-4" />
@@ -149,8 +152,14 @@ export function ShootingPage() {
         )}
 
         {/* ── Tabs ─────────────────────────────── */}
-        <TabsView tabs={tabs} loading={loading} onDelete={deleteCampaign} onNew={() => navigate("/shooting/new")} />
+        <TabsView tabs={tabs} loading={loading} onDelete={deleteCampaign} onNew={() => setShowBuilder(true)} />
       </div>
+
+      <CampaignBuilder
+        open={showBuilder}
+        onClose={() => setShowBuilder(false)}
+        onCreated={refetch}
+      />
     </div>
   );
 }
@@ -158,7 +167,6 @@ export function ShootingPage() {
 // ─────────────────────────────────────────
 // Internal tabs component
 // ─────────────────────────────────────────
-import { useState } from "react";
 import type { CampaignWithTemplate } from "@/types/shooting";
 
 function TabsView({
