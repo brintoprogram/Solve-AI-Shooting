@@ -579,17 +579,16 @@ export function Templates() {
           </div>
         )}
       </div>
-    </div>
 
-    {/* ── Template Builder modal ───────────────────────────────── */}
-    {showBuilder && selectedConn && (
-      <TemplateBuilder
-        connection={selectedConn}
-        workspaceId={WORKSPACE_ID}
-        onClose={() => setShowBuilder(false)}
-        onSuccess={loadTemplates}
-      />
-    )}
-  </div>
+      {/* ── Template Builder modal ───────────────────────────────── */}
+      {showBuilder && selectedConn && (
+        <TemplateBuilder
+          connection={selectedConn}
+          workspaceId={WORKSPACE_ID}
+          onClose={() => setShowBuilder(false)}
+          onSuccess={loadTemplates}
+        />
+      )}
+    </div>
   );
 }

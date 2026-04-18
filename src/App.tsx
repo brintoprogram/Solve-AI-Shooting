@@ -11,6 +11,7 @@ import { Settings } from "@/pages/Settings";
 import { Inbox } from "@/pages/Inbox";
 import { Team } from "@/pages/Team";
 import { Templates } from "@/pages/Templates";
+import { Contacts } from "@/pages/Contacts";
 
 export function App() {
   return (
@@ -37,7 +38,7 @@ function AppRoutes() {
         <Route path="/shooting/new"             element={<CampaignWizard />} />
         <Route path="/shooting/campaigns/:id"   element={<CampaignDetail />} />
         <Route path="/settings"                 element={<Settings />} />
-        <Route path="/contacts"                 element={<PlaceholderPage title="Contatos" />} />
+        <Route path="/contacts"                 element={<Contacts />} />
         <Route path="/inbox"                    element={<Inbox />} />
         <Route path="/automations"              element={<PlaceholderPage title="Automações" />} />
         <Route path="/team"                     element={<Team />} />
