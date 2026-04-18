@@ -14,21 +14,67 @@ import type { MetaTemplate } from "@/types/shooting";
 import type { Contact } from "@/pages/contacts/ContactPanel";
 
 // ─────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────
+
+interface InvoiceRaw {
+  valor:         number;
+  vencimento:    string | null;
+  status:        string;
+  numero_nf:     string | null;
+  codigo_barras: string | null;
+}
+
+// Contact fetched from DB with nested invoices + computed virtual columns
+interface ContactWithInvoices extends Contact {
+  contact_invoices?:      InvoiceRaw[];
+  // Virtual columns (injected by aggregateInvoices)
+  valor_total_pendente?:  string;
+  proximo_vencimento?:    string;
+  boleto_nf?:             string;
+  boleto_codigo_barras?:  string;
+}
+
+interface FieldGroup {
+  label:  string;
+  fields: { value: string; label: string }[];
+}
+
+// ─────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────
 
 const WORKSPACE_ID = getWorkspaceId();
 const PAGE = 50;
 
-const CONTACT_FIELDS: { value: string; label: string }[] = [
-  { value: "name",               label: "Nome" },
-  { value: "phone",              label: "Telefone" },
-  { value: "cpf_cnpj",          label: "CPF / CNPJ" },
-  { value: "empresa",            label: "Empresa" },
-  { value: "email",              label: "E-mail" },
-  { value: "nome_representante", label: "Representante" },
-  { value: "cidade",             label: "Cidade" },
-  { value: "estado",             label: "Estado" },
+const CONTACT_FIELD_GROUP: FieldGroup = {
+  label: "Dados do Contato",
+  fields: [
+    { value: "name",               label: "Nome" },
+    { value: "phone",              label: "Telefone" },
+    { value: "cpf_cnpj",          label: "CPF / CNPJ" },
+    { value: "empresa",            label: "Empresa" },
+    { value: "email",              label: "E-mail" },
+    { value: "nome_representante", label: "Representante" },
+    { value: "cidade",             label: "Cidade" },
+    { value: "estado",             label: "Estado" },
+  ],
+};
+
+const FINANCIAL_FIELD_GROUP: FieldGroup = {
+  label: "Dados Financeiros (boletos pendentes)",
+  fields: [
+    { value: "valor_total_pendente", label: "Valor Total Pendente  (ex: R$ 1.250,00)" },
+    { value: "proximo_vencimento",   label: "Próximo Vencimento  (ex: 30/04/2025)" },
+    { value: "boleto_nf",            label: "Número da NF / Boleto" },
+    { value: "boleto_codigo_barras", label: "Código de Barras" },
+  ],
+};
+
+// Groups used by the contacts source in Step 3
+const CONTACTS_FIELD_GROUPS: FieldGroup[] = [
+  CONTACT_FIELD_GROUP,
+  FINANCIAL_FIELD_GROUP,
 ];
 
 const SPEED_OPTIONS = [
@@ -40,10 +86,63 @@ const SPEED_OPTIONS = [
 ];
 
 const STEPS = [
-  { id: 1, label: "Configuração",  subtitle: "Nome & template",      Icon: Target   },
-  { id: 2, label: "Público",       subtitle: "Quem vai receber",     Icon: Users    },
-  { id: 3, label: "Personalização",subtitle: "Variáveis & velocidade", Icon: Sliders },
+  { id: 1, label: "Configuração",   subtitle: "Nome & template",       Icon: Target  },
+  { id: 2, label: "Público",        subtitle: "Quem vai receber",      Icon: Users   },
+  { id: 3, label: "Personalização", subtitle: "Variáveis & velocidade", Icon: Sliders },
 ];
+
+// Pending statuses to aggregate
+const PENDING_STATUSES = ["pendente", "vencido", "aberto", "em_aberto"];
+
+// ─────────────────────────────────────────────────────────
+// Financial aggregation
+// ─────────────────────────────────────────────────────────
+
+function aggregateInvoices(contact: ContactWithInvoices): ContactWithInvoices {
+  const invoices = (contact.contact_invoices ?? []).filter((inv) =>
+    PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
+  );
+
+  if (invoices.length === 0) {
+    return {
+      ...contact,
+      valor_total_pendente:  "R$ 0,00",
+      proximo_vencimento:    "",
+      boleto_nf:             "",
+      boleto_codigo_barras:  "",
+    };
+  }
+
+  // Sort ascending by vencimento → most urgent first
+  const sorted = [...invoices].sort((a, b) => {
+    if (!a.vencimento) return 1;
+    if (!b.vencimento) return -1;
+    return new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime();
+  });
+
+  const total      = invoices.reduce((sum, inv) => sum + (Number(inv.valor) || 0), 0);
+  const mostUrgent = sorted[0];
+
+  // Format currency pt-BR
+  const valorFormatado = total.toLocaleString("pt-BR", {
+    style: "currency", currency: "BRL",
+  });
+
+  // Format date dd/mm/aaaa (force UTC to avoid timezone shifts)
+  let vencimentoFormatado = "";
+  if (mostUrgent.vencimento) {
+    const [y, m, d] = mostUrgent.vencimento.split("-");
+    if (y && m && d) vencimentoFormatado = `${d}/${m}/${y}`;
+  }
+
+  return {
+    ...contact,
+    valor_total_pendente:  valorFormatado,
+    proximo_vencimento:    vencimentoFormatado,
+    boleto_nf:             mostUrgent.numero_nf     ?? "",
+    boleto_codigo_barras:  mostUrgent.codigo_barras ?? "",
+  };
+}
 
 // ─────────────────────────────────────────────────────────
 // CSV helpers
@@ -80,7 +179,7 @@ function bodyVars(tpl: MetaTemplate): string[] {
 
 function renderPreview(
   tpl: MetaTemplate,
-  data: Record<string, string>,
+  data: Record<string, unknown>,
   map: Record<string, string>,
 ): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,22 +220,22 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const [templateId, setTemplateId] = useState("");
 
   // Audience
-  const [source,       setSource]    = useState<"contacts" | "csv">("contacts");
+  const [source,    setSource]   = useState<"contacts" | "csv">("contacts");
   // contacts mode
-  const [selTags,    setSelTags]     = useState<string[]>([]);
-  const [search,     setSearch]      = useState("");
-  const [selected,   setSelected]    = useState<Set<string>>(new Set());
-  const [contacts,   setContacts]    = useState<Contact[]>([]);
-  const [allTags,    setAllTags]     = useState<string[]>([]);
-  const [totalCount, setTotal]       = useState(0);
-  const [loadingC,   setLoadingC]    = useState(false);
+  const [selTags,   setSelTags]  = useState<string[]>([]);
+  const [search,    setSearch]   = useState("");
+  const [selected,  setSelected] = useState<Set<string>>(new Set());
+  const [contacts,  setContacts] = useState<ContactWithInvoices[]>([]);
+  const [allTags,   setAllTags]  = useState<string[]>([]);
+  const [totalCount, setTotal]   = useState(0);
+  const [loadingC,   setLoadingC] = useState(false);
   // csv mode
-  const [csvFile,    setCsvFile]     = useState<File | null>(null);
-  const [csvHeaders, setCsvHeaders]  = useState<string[]>([]);
-  const [csvRows,    setCsvRows]     = useState<Record<string, string>[]>([]);
-  const [csvPhone,   setCsvPhone]    = useState("");
-  const [csvError,   setCsvError]    = useState("");
-  const [isDragging, setIsDragging]  = useState(false);
+  const [csvFile,    setCsvFile]    = useState<File | null>(null);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows,    setCsvRows]    = useState<Record<string, string>[]>([]);
+  const [csvPhone,   setCsvPhone]   = useState("");
+  const [csvError,   setCsvError]   = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   // Variables & speed
   const [varMap,       setVarMap]       = useState<Record<string, string>>({});
@@ -149,18 +248,18 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const selectedTpl = approvedTemplates.find((t) => t.id === templateId);
   const vars        = selectedTpl ? bodyVars(selectedTpl) : [];
 
-  // First item for preview
-  const previewData: Record<string, string> | null =
+  // Field groups passed to Step3 (depends on source)
+  const fieldGroups: FieldGroup[] =
     source === "contacts"
-      ? (contacts.find((c) => selected.has(c.id)) as unknown as Record<string, string> | undefined) ?? null
+      ? CONTACTS_FIELD_GROUPS
+      : [{ label: "Colunas da planilha", fields: csvHeaders.map((h) => ({ value: h, label: h })) }];
+
+  // First selected item for preview
+  const previewData: Record<string, unknown> | null =
+    source === "contacts"
+      ? (contacts.find((c) => selected.has(c.id)) as Record<string, unknown> | undefined) ?? null
       : csvRows[0] ?? null;
 
-  const availableFields =
-    source === "csv"
-      ? csvHeaders.map((h) => ({ value: h, label: h }))
-      : CONTACT_FIELDS;
-
-  // Total recipients
   const totalRecipients =
     source === "contacts" ? selected.size : csvRows.length;
 
@@ -186,22 +285,27 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       });
   }, [step, source]);
 
-  // ── Load contacts (debounced) ─────────────────────────
+  // ── Load contacts + invoices (debounced) ──────────────
   const loadContacts = useCallback(async () => {
     setLoadingC(true);
     let q = db
       .from("inbox_contacts")
-      .select("*", { count: "exact" })
+      // Traz boletos junto para calcular colunas virtuais financeiras
+      .select("*, contact_invoices(valor, vencimento, status, numero_nf, codigo_barras)", { count: "exact" })
       .eq("workspace_id", WORKSPACE_ID)
       .order("name")
       .limit(PAGE);
+
     if (search.trim()) {
       const s = search.trim();
       q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,empresa.ilike.%${s}%`);
     }
     if (selTags.length > 0) q = q.overlaps("tags", selTags);
+
     const { data, count } = await q;
-    setContacts(data ?? []);
+    // Inject aggregated financial virtual columns into each contact
+    const enriched = ((data ?? []) as ContactWithInvoices[]).map(aggregateInvoices);
+    setContacts(enriched);
     setTotal(count ?? 0);
     setLoadingC(false);
   }, [search, selTags]);
@@ -231,7 +335,6 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       setCsvHeaders(headers);
       setCsvRows(rows);
       setCsvPhone("");
-      // auto-detect phone column
       const phoneCol = headers.find((h) =>
         /phone|telefone|celular|whatsapp|fone|contato/i.test(h)
       );
@@ -264,23 +367,28 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     setSubmitting(true);
     try {
       let messages: {
-        campaign_id?: string;
-        workspace_id: string;
+        workspace_id:    string;
         recipient_phone: string;
-        recipient_name: string;
-        recipient_data: Record<string, unknown>;
-        status: string;
-        retry_count: number;
-        max_retries: number;
+        recipient_name:  string;
+        recipient_data:  Record<string, unknown>;
+        status:          string;
+        retry_count:     number;
+        max_retries:     number;
       }[] = [];
 
       if (source === "contacts") {
+        // Fetch full contact data WITH invoices so virtual columns can be computed
         const { data: selContacts, error: selErr } = await db
           .from("inbox_contacts")
-          .select("*")
+          .select("*, contact_invoices(valor, vencimento, status, numero_nf, codigo_barras)")
           .in("id", [...selected]);
+
         if (selErr) throw new Error(selErr.message);
-        messages = (selContacts as Contact[]).map((c) => ({
+
+        // Aggregate financial virtual columns before saving to recipient_data
+        const enriched = ((selContacts ?? []) as ContactWithInvoices[]).map(aggregateInvoices);
+
+        messages = enriched.map((c) => ({
           workspace_id:    WORKSPACE_ID,
           recipient_phone: c.phone ?? "",
           recipient_name:  c.name  ?? "",
@@ -309,7 +417,10 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
           name:               name.trim(),
           template_id:        templateId,
           data_source:        source,
-          column_mapping:     { phone_column: source === "contacts" ? "phone" : csvPhone, body_variables: varMap },
+          column_mapping:     {
+            phone_column:    source === "contacts" ? "phone" : csvPhone,
+            body_variables:  varMap,
+          },
           filters:            source === "contacts" ? { tags: selTags } : {},
           total_recipients:   messages.length,
           status:             "draft",
@@ -366,7 +477,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
           boxShadow: "0 32px 100px rgba(0,0,0,0.7), 0 4px 24px rgba(0,0,0,0.5)",
         }}
       >
-        {/* Top accent line */}
+        {/* Top accent */}
         <div className="absolute top-0 left-0 right-0 h-px"
           style={{ background: "linear-gradient(90deg, transparent, rgba(63,176,108,0.6), transparent)" }}
         />
@@ -379,15 +490,14 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
             <h2 className="font-display text-xl font-bold text-agro-text">Nova Campanha</h2>
             <p className="text-xs text-agro-muted mt-0.5">Disparo em massa via WhatsApp Business API</p>
           </div>
-          <button
-            onClick={onClose}
+          <button onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* ── Body: sidebar + content ──────────────────── */}
+        {/* ── Body ────────────────────────────────────── */}
         <div className="flex flex-1 overflow-hidden">
 
           {/* Sidebar */}
@@ -425,7 +535,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
               );
             })}
 
-            {/* Recipients counter at bottom of sidebar */}
+            {/* Recipients counter */}
             {totalRecipients > 0 && (
               <div className="mt-auto mx-1 p-3 rounded-xl text-center"
                 style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.15)" }}
@@ -451,7 +561,6 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
             {step === 2 && (
               <Step2Audience
                 source={source} setSource={setSource}
-                // contacts
                 allTags={allTags} selTags={selTags}
                 toggleTag={(tag) => {
                   setSelTags((p) => p.includes(tag) ? p.filter((t) => t !== tag) : [...p, tag]);
@@ -472,7 +581,6 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 }}
                 search={search} setSearch={setSearch}
                 loading={loadingC}
-                // csv
                 csvFile={csvFile} csvHeaders={csvHeaders} csvRows={csvRows}
                 csvPhone={csvPhone} setCsvPhone={setCsvPhone}
                 csvError={csvError}
@@ -487,7 +595,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 template={selectedTpl}
                 vars={vars}
                 varMap={varMap} setVarMap={setVarMap}
-                availableFields={availableFields}
+                fieldGroups={fieldGroups}
                 previewData={previewData}
                 sendingSpeed={sendingSpeed} setSendingSpeed={setSendingSpeed}
               />
@@ -508,16 +616,14 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
           </button>
 
           <div className="flex items-center gap-3">
-            {/* Step dots */}
             <div className="flex items-center gap-1.5">
               {STEPS.map((s) => (
                 <div key={s.id} className={cn(
                   "rounded-full transition-all",
-                  step === s.id ? "w-5 h-1.5 bg-agro-green" : step > s.id ? "w-1.5 h-1.5 bg-agro-green/50" : "w-1.5 h-1.5 bg-white/10"
+                  step === s.id ? "w-5 h-1.5 bg-agro-green" : step > s.id ? "w-1.5 h-1.5 bg-agro-green/50" : "w-1.5 h-1.5 bg-white/10",
                 )} />
               ))}
             </div>
-
             {step < 3 ? (
               <button
                 disabled={!canNext()}
@@ -528,8 +634,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 )}
                 style={!canNext() ? { background: "rgba(63,176,108,0.15)", border: "1px solid rgba(63,176,108,0.1)" } : undefined}
               >
-                Próximo
-                <ChevronRight className="w-4 h-4" />
+                Próximo <ChevronRight className="w-4 h-4" />
               </button>
             ) : (
               <button
@@ -572,7 +677,6 @@ function Step1Setup({
         <p className="text-sm text-agro-muted">Defina o nome da campanha e o template aprovado que será disparado.</p>
       </div>
 
-      {/* Campaign name */}
       <div className="space-y-2">
         <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
           Nome da campanha *
@@ -589,7 +693,6 @@ function Step1Setup({
         />
       </div>
 
-      {/* Connection picker */}
       {connections.length > 1 && (
         <div className="space-y-2">
           <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
@@ -597,9 +700,7 @@ function Step1Setup({
           </label>
           <div className="grid grid-cols-2 gap-2">
             {connections.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => onConnChange(c.id)}
+              <button key={c.id} onClick={() => onConnChange(c.id)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-left transition-all",
                   connId === c.id ? "text-agro-text" : "text-agro-muted hover:text-agro-text",
@@ -621,7 +722,6 @@ function Step1Setup({
         </div>
       )}
 
-      {/* Template picker */}
       <div className="space-y-3">
         <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
           Template aprovado *
@@ -640,9 +740,7 @@ function Step1Setup({
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const bodyText = (tpl.components as any[]).find((c) => c.type === "BODY")?.text ?? "";
               return (
-                <button
-                  key={tpl.id}
-                  onClick={() => setTemplateId(tpl.id)}
+                <button key={tpl.id} onClick={() => setTemplateId(tpl.id)}
                   className={cn(
                     "flex items-start gap-4 px-5 py-4 rounded-xl text-left transition-all",
                     sel ? "text-agro-text" : "text-agro-muted hover:text-agro-text",
@@ -696,7 +794,7 @@ function Step2Audience({
 }: {
   source: "contacts" | "csv"; setSource: (s: "contacts" | "csv") => void;
   allTags: string[]; selTags: string[]; toggleTag: (t: string) => void;
-  contacts: Contact[]; totalCount: number; selected: Set<string>;
+  contacts: ContactWithInvoices[]; totalCount: number; selected: Set<string>;
   toggleContact: (id: string) => void; toggleAll: () => void;
   search: string; setSearch: (s: string) => void; loading: boolean;
   csvFile: File | null; csvHeaders: string[]; csvRows: Record<string, string>[];
@@ -730,8 +828,7 @@ function Step2Audience({
             border: "1px solid rgba(63,176,108,0.3)",
           } : undefined}
         >
-          <Database className="w-4 h-4" />
-          Contatos da base
+          <Database className="w-4 h-4" /> Contatos da base
         </button>
         <button
           onClick={() => setSource("csv")}
@@ -744,21 +841,16 @@ function Step2Audience({
             border: "1px solid rgba(63,176,108,0.3)",
           } : undefined}
         >
-          <FileSpreadsheet className="w-4 h-4" />
-          Importar planilha
+          <FileSpreadsheet className="w-4 h-4" /> Importar planilha
         </button>
       </div>
 
       {/* ── Contacts mode ── */}
       {source === "contacts" && (
         <>
-          {/* Selected counter */}
           <div className="flex items-center justify-between">
             <span className="text-xs text-agro-muted-2 uppercase tracking-widest font-semibold">Destinatários</span>
-            <span className={cn(
-              "text-sm font-bold px-3 py-1 rounded-full transition-colors",
-              selected.size > 0 ? "text-agro-green" : "text-agro-muted-2",
-            )}
+            <span className={cn("text-sm font-bold px-3 py-1 rounded-full transition-colors", selected.size > 0 ? "text-agro-green" : "text-agro-muted-2")}
               style={{
                 background: selected.size > 0 ? "rgba(63,176,108,0.12)" : "rgba(255,255,255,0.04)",
                 border:     selected.size > 0 ? "1px solid rgba(63,176,108,0.25)" : "1px solid rgba(255,255,255,0.06)",
@@ -768,7 +860,6 @@ function Step2Audience({
             </span>
           </div>
 
-          {/* Tags */}
           {allTags.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-agro-muted flex items-center gap-1.5">
@@ -794,12 +885,10 @@ function Step2Audience({
             </div>
           )}
 
-          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-agro-muted-2" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por nome, telefone ou empresa..."
               className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm text-agro-text placeholder:text-agro-muted-2 focus:outline-none transition-all"
               style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.12)" }}
@@ -808,24 +897,19 @@ function Step2Audience({
             />
           </div>
 
-          {/* Table */}
-          <div className="rounded-xl overflow-hidden"
-            style={{ border: "1px solid rgba(63,176,108,0.1)" }}
-          >
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
             <div className="flex items-center gap-3 px-4 py-3"
               style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
             >
-              <button onClick={toggleAll}
-                className={cn(
-                  "w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
-                  allOnPage ? "bg-agro-green border-agro-green" : "border-agro-muted-2 hover:border-agro-green",
-                )}
-              >
+              <button onClick={toggleAll} className={cn(
+                "w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
+                allOnPage ? "bg-agro-green border-agro-green" : "border-agro-muted-2 hover:border-agro-green",
+              )}>
                 {allOnPage && <Check className="w-2.5 h-2.5 text-white" />}
               </button>
               <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest flex-1">Nome</span>
-              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-36 hidden sm:block">Telefone</span>
-              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-32 hidden md:block">Tags</span>
+              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-32 hidden sm:block">Telefone</span>
+              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-28 text-right hidden md:block">Pendente</span>
             </div>
             <div className="max-h-52 overflow-y-auto">
               {loading ? (
@@ -837,6 +921,7 @@ function Step2Audience({
               ) : (
                 contacts.map((c) => {
                   const sel = selected.has(c.id);
+                  const hasPending = c.valor_total_pendente && c.valor_total_pendente !== "R$ 0,00";
                   return (
                     <div key={c.id} onClick={() => toggleContact(c.id)}
                       className={cn("flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors", sel ? "bg-agro-green/5" : "hover:bg-white/[0.03]")}
@@ -847,15 +932,10 @@ function Step2Audience({
                         {sel && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
                       <span className="text-sm text-agro-text flex-1 truncate">{c.name ?? "—"}</span>
-                      <span className="text-xs text-agro-muted w-36 hidden sm:block truncate">{c.phone ?? "—"}</span>
-                      <div className="w-32 hidden md:flex flex-wrap gap-1">
-                        {(c.tags ?? []).slice(0, 2).map((tag) => (
-                          <span key={tag} className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                            style={{ background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.15)" }}>
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                      <span className="text-xs text-agro-muted w-32 hidden sm:block truncate">{c.phone ?? "—"}</span>
+                      <span className={cn("text-xs w-28 text-right hidden md:block font-medium", hasPending ? "text-amber-400" : "text-agro-muted-2")}>
+                        {hasPending ? c.valor_total_pendente : "—"}
+                      </span>
                     </div>
                   );
                 })
@@ -874,17 +954,13 @@ function Step2Audience({
       {/* ── CSV mode ── */}
       {source === "csv" && (
         <div className="space-y-5">
-          {/* Drop zone */}
           {!csvFile ? (
             <div
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={onDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                "flex flex-col items-center justify-center py-16 rounded-2xl cursor-pointer transition-all",
-                isDragging ? "scale-[1.01]" : "hover:scale-[1.005]",
-              )}
+              className={cn("flex flex-col items-center justify-center py-16 rounded-2xl cursor-pointer transition-all", isDragging ? "scale-[1.01]" : "hover:scale-[1.005]")}
               style={{
                 border: `2px dashed ${isDragging ? "#3fb06c" : "rgba(63,176,108,0.25)"}`,
                 background: isDragging ? "rgba(63,176,108,0.06)" : "rgba(13,26,17,0.4)",
@@ -897,17 +973,11 @@ function Step2Audience({
               </div>
               <p className="text-sm font-semibold text-agro-text">Arraste seu arquivo ou clique para selecionar</p>
               <p className="text-xs text-agro-muted mt-1">Formato CSV · Use "Salvar como CSV" no Excel</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
-              />
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                onChange={(e) => onFileChange(e.target.files?.[0] ?? null)} />
             </div>
           ) : (
             <div className="space-y-4">
-              {/* File info */}
               <div className="flex items-center gap-3 p-4 rounded-xl"
                 style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.2)" }}
               >
@@ -916,30 +986,21 @@ function Step2Audience({
                   <p className="text-sm font-semibold text-agro-text truncate">{csvFile.name}</p>
                   <p className="text-xs text-agro-muted mt-0.5">{csvRows.length.toLocaleString("pt-BR")} linhas · {csvHeaders.length} colunas</p>
                 </div>
-                <button
-                  onClick={() => { fileInputRef.current?.click(); }}
+                <button onClick={() => fileInputRef.current?.click()}
                   className="text-xs text-agro-muted hover:text-agro-text transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5"
                   style={{ border: "1px solid rgba(63,176,108,0.15)" }}
                 >
                   Trocar arquivo
                 </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv"
-                  className="hidden"
-                  onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
-                />
+                <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                  onChange={(e) => onFileChange(e.target.files?.[0] ?? null)} />
               </div>
 
-              {/* Phone column selector */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
                   Coluna do telefone / WhatsApp *
                 </label>
-                <select
-                  value={csvPhone}
-                  onChange={(e) => setCsvPhone(e.target.value)}
+                <select value={csvPhone} onChange={(e) => setCsvPhone(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl text-sm text-agro-text focus:outline-none appearance-none cursor-pointer"
                   style={{
                     background: "rgba(13,26,17,0.7)",
@@ -948,13 +1009,10 @@ function Step2Audience({
                   }}
                 >
                   <option value="">— Selecione a coluna com o número de telefone —</option>
-                  {csvHeaders.map((h) => (
-                    <option key={h} value={h}>{h}</option>
-                  ))}
+                  {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
                 </select>
               </div>
 
-              {/* Preview table */}
               <div className="space-y-2">
                 <p className="text-xs text-agro-muted-2 uppercase tracking-widest font-semibold">Pré-visualização (primeiras 5 linhas)</p>
                 <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
@@ -963,8 +1021,7 @@ function Step2Audience({
                       <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
                         {csvHeaders.map((h) => (
                           <th key={h} className="px-3 py-2 text-left font-semibold text-agro-muted-2 whitespace-nowrap">
-                            {h}
-                            {h === csvPhone && <span className="ml-1 text-agro-green">📱</span>}
+                            {h}{h === csvPhone && <span className="ml-1 text-agro-green">📱</span>}
                           </th>
                         ))}
                       </tr>
@@ -973,9 +1030,7 @@ function Step2Audience({
                       {csvRows.slice(0, 5).map((row, i) => (
                         <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}>
                           {csvHeaders.map((h) => (
-                            <td key={h} className="px-3 py-2 text-agro-muted max-w-[160px] truncate">
-                              {row[h] || "—"}
-                            </td>
+                            <td key={h} className="px-3 py-2 text-agro-muted max-w-[160px] truncate">{row[h] || "—"}</td>
                           ))}
                         </tr>
                       ))}
@@ -986,13 +1041,11 @@ function Step2Audience({
             </div>
           )}
 
-          {/* Error */}
           {csvError && (
             <div className="flex items-center gap-2 p-3 rounded-xl text-sm text-red-400"
               style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
             >
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {csvError}
+              <AlertCircle className="w-4 h-4 shrink-0" />{csvError}
             </div>
           )}
         </div>
@@ -1007,30 +1060,27 @@ function Step2Audience({
 
 function Step3Variables({
   template, vars, varMap, setVarMap,
-  availableFields, previewData,
+  fieldGroups, previewData,
   sendingSpeed, setSendingSpeed,
 }: {
   template: MetaTemplate;
   vars: string[];
   varMap: Record<string, string>;
   setVarMap: (m: Record<string, string>) => void;
-  availableFields: { value: string; label: string }[];
-  previewData: Record<string, string> | null;
+  fieldGroups: FieldGroup[];
+  previewData: Record<string, unknown> | null;
   sendingSpeed: number;
   setSendingSpeed: (v: number) => void;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bodyText: string = (template.components as any[]).find((c) => c.type === "BODY")?.text ?? "";
-
-  const preview = previewData
-    ? renderPreview(template, previewData as Record<string, string>, varMap)
-    : null;
+  const preview = previewData ? renderPreview(template, previewData, varMap) : null;
 
   return (
     <div className="space-y-8">
       <div>
         <h3 className="text-base font-bold text-agro-text mb-1">Personalização & Velocidade</h3>
-        <p className="text-sm text-agro-muted">Mapeie as variáveis do template e defina a frequência de envio.</p>
+        <p className="text-sm text-agro-muted">Mapeie as variáveis e defina a frequência de envio.</p>
       </div>
 
       {/* Variable mapping */}
@@ -1046,8 +1096,10 @@ function Step3Variables({
         <div className="space-y-3">
           <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">Mapeamento de variáveis</p>
           <p className="text-xs text-agro-muted">
-            Cada <span className="font-mono px-1.5 py-0.5 rounded text-amber-400 text-[11px]"
-              style={{ background: "rgba(245,158,11,0.12)" }}>{"{{variável}}"}</span> será preenchida com a coluna selecionada.
+            Cada{" "}
+            <span className="font-mono px-1.5 py-0.5 rounded text-amber-400 text-[11px]"
+              style={{ background: "rgba(245,158,11,0.12)" }}>{"{{variável}}"}</span>
+            {" "}será substituída pelo dado do contato selecionado.
           </p>
           <div className="space-y-2.5">
             {vars.map((idx) => (
@@ -1071,8 +1123,12 @@ function Step3Variables({
                   }}
                 >
                   <option value="">— Selecione uma coluna —</option>
-                  {availableFields.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
+                  {fieldGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.fields.map((f) => (
+                        <option key={f.value} value={f.value}>{f.label}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
@@ -1091,9 +1147,7 @@ function Step3Variables({
           {SPEED_OPTIONS.map((opt) => {
             const sel = sendingSpeed === opt.value;
             return (
-              <button
-                key={opt.value}
-                onClick={() => setSendingSpeed(opt.value)}
+              <button key={opt.value} onClick={() => setSendingSpeed(opt.value)}
                 className={cn("flex flex-col items-center py-3 px-2 rounded-xl transition-all", sel ? "text-white" : "text-agro-muted hover:text-agro-text")}
                 style={{
                   background: sel ? "linear-gradient(135deg, rgba(63,176,108,0.2), rgba(22,163,74,0.1))" : "rgba(13,26,17,0.5)",
@@ -1107,7 +1161,7 @@ function Step3Variables({
           })}
         </div>
         <p className="text-xs text-agro-muted">
-          A Meta permite até ~80 msg/min por número de forma segura. Velocidades maiores podem ativar limites de taxa.
+          A Meta permite ~80 msg/min de forma segura. Velocidades acima podem ativar rate limit.
         </p>
       </div>
 
@@ -1123,11 +1177,10 @@ function Step3Variables({
             {bodyText || "—"}
           </div>
         </div>
-
         {preview && previewData && (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-1.5">
-              <Eye className="w-3 h-3" /> Preview com 1º contato
+              <Eye className="w-3 h-3" /> Preview — 1º contato
             </p>
             <div className="px-4 py-3 rounded-xl text-sm text-agro-text leading-relaxed"
               style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.18)", whiteSpace: "pre-wrap", minHeight: "80px" }}
