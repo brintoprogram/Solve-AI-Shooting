@@ -28,6 +28,16 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  try {
+    return await handleRequest(req);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[send] unhandled error:", msg);
+    return json({ error: msg }, 500);
+  }
+});
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
@@ -162,7 +172,7 @@ Deno.serve(async (req: Request) => {
     .eq("id", conversation_id);
 
   return json({ ok: true, wamid });
-});
+}
 
 // ── Helpers ────────────────────────────────────────────────────
 

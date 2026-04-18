@@ -110,7 +110,15 @@ export function MessageInput({ conversationId, workspaceId }: Props) {
         }
       );
 
-      if (fnErr) throw new Error(fnErr.message);
+      if (fnErr) {
+        let msg = fnErr.message;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const body = await (fnErr as any).context?.json?.();
+          msg = body?.error ?? msg;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
 
       // 3. Reset state — the Realtime listener will add the bubble
       setText("");
