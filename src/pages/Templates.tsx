@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   LayoutTemplate, RefreshCw, Plus, Search, CheckCircle2,
   Clock, XCircle, Image, FileText, Mic, Video, ChevronDown,
@@ -8,7 +9,6 @@ import { format, formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Topbar } from "@/components/layout/Topbar";
 import { supabase } from "@/lib/supabase";
-import { getConfig } from "@/lib/config";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -301,7 +301,8 @@ function EmptyState({ hasCon, onSync }: { hasCon: boolean; onSync: () => void })
 // ── Main Page ────────────────────────────────────────────────────
 
 export function Templates() {
-  const { toast } = useToast();
+  const { toast }    = useToast();
+  const navigate     = useNavigate();
   const { connections, loading: conLoading } = useMetaConnections(WORKSPACE_ID);
 
   const [templates, setTemplates]     = useState<MetaTemplate[]>([]);
@@ -446,13 +447,17 @@ export function Templates() {
             <button
               onClick={() => {
                 if (!selectedConn) {
-                  toast({ title: "Selecione uma conexão Meta primeiro", variant: "destructive" });
+                  toast({
+                    title:       "Nenhuma conexão configurada",
+                    description: "Configure uma conexão WhatsApp em Configurações primeiro.",
+                    variant:     "destructive",
+                  });
+                  navigate("/settings");
                   return;
                 }
                 setShowBuilder(true);
               }}
-              disabled={!hasConnections}
-              className="btn-agro flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-agro flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
             >
               <Plus className="w-4 h-4" />
               Novo Template

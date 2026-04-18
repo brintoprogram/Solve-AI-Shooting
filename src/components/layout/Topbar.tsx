@@ -34,7 +34,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
 
   return (
     <header
-      className="sticky top-0 z-20 h-14 flex items-center justify-between px-6"
+      className="sticky top-0 z-40 h-14 flex items-center justify-between px-6"
       style={{
         background: "rgba(10,17,14,0.85)",
         backdropFilter: "blur(12px)",

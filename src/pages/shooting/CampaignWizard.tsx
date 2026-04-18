@@ -141,13 +141,14 @@ export function CampaignWizard() {
               return (
                 <div key={s.id} className="flex items-center flex-1">
                   {/* Step node */}
-                  <div className="flex flex-col items-center relative">
-                    {/* Glow ring for active */}
-                    {isActive && (
-                      <div className="absolute w-14 h-14 rounded-full animate-glow-pulse"
-                        style={{ background: "rgba(63,176,108,0.15)", top: "-8px", left: "-8px" }}
-                      />
-                    )}
+                  <div className="flex flex-col items-center">
+                    {/* Icon + glow in a tight wrapper so absolute coords are icon-relative */}
+                    <div className="relative">
+                      {isActive && (
+                        <div className="absolute -inset-2 rounded-full animate-glow-pulse"
+                          style={{ background: "rgba(63,176,108,0.15)" }}
+                        />
+                      )}
 
                     <div className={cn(
                       "relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500",
@@ -175,6 +176,7 @@ export function CampaignWizard() {
                         isFuture ? "text-agro-muted-2" : "",
                       )} />
                     </div>
+                    </div>{/* end icon wrapper */}
 
                     <div className={cn("mt-2.5 text-center transition-all duration-300", isFuture && "opacity-40")}>
                       <p className={cn(
