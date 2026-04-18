@@ -1,27 +1,8 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
-import { getConfig } from "./config";
 
-function resolveCredentials() {
-  // 1. Tenta variáveis de ambiente (Vercel)
-  const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (envUrl && envKey && envUrl !== "https://placeholder.supabase.co") {
-    return { url: envUrl, key: envKey };
-  }
-  // 2. Tenta localStorage (Setup Wizard)
-  const cfg = getConfig();
-  if (cfg) {
-    return { url: cfg.supabaseUrl, key: cfg.supabaseAnonKey };
-  }
-  // 3. Placeholder — app carrega mas sem funcionalidade de banco
-  return {
-    url: "https://placeholder.supabase.co",
-    key: "placeholder",
-  };
-}
-
-const { url, key } = resolveCredentials();
+const url = import.meta.env.VITE_SUPABASE_URL as string;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export const supabase: SupabaseClient<Database> = createClient<Database>(
   url,

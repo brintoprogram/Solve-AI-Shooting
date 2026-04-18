@@ -8,18 +8,11 @@ import { ShootingPage } from "@/pages/shooting/ShootingPage";
 import { CampaignWizard } from "@/pages/shooting/CampaignWizard";
 import { CampaignDetail } from "@/pages/shooting/CampaignDetail";
 import { Settings } from "@/pages/Settings";
-import { Setup } from "@/pages/Setup";
 import { Inbox } from "@/pages/Inbox";
 import { Team } from "@/pages/Team";
 import { Templates } from "@/pages/Templates";
-import { isConfigured } from "@/lib/config";
 
 export function App() {
-  // Se não houver credenciais configuradas, mostra o Setup Wizard antes de tudo
-  if (!isConfigured()) {
-    return <Setup />;
-  }
-
   return (
     <BrowserRouter>
       <AuthProvider>
