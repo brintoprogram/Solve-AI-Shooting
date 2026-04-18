@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { format } from "date-fns";
-import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle, Image, FileVideo } from "lucide-react";
+import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle, Image, FileVideo, RefreshCw } from "lucide-react";
 import type { InboxMessage } from "@/types/inbox";
 
 // ── Template preview types ────────────────────────────────
@@ -151,7 +152,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
               </a>
             </div>
           ) : (
-            <MediaPlaceholder icon="📷" label="Imagem" mediaId={message.media_id} />
+            <MediaPlaceholder icon="📷" label="Imagem" mediaId={message.media_id} messageId={message.id} />
           )}
           {message.media_caption && (
             <p className="text-sm text-agro-text">{message.media_caption}</p>
@@ -163,7 +164,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return message.media_url ? (
         <audio controls src={message.media_url} style={{ maxWidth: 240 }} />
       ) : (
-        <MediaPlaceholder icon="🎵" label="Áudio" mediaId={message.media_id} />
+        <MediaPlaceholder icon="🎵" label="Áudio" mediaId={message.media_id} messageId={message.id} />
       );
 
     case "video":
@@ -177,7 +178,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
               style={{ maxWidth: 240, maxHeight: 200 }}
             />
           ) : (
-            <MediaPlaceholder icon="🎬" label="Vídeo" mediaId={message.media_id} />
+            <MediaPlaceholder icon="🎬" label="Vídeo" mediaId={message.media_id} messageId={message.id} />
           )}
           {message.media_caption && (
             <p className="text-sm text-agro-text">{message.media_caption}</p>
@@ -215,11 +216,12 @@ function MessageContent({ message }: { message: InboxMessage }) {
               target="_blank"
               rel="noopener noreferrer"
               className="text-agro-green hover:text-agro-text transition-colors shrink-0"
+              title="Baixar documento"
             >
               <Download className="w-4 h-4" />
             </a>
           ) : (
-            <Download className="w-4 h-4 text-agro-muted-2 opacity-40 shrink-0" />
+            <MediaPlaceholder icon="" label="" mediaId={null} messageId={message.id} />
           )}
         </div>
       );
@@ -288,32 +290,57 @@ function MessageContent({ message }: { message: InboxMessage }) {
 }
 
 function MediaPlaceholder({
-  icon,
-  label,
-  mediaId,
+  icon, label, mediaId, messageId,
 }: {
-  icon: string;
-  label: string;
-  mediaId: string | null;
+  icon: string; label: string; mediaId: string | null; messageId?: string;
 }) {
+  const [loading, setLoading] = useState(false);
+  const [done,    setDone]    = useState(false);
+
+  async function handleLoad() {
+    if (!messageId || loading) return;
+    setLoading(true);
+    try {
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-media`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ message_id: messageId }),
+        },
+      );
+      setDone(true); // realtime will update the message; show "aguardando"
+    } catch {
+      // silent — user can retry
+    }
+    setLoading(false);
+  }
+
   return (
     <div
       className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-      style={{
-        background: "rgba(0,0,0,0.2)",
-        border: "1px solid rgba(63,176,108,0.08)",
-        minWidth: 160,
-      }}
+      style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.08)", minWidth: 180 }}
     >
       <span className="text-lg leading-none">{icon}</span>
-      <div className="min-w-0">
+      <div className="flex-1 min-w-0">
         <p className="text-sm text-agro-muted">{label}</p>
-        {mediaId && (
-          <p className="text-[10px] text-agro-muted-2 font-mono truncate" style={{ maxWidth: 130 }}>
-            ID: {mediaId.slice(0, 14)}…
-          </p>
-        )}
+        <p className="text-[10px] text-agro-muted-2">
+          {done ? "Carregando…" : "Mídia pendente"}
+        </p>
       </div>
+      {messageId && !done && (
+        <button
+          onClick={handleLoad}
+          disabled={loading}
+          title="Carregar mídia"
+          className="w-6 h-6 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10 disabled:opacity-40 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-agro-green ${loading ? "animate-spin" : ""}`} />
+        </button>
+      )}
     </div>
   );
 }

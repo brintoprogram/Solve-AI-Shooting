@@ -17,16 +17,47 @@ interface Props {
   teamMembers: UserProfile[];
 }
 
+async function triggerResolveMedia(conversationId: string) {
+  try {
+    await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-media`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ conversation_id: conversationId }),
+      },
+    );
+  } catch (e) {
+    console.warn("[resolve-media] call failed:", e);
+  }
+}
+
 export function ConversationPanel({ conversation, teamMembers }: Props) {
   const { profile } = useAuth();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
   const { messages, loading } = useInboxMessages(conversation.id);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef   = useRef<HTMLDivElement>(null);
+  const resolvedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  // Auto-resolve media: whenever messages load for this conversation, check
+  // for any with media_id but no media_url and call the edge function once.
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+    const key = conversation.id;
+    if (resolvedRef.current.has(key)) return; // already triggered for this conversation
+    const hasPending = messages.some((m) => m.media_id && !m.media_url);
+    if (!hasPending) return;
+    resolvedRef.current.add(key);
+    triggerResolveMedia(key); // fire-and-forget; realtime UPDATE propagates results
+  }, [loading, messages, conversation.id]);
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

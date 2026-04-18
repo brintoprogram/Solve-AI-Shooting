@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.campaign-engine]
 verify_jwt = false
+
+[functions.resolve-media]
+verify_jwt = false
