@@ -1,4 +1,4 @@
-import { Send, CheckCheck, Eye, MessageCircle, XCircle } from "lucide-react";
+import { Users, Send, CheckCheck, Eye, XCircle } from "lucide-react";
 import { calcPercent } from "@/lib/utils";
 import type { ShootingCampaign } from "@/types/shooting";
 
@@ -7,12 +7,22 @@ interface CampaignMetricsProps {
 }
 
 export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
-  const { sent_count, delivered_count, read_count, replied_count, failed_count, total_recipients } = campaign;
+  const { sent_count, delivered_count, read_count, failed_count, total_recipients } = campaign;
 
   const metrics = [
     {
+      icon: Users,
+      label: "Total de Alvos",
+      value: total_recipients,
+      pct: 100,
+      color: "#94a3b8",
+      glowColor: "rgba(148,163,184,0.3)",
+      barColor: "rgba(148,163,184,0.6)",
+      hideBar: true,
+    },
+    {
       icon: Send,
-      label: "Enviadas",
+      label: "Enviadas ✓",
       value: sent_count,
       pct: calcPercent(sent_count, total_recipients),
       color: "#60a5fa",
@@ -21,7 +31,7 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
     },
     {
       icon: CheckCheck,
-      label: "Entregues",
+      label: "Entregues ✓✓",
       value: delivered_count,
       pct: calcPercent(delivered_count, total_recipients),
       color: "#3fb06c",
@@ -30,21 +40,12 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
     },
     {
       icon: Eye,
-      label: "Lidas",
+      label: "Lidas ✓✓",
       value: read_count,
       pct: calcPercent(read_count, total_recipients),
       color: "#34d399",
       glowColor: "rgba(52,211,153,0.3)",
       barColor: "#34d399",
-    },
-    {
-      icon: MessageCircle,
-      label: "Respostas",
-      value: replied_count,
-      pct: calcPercent(replied_count, total_recipients),
-      color: "#a78bfa",
-      glowColor: "rgba(167,139,250,0.3)",
-      barColor: "#a78bfa",
     },
   ];
 
@@ -66,19 +67,21 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
             <p className="text-2xl font-bold text-agro-text">{m.value.toLocaleString("pt-BR")}</p>
             <p className="text-xs text-agro-muted mt-0.5">{m.label}</p>
 
-            <div className="mt-3 space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-semibold" style={{ color: m.color }}>{m.pct}%</span>
+            {!m.hideBar && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold" style={{ color: m.color }}>{m.pct}%</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.05)" }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${m.pct}%`, background: m.barColor, boxShadow: `0 0 6px ${m.glowColor}` }}
+                  />
+                </div>
               </div>
-              <div className="h-1.5 w-full rounded-full overflow-hidden"
-                style={{ background: "rgba(255,255,255,0.05)" }}
-              >
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${m.pct}%`, background: m.barColor, boxShadow: `0 0 6px ${m.glowColor}` }}
-                />
-              </div>
-            </div>
+            )}
           </div>
         ))}
       </div>

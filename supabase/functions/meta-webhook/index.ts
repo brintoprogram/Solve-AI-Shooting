@@ -57,12 +57,10 @@ Deno.serve(async (req: Request) => {
       return new Response("Invalid JSON", { status: 400 });
     }
 
-    // Responde 200 imediatamente (Meta exige)
-    processWebhook(body).catch((err) =>
+    // Processa e responde — Meta exige resposta em até 20s
+    await processWebhook(body).catch((err) =>
       console.error("[webhook] erro crítico:", err?.message)
     );
-
-    await processWebhook(body);
     return new Response("EVENT_RECEIVED", { status: 200 });
   }
 
@@ -213,9 +211,9 @@ async function processWebhook(body: Record<string, unknown>) {
 
           // Checa sent_at (não status) para ser robusto independente do
           // valor gravado pelo send-inbox-message no momento do envio
-          if (st === "sent" && !inboxMsg.sent_at) {
-            inboxUpdates.status  = "sent";
-            inboxUpdates.sent_at = ts;
+          if (st === "sent" && !["sent","delivered","read"].includes(inboxMsg.status)) {
+            inboxUpdates.status = "sent";
+            // sent_at omitted — column may not exist in older schema deployments
           } else if (st === "delivered" && !["delivered","read"].includes(inboxMsg.status)) {
             inboxUpdates.status       = "delivered";
             inboxUpdates.delivered_at = ts;
@@ -248,10 +246,10 @@ async function processWebhook(body: Record<string, unknown>) {
 
         const updates: Record<string, unknown> = {};
 
-        if (st === "sent" && shootingMsg.status === "pending") {
+        if (st === "sent" && !["delivered","read","replied"].includes(shootingMsg.status)) {
+          // Campaign-engine already set status="sent"; webhook confirms and stamps sent_at
           updates.status  = "sent";
           updates.sent_at = ts;
-          await supabase.rpc("increment_campaign_counters", { p_campaign_id: shootingMsg.campaign_id, p_counter_name: "sent_count" });
         } else if (st === "delivered" && !["delivered","read","replied"].includes(shootingMsg.status)) {
           updates.status       = "delivered";
           updates.delivered_at = ts;
