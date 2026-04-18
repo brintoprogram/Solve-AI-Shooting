@@ -7,6 +7,8 @@ import { CampaignBuilder } from "./CampaignBuilder";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { getWorkspaceId } from "@/lib/config";
 
@@ -14,6 +16,7 @@ const WORKSPACE_ID = getWorkspaceId();
 
 export function ShootingPage() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [showBuilder, setShowBuilder] = useState(false);
   const { campaigns, loading, deleteCampaign, refetch } = useCampaigns(WORKSPACE_ID);
   const { connections } = useMetaConnections(WORKSPACE_ID);
@@ -22,6 +25,26 @@ export function ShootingPage() {
   const activeCampaigns  = campaigns.filter((c) => c.status === "sending" || c.status === "paused");
   const historyCampaigns = campaigns.filter((c) => c.status === "completed" || c.status === "cancelled" || c.status === "failed");
   const draftCampaigns   = campaigns.filter((c) => c.status === "draft" || c.status === "scheduled");
+
+  async function handleCampaignAction(id: string, action: "start" | "pause" | "resume" | "cancel") {
+    const LABELS = { start: "Iniciando", pause: "Pausando", resume: "Retomando", cancel: "Cancelando" };
+    try {
+      const { error } = await supabase.functions.invoke("campaign-engine", {
+        body: { action, campaign_id: id },
+      });
+      if (error) {
+        let msg = error.message;
+        try { const b = await (error as unknown as { context: Response }).context?.json?.(); msg = b?.error ?? msg; } catch { /* ignore */ }
+        toast({ title: `Erro ao ${action}`, description: msg, variant: "destructive" });
+        return;
+      }
+      const OK = { start: "Campanha iniciada!", pause: "Campanha pausada.", resume: "Campanha retomada!", cancel: "Campanha cancelada." };
+      toast({ title: OK[action], variant: "success" });
+      refetch();
+    } catch (err) {
+      toast({ title: `Erro: ${LABELS[action]}`, description: String(err), variant: "destructive" });
+    }
+  }
 
   const tabs = [
     { id: "active",  label: "Em andamento", count: activeCampaigns.length,  data: activeCampaigns  },
@@ -152,7 +175,7 @@ export function ShootingPage() {
         )}
 
         {/* ── Tabs ─────────────────────────────── */}
-        <TabsView tabs={tabs} loading={loading} onDelete={deleteCampaign} onNew={() => setShowBuilder(true)} />
+        <TabsView tabs={tabs} loading={loading} onDelete={deleteCampaign} onNew={() => setShowBuilder(true)} onAction={handleCampaignAction} />
       </div>
 
       <CampaignBuilder
@@ -174,11 +197,13 @@ function TabsView({
   loading,
   onDelete,
   onNew,
+  onAction,
 }: {
   tabs: { id: string; label: string; count: number; data: CampaignWithTemplate[] }[];
   loading: boolean;
   onDelete: (id: string) => void;
   onNew: () => void;
+  onAction: (id: string, action: "start" | "pause" | "resume" | "cancel") => Promise<void>;
 }) {
   const [active, setActive] = useState("active");
   const current = tabs.find((t) => t.id === active)!;
@@ -252,7 +277,7 @@ function TabsView({
           )}
         </div>
       ) : (
-        <CampaignList campaigns={current.data} loading={false} onDelete={onDelete} />
+        <CampaignList campaigns={current.data} loading={false} onDelete={onDelete} onAction={onAction} />
       )}
     </div>
   );
