@@ -2,10 +2,21 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
+// ── Permission keys ───────────────────────────────────────
+export type PermissionKey =
+  | "can_shoot"
+  | "can_manage_campaigns"
+  | "can_manage_contacts"
+  | "can_import"
+  | "can_inbox"
+  | "can_manage_team"
+  | "can_settings";
+
 export interface UserProfile {
   id: string;
   full_name: string | null;
   role: "admin" | "manager" | "agent";
+  permissions: Partial<Record<PermissionKey, boolean>>;
   created_at: string;
   updated_at: string;
 }
@@ -38,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // Sync initial session — avoids flash of login screen on page refresh
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -48,7 +58,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Subscribe to future auth events (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
@@ -88,7 +97,47 @@ export function useAuth() {
   return ctx;
 }
 
-// Role helpers
+// ── Default permissions per role ──────────────────────────
+export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionKey, boolean>> = {
+  admin: {
+    can_shoot:            true,
+    can_manage_campaigns: true,
+    can_manage_contacts:  true,
+    can_import:           true,
+    can_inbox:            true,
+    can_manage_team:      true,
+    can_settings:         true,
+  },
+  manager: {
+    can_shoot:            true,
+    can_manage_campaigns: true,
+    can_manage_contacts:  true,
+    can_import:           true,
+    can_inbox:            true,
+    can_manage_team:      false,
+    can_settings:         false,
+  },
+  agent: {
+    can_shoot:            false,
+    can_manage_campaigns: false,
+    can_manage_contacts:  false,
+    can_import:           false,
+    can_inbox:            true,
+    can_manage_team:      false,
+    can_settings:         false,
+  },
+};
+
+/** Check if a profile has a given permission. Admins always pass. */
+export function hasPermission(profile: UserProfile | null, key: PermissionKey): boolean {
+  if (!profile) return false;
+  if (profile.role === "admin") return true;
+  const override = profile.permissions?.[key];
+  if (override !== undefined) return override;
+  return DEFAULT_PERMISSIONS[profile.role][key] ?? false;
+}
+
+// ── Role helpers ──────────────────────────────────────────
 export const ROLE_LABELS: Record<UserProfile["role"], string> = {
   admin:   "Admin",
   manager: "Gerente",

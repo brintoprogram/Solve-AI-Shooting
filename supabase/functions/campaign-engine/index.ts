@@ -56,16 +56,23 @@ async function authorizeRequest(req: Request): Promise<{ ok: true } | { ok: fals
   const { data: { user }, error } = await db.auth.getUser(token);
   if (error || !user) return { ok: false, status: 401, error: "Token inválido" };
 
-  // Check role in profiles table
+  // Check role in user_profiles table
   const { data: profile } = await db
-    .from("profiles")
-    .select("role")
-    .eq("user_id", user.id)
+    .from("user_profiles")
+    .select("role, permissions")
+    .eq("id", user.id)
     .maybeSingle();
 
-  const role = (profile as { role?: string } | null)?.role ?? "";
+  const role        = (profile as { role?: string; permissions?: Record<string, boolean> } | null)?.role ?? "";
+  const permissions = (profile as { role?: string; permissions?: Record<string, boolean> } | null)?.permissions ?? {};
+
   if (!PRIVILEGED_ROLES.includes(role)) {
     return { ok: false, status: 403, error: `Permissão negada. Cargo "${role}" não autorizado.` };
+  }
+
+  // Granular check: manager needs explicit can_shoot permission (admin always passes)
+  if (role === "manager" && permissions.can_shoot === false) {
+    return { ok: false, status: 403, error: "Permissão negada. Você não tem autorização para disparar campanhas." };
   }
 
   return { ok: true };
