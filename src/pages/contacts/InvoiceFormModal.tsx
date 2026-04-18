@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { X, Loader2, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { getWorkspaceId } from "@/lib/config";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
@@ -61,6 +62,7 @@ interface Props {
 
 export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDeleted }: Props) {
   const isNew = !invoice;
+  const workspaceId = getWorkspaceId();
 
   const [valorStr,      setValorStr]     = useState(initialValorStr(invoice?.valor));
   const [vencimento,    setVencimento]   = useState(invoice?.vencimento    ?? "");
@@ -87,8 +89,9 @@ export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDelet
     setError("");
 
     const payload = {
+      workspace_id:  workspaceId,
       contact_id:    contactId,
-      valor,           // saved as NUMERIC(15,2) — float is correct
+      valor,
       vencimento,
       status,
       numero_nf:     numero_nf.trim()     || null,
