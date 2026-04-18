@@ -14,8 +14,9 @@ import { useToast } from "@/hooks/use-toast";
 import { initialWizardState } from "@/types/shooting";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
 import { cn } from "@/lib/utils";
+import { getWorkspaceId } from "@/lib/config";
 
-const WORKSPACE_ID = "demo-workspace-id";
+const WORKSPACE_ID = getWorkspaceId();
 
 const STEPS = [
   { id: 1, label: "Escopo",       subtitle: "Origem & configs",   icon: Target       },

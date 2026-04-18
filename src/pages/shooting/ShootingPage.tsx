@@ -6,8 +6,9 @@ import { useCampaigns } from "@/hooks/useCampaign";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
 import { cn } from "@/lib/utils";
+import { getWorkspaceId } from "@/lib/config";
 
-const WORKSPACE_ID = "demo-workspace-id";
+const WORKSPACE_ID = getWorkspaceId();
 
 export function ShootingPage() {
   const navigate = useNavigate();

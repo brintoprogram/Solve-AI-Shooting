@@ -19,7 +19,8 @@ import { TemplateBuilder } from "./TemplateBuilder";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-const WORKSPACE_ID = "demo-workspace-id";
+import { getWorkspaceId } from "@/lib/config";
+const WORKSPACE_ID = getWorkspaceId();
 
 // ── Config visual ────────────────────────────────────────────────
 
