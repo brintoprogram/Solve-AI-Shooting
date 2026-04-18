@@ -131,7 +131,52 @@ async function sendTemplate(
 //   { phone_column: "phone", body_variables: { "1": "name", "2": "empresa" } }
 // recipient_data is the full contact object stored by CampaignBuilder.
 
-interface TemplateComp { type: string; text?: string; buttons?: Array<{ url?: string }> }
+interface TemplateButton { type: string; text: string; url?: string; phone_number?: string }
+interface TemplateComp  { type: string; text?: string; format?: string; buttons?: TemplateButton[] }
+
+// ── Template preview (rendered for inbox display) ─────────
+
+interface TemplatePreview {
+  name:     string;
+  header?:  { format: string; text?: string };
+  body?:    string;
+  footer?:  string;
+  buttons?: string[];
+}
+
+function buildTemplatePreview(
+  tpl:         Template,
+  mapping:     Record<string, unknown>,
+  contactData: Record<string, unknown>,
+): TemplatePreview {
+  const preview: TemplatePreview = { name: tpl.template_name };
+  const bodyVars   = (mapping.body_variables   ?? {}) as Record<string, string>;
+  const headerVars = (mapping.header_variables  ?? {}) as Record<string, string>;
+
+  for (const comp of tpl.components) {
+    if (comp.type === "HEADER") {
+      let text = comp.text ?? "";
+      Object.entries(headerVars).forEach(([idx, col]) => {
+        text = text.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
+      });
+      preview.header = { format: comp.format ?? "TEXT", text };
+    }
+    if (comp.type === "BODY") {
+      let text = comp.text ?? "";
+      Object.entries(bodyVars).sort(([a], [b]) => Number(a) - Number(b)).forEach(([idx, col]) => {
+        text = text.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
+      });
+      preview.body = text;
+    }
+    if (comp.type === "FOOTER") {
+      preview.footer = comp.text ?? "";
+    }
+    if (comp.type === "BUTTONS" && comp.buttons?.length) {
+      preview.buttons = comp.buttons.map((b) => b.text);
+    }
+  }
+  return preview;
+}
 
 function buildComponents(
   templateComps: TemplateComp[],
@@ -212,17 +257,18 @@ async function upsertInboxConversation(workspaceId: string, connectionId: string
   return (created?.id as string) ?? null;
 }
 
-async function saveTemplateToInbox(workspaceId: string, connectionId: string, phone: string, wamid: string, templateName: string, ts: string): Promise<void> {
+async function saveTemplateToInbox(workspaceId: string, connectionId: string, phone: string, wamid: string, preview: TemplatePreview, ts: string): Promise<void> {
   try {
     const contactId = await upsertInboxContact(workspaceId, phone, ts);
     if (!contactId) return;
-    const lastBody = `📋 ${templateName}`;
-    const convId   = await upsertInboxConversation(workspaceId, connectionId, contactId, ts, lastBody);
+    const sidebarBody = `📋 ${preview.name}`;
+    const convId      = await upsertInboxConversation(workspaceId, connectionId, contactId, ts, sidebarBody);
     if (!convId) return;
     await db.from("inbox_messages").upsert({
       workspace_id: workspaceId, conversation_id: convId, contact_id: contactId,
       wamid, direction: "outbound", message_type: "template",
-      body: lastBody, status: "sent", created_at: ts,
+      body: JSON.stringify(preview), // full rendered template stored as JSON
+      status: "sent", created_at: ts,
     }, { onConflict: "wamid", ignoreDuplicates: true });
   } catch (err) {
     console.error("[engine] saveTemplateToInbox error:", err instanceof Error ? err.message : String(err));
@@ -259,8 +305,9 @@ async function processMessage(
       p_campaign_id: campaignId, p_counter_name: "sent_count",
     });
 
-    // Save outbound template to inbox so conversation is visible
-    await saveTemplateToInbox(workspaceId, connectionId, msg.recipient_phone, result.wamid, tpl.template_name, now);
+    // Save outbound template to inbox with full rendered preview
+    const preview = buildTemplatePreview(tpl, mapping, msg.recipient_data ?? {});
+    await saveTemplateToInbox(workspaceId, connectionId, msg.recipient_phone, result.wamid, preview, now);
 
   } else {
     // Non-retryable Meta error codes (invalid number, opted-out, etc.)

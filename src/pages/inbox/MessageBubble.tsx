@@ -1,6 +1,83 @@
 import { format } from "date-fns";
-import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle } from "lucide-react";
+import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle, Image, FileVideo } from "lucide-react";
 import type { InboxMessage } from "@/types/inbox";
+
+// ── Template preview types ────────────────────────────────
+interface TemplatePreview {
+  name:     string;
+  header?:  { format: string; text?: string };
+  body?:    string;
+  footer?:  string;
+  buttons?: string[];
+}
+
+function parseTemplateBody(body: string | null): TemplatePreview | null {
+  if (!body) return null;
+  try {
+    if (body.trimStart().startsWith("{")) return JSON.parse(body) as TemplatePreview;
+  } catch { /* fall through */ }
+  return null;
+}
+
+function TemplateCard({ preview }: { preview: TemplatePreview }) {
+  const headerFormat = preview.header?.format?.toUpperCase() ?? "TEXT";
+  const headerIsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat);
+
+  return (
+    <div className="space-y-0 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(63,176,108,0.2)", minWidth: 220, maxWidth: 300 }}>
+      {/* Header */}
+      {preview.header && (
+        headerIsMedia ? (
+          <div
+            className="flex items-center justify-center gap-2 px-4 py-3"
+            style={{ background: "rgba(0,0,0,0.25)", borderBottom: "1px solid rgba(63,176,108,0.12)" }}
+          >
+            {headerFormat === "IMAGE"    && <Image    className="w-6 h-6 text-agro-muted-2" />}
+            {headerFormat === "VIDEO"    && <FileVideo className="w-6 h-6 text-agro-muted-2" />}
+            {headerFormat === "DOCUMENT" && <FileText  className="w-6 h-6 text-agro-muted-2" />}
+            <span className="text-xs text-agro-muted-2 capitalize">{headerFormat.toLowerCase()}</span>
+          </div>
+        ) : preview.header.text ? (
+          <div className="px-3 pt-3 pb-1">
+            <p className="text-sm font-bold text-agro-text leading-snug">{preview.header.text}</p>
+          </div>
+        ) : null
+      )}
+
+      {/* Body */}
+      {preview.body && (
+        <div className="px-3 py-2">
+          <p className="text-sm text-agro-text whitespace-pre-wrap leading-relaxed">{preview.body}</p>
+        </div>
+      )}
+
+      {/* Footer */}
+      {preview.footer && (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-agro-muted-2 leading-snug">{preview.footer}</p>
+        </div>
+      )}
+
+      {/* Buttons */}
+      {preview.buttons && preview.buttons.length > 0 && (
+        <div style={{ borderTop: "1px solid rgba(63,176,108,0.12)" }}>
+          {preview.buttons.map((btn, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-center px-3 py-2 text-xs font-semibold"
+              style={{
+                color: "#3fb06c",
+                borderTop: i > 0 ? "1px solid rgba(63,176,108,0.1)" : undefined,
+              }}
+            >
+              {btn}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   message: InboxMessage;
@@ -8,26 +85,21 @@ interface Props {
 
 export function MessageBubble({ message }: Props) {
   const isInbound = message.direction === "inbound";
+  const isTemplate = message.message_type === "template";
   const time = format(new Date(message.created_at), "HH:mm");
 
   return (
     <div className={`flex ${isInbound ? "justify-start" : "justify-end"} mb-1`}>
       <div
-        className={`max-w-[72%] px-3 py-2 rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"}`}
-        style={
+        className={`max-w-[72%] rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
+        style={isTemplate ? { background: "transparent" } : (
           isInbound
-            ? {
-                background: "rgba(13,26,17,0.95)",
-                border: "1px solid rgba(63,176,108,0.12)",
-              }
-            : {
-                background: "rgba(22,101,52,0.55)",
-                border: "1px solid rgba(63,176,108,0.28)",
-              }
-        }
+            ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)" }
+            : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)" }
+        )}
       >
         <MessageContent message={message} />
-        <div className="flex items-center justify-end gap-1 mt-1 select-none">
+        <div className={`flex items-center justify-end gap-1 mt-1 select-none ${isTemplate ? "px-1" : ""}`}>
           <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
           {!isInbound && <StatusTicks message={message} />}
         </div>
@@ -182,16 +254,16 @@ function MessageContent({ message }: { message: InboxMessage }) {
         </div>
       );
 
-    case "template":
+    case "template": {
+      const preview = parseTemplateBody(message.body);
+      if (preview) return <TemplateCard preview={preview} />;
       return (
         <div className="flex items-start gap-2.5">
           <span className="text-base leading-none mt-0.5">📋</span>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2 mb-0.5">Template</p>
-            <p className="text-sm text-agro-text">{message.body ?? "Mensagem enviada via template"}</p>
-          </div>
+          <p className="text-sm text-agro-text">{message.body ?? "Template enviado"}</p>
         </div>
       );
+    }
 
     default:
       return (
