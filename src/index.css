@@ -47,7 +47,7 @@
   }
 }
 
-@layer utilities {
+@layer components {
   /* Glassmorphism card */
   .glass {
     background: rgba(26, 46, 34, 0.6);
