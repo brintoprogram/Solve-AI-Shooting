@@ -1,6 +1,6 @@
 // Supabase Edge Function — test-email-connection
-// POST body: { host, port, secure, username, password, from_name, from_email, workspace_id }
-// Sends a test email to the from_email address to validate the SMTP config.
+// POST body (SMTP):  { provider:"smtp",  host, port, secure, username, password, from_name, from_email }
+// POST body (Graph): { provider:"graph", tenant_id, client_id, password (=client_secret), from_name, from_email }
 
 import { SMTPClient } from "https://deno.land/x/smtp@v0.7.0/mod.ts";
 
@@ -9,14 +9,79 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
-  if (req.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405);
+// ── Microsoft Graph helpers ───────────────────────────────────────
+
+async function getGraphToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {
+  const res = await fetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id:     clientId,
+        client_secret: clientSecret,
+        scope:         "https://graph.microsoft.com/.default",
+        grant_type:    "client_credentials",
+      }),
+    },
+  );
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_description ?? data.error ?? "Falha ao obter token do Entra ID");
   }
+  return data.access_token as string;
+}
+
+async function sendViaGraph(
+  token:     string,
+  fromEmail: string,
+  fromName:  string,
+  to:        string,
+  subject:   string,
+  html:      string,
+  cc:        string[] = [],
+): Promise<void> {
+  const body = {
+    message: {
+      subject,
+      body:         { contentType: "HTML", content: html },
+      toRecipients: [{ emailAddress: { address: to } }],
+      ccRecipients: cc.map((a) => ({ emailAddress: { address: a } })),
+      from:         { emailAddress: { address: fromEmail, name: fromName } },
+    },
+    saveToSentItems: true,
+  };
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${fromEmail}/sendMail`,
+    {
+      method:  "POST",
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+  }
+}
+
+// ── Handler ───────────────────────────────────────────────────────
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST")    return json({ error: "Method not allowed" }, 405);
 
   let body: Record<string, unknown>;
   try {
@@ -25,46 +90,62 @@ Deno.serve(async (req: Request) => {
     return json({ error: "JSON inválido" }, 400);
   }
 
-  const { host, port, secure, username, password, from_name, from_email } = body as {
-    host: string; port: number; secure: boolean;
-    username: string; password: string;
-    from_name: string; from_email: string;
-  };
-
-  if (!host || !username || !password || !from_email) {
-    return json({ error: "host, username, password e from_email são obrigatórios" }, 400);
-  }
-
-  const client = new SMTPClient({
-    connection: {
-      hostname: host,
-      port:     port ?? 587,
-      tls:      secure ?? false,
-      auth:     { username, password },
-    },
-  });
+  const provider    = String(body.provider ?? "smtp");
+  const from_email  = String(body.from_email ?? "");
+  const from_name   = String(body.from_name  ?? from_email);
+  const password    = String(body.password   ?? "");
 
   try {
-    await client.send({
-      from:    `${from_name ?? from_email} <${from_email}>`,
-      to:      from_email,
-      subject: "✅ Teste de conexão SMTP — Solve AI",
-      content: "Sua conexão SMTP está funcionando corretamente. Este email foi enviado como teste de configuração.",
-    });
-    await client.close();
-    console.log(`[test-email-connection] Teste OK para ${host}:${port} / ${from_email}`);
-    return json({ ok: true });
+    if (provider === "graph") {
+      const tenant_id = String(body.tenant_id ?? "");
+      const client_id = String(body.client_id ?? "");
+
+      if (!tenant_id || !client_id || !password || !from_email) {
+        return json({ error: "tenant_id, client_id, password (client_secret) e from_email são obrigatórios" }, 400);
+      }
+
+      const token = await getGraphToken(tenant_id, client_id, password);
+      await sendViaGraph(
+        token, from_email, from_name, from_email,
+        "✅ Teste Microsoft 365 — Solve AI",
+        "<p>Sua conexão Microsoft 365 (Graph API) está funcionando corretamente.</p><p>Este email foi enviado como teste de configuração.</p>",
+      );
+      console.log(`[test-email-connection] Graph OK → ${from_email}`);
+      return json({ ok: true });
+
+    } else {
+      const host     = String(body.host     ?? "");
+      const port     = Number(body.port     ?? 587);
+      const secure   = Boolean(body.secure  ?? false);
+      const username = String(body.username ?? "");
+
+      if (!host || !username || !password || !from_email) {
+        return json({ error: "host, username, password e from_email são obrigatórios" }, 400);
+      }
+
+      const client = new SMTPClient({
+        connection: { hostname: host, port, tls: secure, auth: { username, password } },
+      });
+
+      try {
+        await client.send({
+          from:    `${from_name} <${from_email}>`,
+          to:      from_email,
+          subject: "✅ Teste de conexão SMTP — Solve AI",
+          content: "Sua conexão SMTP está funcionando corretamente. Este email foi enviado como teste de configuração.",
+        });
+        await client.close();
+        console.log(`[test-email-connection] SMTP OK → ${host}:${port} / ${from_email}`);
+        return json({ ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try { await client.close(); } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[test-email-connection] SMTP error:", msg);
-    try { await client.close(); } catch { /* ignore */ }
+    console.error("[test-email-connection] error:", msg);
     return json({ error: msg }, 400);
   }
 });
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

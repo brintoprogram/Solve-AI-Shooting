@@ -110,14 +110,18 @@ export function Settings() {
 
   // ── Email connections state ──────────────────────────────────────
   type EmailConn = {
-    id: string; name: string; host: string; port: number;
-    secure: boolean; username: string; from_name: string; from_email: string;
+    id: string; name: string; provider: string;
+    host: string; port: number; secure: boolean; username: string;
+    from_name: string; from_email: string;
+    tenant_id: string | null; client_id: string | null;
   };
   const [emailConns, setEmailConns]       = useState<EmailConn[]>([]);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [emailForm, setEmailForm]         = useState({
-    name: "", host: "", port: "587", secure: false,
-    username: "", password: "", from_name: "", from_email: "",
+    name: "", provider: "smtp" as "smtp" | "graph",
+    host: "", port: "587", secure: false, username: "", password: "",
+    tenant_id: "", client_id: "",
+    from_name: "", from_email: "",
   });
   const [emailTesting, setEmailTesting]   = useState(false);
   const [emailSaving,  setEmailSaving]    = useState(false);
@@ -126,11 +130,19 @@ export function Settings() {
   useEffect(() => {
     supabase
       .from("email_connections")
-      .select("id,name,host,port,secure,username,from_name,from_email")
+      .select("id,name,provider,host,port,secure,username,from_name,from_email,tenant_id,client_id")
       .eq("workspace_id", WORKSPACE_ID)
       .order("created_at", { ascending: true })
       .then(({ data }) => { if (data) setEmailConns(data as EmailConn[]); });
   }, []);
+
+  const emailFormValid = emailForm.provider === "graph"
+    ? !!(emailForm.name && emailForm.tenant_id && emailForm.client_id && emailForm.password && emailForm.from_email)
+    : !!(emailForm.name && emailForm.host && emailForm.username && emailForm.password && emailForm.from_email);
+
+  const emailTestValid = emailForm.provider === "graph"
+    ? !!(emailForm.tenant_id && emailForm.client_id && emailForm.password && emailForm.from_email)
+    : !!(emailForm.host && emailForm.username && emailForm.password);
 
   async function handleEmailTest() {
     setEmailTesting(true);
@@ -141,7 +153,22 @@ export function Settings() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...emailForm, port: Number(emailForm.port), workspace_id: WORKSPACE_ID }),
+          body: JSON.stringify({
+            provider:    emailForm.provider,
+            // SMTP
+            host:        emailForm.host,
+            port:        Number(emailForm.port),
+            secure:      emailForm.secure,
+            username:    emailForm.username,
+            password:    emailForm.password,
+            // Graph
+            tenant_id:   emailForm.tenant_id,
+            client_id:   emailForm.client_id,
+            // Common
+            from_name:   emailForm.from_name,
+            from_email:  emailForm.from_email,
+            workspace_id: WORKSPACE_ID,
+          }),
         }
       );
       const data = await res.json() as { ok?: boolean; error?: string };
@@ -165,20 +192,23 @@ export function Settings() {
         .insert({
           workspace_id: WORKSPACE_ID,
           name:         emailForm.name,
-          host:         emailForm.host,
-          port:         Number(emailForm.port),
-          secure:       emailForm.secure,
-          username:     emailForm.username,
+          provider:     emailForm.provider,
+          host:         emailForm.provider === "smtp" ? emailForm.host      : "",
+          port:         emailForm.provider === "smtp" ? Number(emailForm.port) : 0,
+          secure:       emailForm.provider === "smtp" ? emailForm.secure    : false,
+          username:     emailForm.provider === "smtp" ? emailForm.username  : emailForm.from_email,
           password:     emailForm.password,
+          tenant_id:    emailForm.provider === "graph" ? emailForm.tenant_id : null,
+          client_id:    emailForm.provider === "graph" ? emailForm.client_id : null,
           from_name:    emailForm.from_name,
           from_email:   emailForm.from_email,
         })
-        .select("id,name,host,port,secure,username,from_name,from_email")
+        .select("id,name,provider,host,port,secure,username,from_name,from_email,tenant_id,client_id")
         .single();
 
       if (error) throw new Error(error.message);
       setEmailConns((prev) => [...prev, data as EmailConn]);
-      setEmailForm({ name: "", host: "", port: "587", secure: false, username: "", password: "", from_name: "", from_email: "" });
+      setEmailForm({ name: "", provider: "smtp", host: "", port: "587", secure: false, username: "", password: "", tenant_id: "", client_id: "", from_name: "", from_email: "" });
       setEmailTestResult(null);
       setShowEmailForm(false);
       toast({ title: "Conexão de email salva!", variant: "success" });
@@ -561,7 +591,7 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
 
         {/* ── Conexões de Email ───────────────── */}
         <div className="animate-fade-up-delay-1">
-          <DarkCard title="Conexões de Email" subtitle="Configure contas SMTP para disparos em massa via email">
+          <DarkCard title="Conexões de Email" subtitle="Configure contas SMTP ou Microsoft 365 para disparos em massa via email">
 
             {/* Lista de conexões existentes */}
             {emailConns.length > 0 && (
@@ -580,8 +610,22 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                         <Mail className="w-4 h-4 text-agro-green" />
                       </div>
                       <div>
-                        <p className="font-semibold text-agro-text text-sm">{conn.name}</p>
-                        <p className="text-xs text-agro-muted">{conn.from_email} · {conn.host}:{conn.port}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-agro-text text-sm">{conn.name}</p>
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                            style={conn.provider === "graph"
+                              ? { background: "rgba(0,120,212,0.15)", color: "#60a5fa", border: "1px solid rgba(0,120,212,0.3)" }
+                              : { background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                            }
+                          >
+                            {conn.provider === "graph" ? "M365" : "SMTP"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-agro-muted">
+                          {conn.from_email}
+                          {conn.provider !== "graph" && ` · ${conn.host}:${conn.port}`}
+                        </p>
                       </div>
                     </div>
                     <button
@@ -604,60 +648,130 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                 style={{ border: "1px solid rgba(63,176,108,0.2)" }}
               >
                 <Mail className="w-3.5 h-3.5" />
-                {emailConns.length > 0 ? "Adicionar outra conexão" : "Adicionar conexão SMTP"}
+                {emailConns.length > 0 ? "Adicionar outra conexão" : "Adicionar conexão de email"}
               </button>
             )}
 
             {/* Formulário */}
             {showEmailForm && (
               <div className="space-y-4">
+                {/* Provider toggle */}
+                <div>
+                  <FieldLabel>Provedor</FieldLabel>
+                  <div className="flex gap-1 p-1 rounded-xl w-fit"
+                    style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.12)" }}
+                  >
+                    {([
+                      { id: "smtp",  label: "SMTP"          },
+                      { id: "graph", label: "Microsoft 365" },
+                    ] as const).map((p) => {
+                      const active = emailForm.provider === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => setEmailForm({ ...emailForm, provider: p.id })}
+                          className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+                          style={active ? {
+                            background: p.id === "graph"
+                              ? "rgba(0,120,212,0.2)"
+                              : "rgba(63,176,108,0.2)",
+                            border: p.id === "graph"
+                              ? "1px solid rgba(0,120,212,0.4)"
+                              : "1px solid rgba(63,176,108,0.4)",
+                            color: p.id === "graph" ? "#60a5fa" : "#fff",
+                          } : { color: "#6b7280" }}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <FieldLabel>Nome da conexão *</FieldLabel>
                     <input
                       className="input-agro w-full"
-                      placeholder="Ex: Gmail Financeiro"
+                      placeholder={emailForm.provider === "graph" ? "Ex: Microsoft 365 Cobrança" : "Ex: Gmail Financeiro"}
                       value={emailForm.name}
                       onChange={(e) => setEmailForm({ ...emailForm, name: e.target.value })}
                     />
                   </div>
-                  <div>
-                    <FieldLabel>Servidor SMTP *</FieldLabel>
-                    <input
-                      className="input-agro w-full"
-                      placeholder="smtp.gmail.com"
-                      value={emailForm.host}
-                      onChange={(e) => setEmailForm({ ...emailForm, host: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Porta *</FieldLabel>
-                    <input
-                      className="input-agro w-full"
-                      placeholder="587"
-                      value={emailForm.port}
-                      onChange={(e) => setEmailForm({ ...emailForm, port: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Usuário *</FieldLabel>
-                    <input
-                      className="input-agro w-full"
-                      placeholder="usuario@empresa.com"
-                      value={emailForm.username}
-                      onChange={(e) => setEmailForm({ ...emailForm, username: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Senha / App Password *</FieldLabel>
-                    <input
-                      className="input-agro w-full"
-                      type="password"
-                      placeholder="••••••••••••"
-                      value={emailForm.password}
-                      onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
-                    />
-                  </div>
+
+                  {emailForm.provider === "graph" ? (
+                    <>
+                      <div className="col-span-2">
+                        <FieldLabel>Tenant ID (Directory ID) *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          value={emailForm.tenant_id}
+                          onChange={(e) => setEmailForm({ ...emailForm, tenant_id: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Client ID (App ID) *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          value={emailForm.client_id}
+                          onChange={(e) => setEmailForm({ ...emailForm, client_id: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Client Secret *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          type="password"
+                          placeholder="••••••••••••"
+                          value={emailForm.password}
+                          onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <FieldLabel>Servidor SMTP *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="smtp.gmail.com"
+                          value={emailForm.host}
+                          onChange={(e) => setEmailForm({ ...emailForm, host: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Porta *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="587"
+                          value={emailForm.port}
+                          onChange={(e) => setEmailForm({ ...emailForm, port: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Usuário *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="usuario@empresa.com"
+                          value={emailForm.username}
+                          onChange={(e) => setEmailForm({ ...emailForm, username: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Senha / App Password *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          type="password"
+                          placeholder="••••••••••••"
+                          value={emailForm.password}
+                          onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
+
                   <div>
                     <FieldLabel>Nome do remetente *</FieldLabel>
                     <input
@@ -671,33 +785,48 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                     <FieldLabel>Email do remetente *</FieldLabel>
                     <input
                       className="input-agro w-full"
-                      placeholder="cobrancas@empresa.com"
+                      placeholder={emailForm.provider === "graph" ? "credito.cobranca@empresa.com" : "cobrancas@empresa.com"}
                       value={emailForm.from_email}
                       onChange={(e) => setEmailForm({ ...emailForm, from_email: e.target.value })}
                     />
                   </div>
                 </div>
 
-                {/* Toggle TLS */}
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <div
-                    onClick={() => setEmailForm({ ...emailForm, secure: !emailForm.secure })}
-                    className={cn(
-                      "w-10 h-6 rounded-full transition-colors relative",
-                      emailForm.secure ? "bg-agro-green" : "bg-agro-border"
-                    )}
-                  >
-                    <span
+                {/* Toggle TLS (SMTP only) */}
+                {emailForm.provider === "smtp" && (
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <div
+                      onClick={() => setEmailForm({ ...emailForm, secure: !emailForm.secure })}
                       className={cn(
-                        "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
-                        emailForm.secure && "translate-x-4"
+                        "w-10 h-6 rounded-full transition-colors relative",
+                        emailForm.secure ? "bg-agro-green" : "bg-agro-border"
                       )}
-                    />
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
+                          emailForm.secure && "translate-x-4"
+                        )}
+                      />
+                    </div>
+                    <span className="text-sm text-agro-muted">
+                      Usar TLS (porta 465) — desative para STARTTLS/587
+                    </span>
+                  </label>
+                )}
+
+                {/* M365 info note */}
+                {emailForm.provider === "graph" && (
+                  <div className="flex items-start gap-2 p-3 rounded-xl text-xs text-agro-muted"
+                    style={{ background: "rgba(0,120,212,0.06)", border: "1px solid rgba(0,120,212,0.15)" }}
+                  >
+                    <span className="text-blue-400 shrink-0">ℹ</span>
+                    <span>
+                      O app Entra ID precisa da permissão <strong className="text-agro-text">Mail.Send</strong> (aplicativo, não delegada).
+                      O email do remetente deve ser uma caixa de entrada válida no tenant.
+                    </span>
                   </div>
-                  <span className="text-sm text-agro-muted">
-                    Usar TLS (porta 465) — desative para STARTTLS/587
-                  </span>
-                </label>
+                )}
 
                 {/* Test result */}
                 {emailTestResult && (
@@ -728,7 +857,7 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   </button>
                   <button
                     onClick={handleEmailTest}
-                    disabled={!emailForm.host || !emailForm.username || !emailForm.password || emailTesting}
+                    disabled={!emailTestValid || emailTesting}
                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
                     style={{ border: "1px solid rgba(63,176,108,0.2)" }}
                   >
@@ -737,7 +866,7 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   </button>
                   <button
                     onClick={handleEmailSave}
-                    disabled={!emailForm.name || !emailForm.host || !emailForm.username || !emailForm.password || !emailForm.from_email || emailSaving}
+                    disabled={!emailFormValid || emailSaving}
                     className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
                   >
                     <Mail className="w-4 h-4" />

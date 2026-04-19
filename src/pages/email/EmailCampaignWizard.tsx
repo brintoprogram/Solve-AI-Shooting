@@ -13,7 +13,7 @@ const WORKSPACE_ID = getWorkspaceId();
 
 // ── Types ────────────────────────────────────────────────────────
 
-interface EmailConn { id: string; name: string; from_email: string; from_name: string; }
+interface EmailConn { id: string; name: string; from_email: string; from_name: string; provider?: string; }
 
 interface Contact {
   id: string;
@@ -92,7 +92,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
   useEffect(() => {
     supabase
       .from("email_connections")
-      .select("id,name,from_email,from_name")
+      .select("id,name,from_email,from_name,provider")
       .eq("workspace_id", WORKSPACE_ID)
       .then(({ data }) => { if (data) setEmailConns(data as EmailConn[]); });
   }, []);
@@ -362,7 +362,9 @@ function Step1({ state, emailConns, onChange }: {
           >
             <option value="">Selecionar conta...</option>
             {emailConns.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} · {c.from_email}</option>
+              <option key={c.id} value={c.id}>
+                {c.provider === "graph" ? "[M365] " : "[SMTP] "}{c.name} · {c.from_email}
+              </option>
             ))}
           </select>
         )}

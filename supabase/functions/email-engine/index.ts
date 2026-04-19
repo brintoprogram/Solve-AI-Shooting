@@ -3,8 +3,11 @@
 //
 // POST body: { action: "start"|"pause"|"resume"|"cancel", campaign_id: string }
 //
-// Mirrors campaign-engine but sends via SMTP instead of Meta Cloud API.
-// Rate limiting: BATCH_SIZE emails per batch, delay = (BATCH_SIZE / sending_speed) * 60s
+// Supports two providers:
+//   smtp  — sends via SMTPClient
+//   graph — sends via Microsoft Graph API (Entra ID client credentials)
+//
+// Rate limiting: targetIntervalMs = 60_000 / sending_speed — elapsed time per message
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient }   from "https://deno.land/x/smtp@v0.7.0/mod.ts";
@@ -34,12 +37,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Replace {{variavel}} with contact data values
 function interpolate(template: string, data: Record<string, unknown>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => String(data[key] ?? ""));
 }
 
-// ── Auth (same as campaign-engine) ───────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────
 
 async function authorizeRequest(
   req: Request,
@@ -68,12 +70,74 @@ async function authorizeRequest(
   return { ok: true };
 }
 
-// ── SMTP send (one email) ─────────────────────────────────────────
+// ── Microsoft Graph helpers ───────────────────────────────────────
 
-interface SmtpConfig {
-  host: string; port: number; secure: boolean;
-  username: string; password: string;
-  from_name: string; from_email: string;
+async function getGraphToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {
+  const res = await fetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method:  "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:    new URLSearchParams({
+        client_id:     clientId,
+        client_secret: clientSecret,
+        scope:         "https://graph.microsoft.com/.default",
+        grant_type:    "client_credentials",
+      }),
+    },
+  );
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_description ?? data.error ?? "Falha ao obter token do Entra ID");
+  }
+  return data.access_token as string;
+}
+
+async function sendViaGraph(
+  token:     string,
+  fromEmail: string,
+  fromName:  string,
+  to:        string,
+  toName:    string | null,
+  subject:   string,
+  html:      string,
+  cc:        string[],
+): Promise<void> {
+  const body = {
+    message: {
+      subject,
+      body:         { contentType: "HTML", content: html },
+      toRecipients: [{ emailAddress: { address: to, name: toName ?? to } }],
+      ccRecipients: cc.map((a) => ({ emailAddress: { address: a } })),
+      from:         { emailAddress: { address: fromEmail, name: fromName } },
+    },
+    saveToSentItems: true,
+  };
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${fromEmail}/sendMail`,
+    {
+      method:  "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+  }
+}
+
+// ── Config types ──────────────────────────────────────────────────
+
+interface EmailConnConfig {
+  provider:   string;
+  host:       string; port: number; secure: boolean;
+  username:   string; password: string;
+  from_name:  string; from_email: string;
+  tenant_id:  string | null;
+  client_id:  string | null;
 }
 
 interface EmailMessage {
@@ -86,38 +150,55 @@ interface EmailMessage {
   max_retries:     number;
 }
 
-async function sendEmail(
-  smtp:    SmtpConfig,
-  msg:     EmailMessage,
-  subject: string,
-  bodyHtml: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const data        = { ...msg.recipient_data, email: msg.recipient_email, nome: msg.recipient_name ?? msg.recipient_email };
-  const finalSubject = interpolate(subject, data);
-  const finalHtml    = interpolate(bodyHtml, data);
+// ── Send one email ────────────────────────────────────────────────
 
-  const client = new SMTPClient({
-    connection: {
-      hostname: smtp.host,
-      port:     smtp.port,
-      tls:      smtp.secure,
-      auth:     { username: smtp.username, password: smtp.password },
-    },
-  });
+async function sendEmail(
+  conn:       EmailConnConfig,
+  msg:        EmailMessage,
+  subject:    string,
+  bodyHtml:   string,
+  graphToken: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const data          = { ...msg.recipient_data, email: msg.recipient_email, nome: msg.recipient_name ?? msg.recipient_email };
+  const finalSubject  = interpolate(subject, data);
+  const finalHtml     = interpolate(bodyHtml, data);
 
   try {
-    await client.send({
-      from:    `${smtp.from_name} <${smtp.from_email}>`,
-      to:      msg.recipient_name ? `${msg.recipient_name} <${msg.recipient_email}>` : msg.recipient_email,
-      cc:      msg.cc_emails.length > 0 ? msg.cc_emails.join(", ") : undefined,
-      subject: finalSubject,
-      html:    finalHtml,
-      content: finalHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(), // plain-text fallback
-    });
-    await client.close();
+    if (conn.provider === "graph") {
+      if (!graphToken) throw new Error("Graph token ausente");
+      await sendViaGraph(
+        graphToken,
+        conn.from_email, conn.from_name,
+        msg.recipient_email, msg.recipient_name,
+        finalSubject, finalHtml,
+        msg.cc_emails,
+      );
+    } else {
+      const client = new SMTPClient({
+        connection: {
+          hostname: conn.host,
+          port:     conn.port,
+          tls:      conn.secure,
+          auth:     { username: conn.username, password: conn.password },
+        },
+      });
+      try {
+        await client.send({
+          from:    `${conn.from_name} <${conn.from_email}>`,
+          to:      msg.recipient_name ? `${msg.recipient_name} <${msg.recipient_email}>` : msg.recipient_email,
+          cc:      msg.cc_emails.length > 0 ? msg.cc_emails.join(", ") : undefined,
+          subject: finalSubject,
+          html:    finalHtml,
+          content: finalHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        });
+        await client.close();
+      } catch (err) {
+        try { await client.close(); } catch { /* ignore */ }
+        throw err;
+      }
+    }
     return { ok: true };
   } catch (err) {
-    try { await client.close(); } catch { /* ignore */ }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -126,20 +207,20 @@ async function sendEmail(
 
 async function processMessage(
   msg:        EmailMessage,
-  smtp:       SmtpConfig,
+  conn:       EmailConnConfig,
   campaignId: string,
   subject:    string,
   bodyHtml:   string,
+  graphToken: string | null,
 ): Promise<void> {
   const now    = new Date().toISOString();
-  const result = await sendEmail(smtp, msg, subject, bodyHtml);
+  const result = await sendEmail(conn, msg, subject, bodyHtml, graphToken);
 
   if (result.ok) {
     await db.from("email_messages")
       .update({ status: "sent", sent_at: now })
       .eq("id", msg.id);
 
-    // Safe read-modify-write: messages are processed sequentially, no race condition
     const { data: camp } = await db.from("email_campaigns").select("sent_count").eq("id", campaignId).single();
     if (camp) await db.from("email_campaigns")
       .update({ sent_count: ((camp as { sent_count: number }).sent_count ?? 0) + 1 })
@@ -182,11 +263,15 @@ async function isCampaignActive(campaignId: string): Promise<boolean> {
 
 // ── Send loop ─────────────────────────────────────────────────────
 
-async function startSendLoop(campaignId: string, smtpArg?: SmtpConfig, campaignArg?: Record<string, unknown>): Promise<void> {
-  let smtp     = smtpArg;
+async function startSendLoop(
+  campaignId:  string,
+  connArg?:    EmailConnConfig,
+  campaignArg?: Record<string, unknown>,
+): Promise<void> {
+  let conn     = connArg;
   let campaign = campaignArg;
 
-  if (!smtp || !campaign) {
+  if (!conn || !campaign) {
     const { data } = await db
       .from("email_campaigns")
       .select("*, email_connections(*)")
@@ -194,11 +279,11 @@ async function startSendLoop(campaignId: string, smtpArg?: SmtpConfig, campaignA
       .single();
     if (!data) return;
     campaign = data as Record<string, unknown>;
-    smtp     = data.email_connections as SmtpConfig;
+    conn     = data.email_connections as EmailConnConfig;
   }
 
-  if (!smtp) {
-    console.error(`[email-engine] no SMTP config for campaign ${campaignId}`);
+  if (!conn) {
+    console.error(`[email-engine] no connection config for campaign ${campaignId}`);
     await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
     return;
   }
@@ -206,11 +291,27 @@ async function startSendLoop(campaignId: string, smtpArg?: SmtpConfig, campaignA
   const subject      = String(campaign.subject      ?? "");
   const bodyHtml     = String(campaign.body_html    ?? "");
   const sendingSpeed = Number(campaign.sending_speed ?? 60);
-  // Target interval between messages (ms). We subtract actual send time so
-  // throughput matches what the user configured, regardless of SMTP latency.
   const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
 
-  console.log(`[email-engine] starting campaign ${campaignId} speed=${sendingSpeed}/min interval=${targetIntervalMs}ms/msg`);
+  // Fetch Graph token once — valid ~1h, enough for a full campaign run
+  let graphToken: string | null = null;
+  if (conn.provider === "graph") {
+    try {
+      graphToken = await getGraphToken(
+        conn.tenant_id!,
+        conn.client_id!,
+        conn.password,
+      );
+      console.log(`[email-engine] Graph token obtained for campaign ${campaignId}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[email-engine] Failed to get Graph token: ${msg}`);
+      await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
+      return;
+    }
+  }
+
+  console.log(`[email-engine] starting campaign ${campaignId} provider=${conn.provider} speed=${sendingSpeed}/min interval=${targetIntervalMs}ms/msg`);
 
   while (true) {
     if (!await isCampaignActive(campaignId)) {
@@ -234,8 +335,7 @@ async function startSendLoop(campaignId: string, smtpArg?: SmtpConfig, campaignA
       if (!await isCampaignActive(campaignId)) break;
 
       const t0 = Date.now();
-      await processMessage(msg, smtp, campaignId, subject, bodyHtml);
-      // Sleep only the remaining time so total time per message ≈ targetIntervalMs
+      await processMessage(msg, conn, campaignId, subject, bodyHtml, graphToken);
       const remaining = targetIntervalMs - (Date.now() - t0);
       if (remaining > 50) await sleep(remaining);
     }
@@ -284,7 +384,6 @@ Deno.serve(async (req: Request) => {
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   try {
-    // ── Quick actions ─────────────────────────────────────────
     if (action === "pause") {
       await db.from("email_campaigns").update({ status: "paused" }).eq("id", campaign_id);
       return json({ ok: true });
@@ -318,8 +417,8 @@ Deno.serve(async (req: Request) => {
       return json({ error: `Campanha não pode ser iniciada no status "${campaign.status}"` }, 409);
     }
 
-    const smtp = campaign.email_connections as SmtpConfig | null;
-    if (!smtp) return json({ error: "Conexão SMTP não encontrada" }, 400);
+    const conn = campaign.email_connections as EmailConnConfig | null;
+    if (!conn) return json({ error: "Conexão de email não encontrada" }, 400);
 
     const { count: pendingCount } = await db
       .from("email_messages")
@@ -338,7 +437,7 @@ Deno.serve(async (req: Request) => {
       .update({ status: "sending", started_at: new Date().toISOString() })
       .eq("id", campaign_id);
 
-    await startSendLoop(campaign_id, smtp, campaign as unknown as Record<string, unknown>);
+    await startSendLoop(campaign_id, conn, campaign as unknown as Record<string, unknown>);
 
     return json({ ok: true, processed: pendingCount });
 
