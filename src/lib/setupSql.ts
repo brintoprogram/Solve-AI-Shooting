@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
   contact_id       UUID NOT NULL REFERENCES inbox_contacts(id),
   wamid            TEXT UNIQUE,
   direction        TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  message_type     TEXT NOT NULL CHECK (message_type IN ('text','image','audio','video','document','sticker','location','reaction','unsupported')),
+  message_type     TEXT NOT NULL CHECK (message_type IN ('text','image','audio','video','document','sticker','location','reaction','template','button_reply','unsupported')),
   -- texto
   body             TEXT,
   -- mídia (image, audio, video, document, sticker)
