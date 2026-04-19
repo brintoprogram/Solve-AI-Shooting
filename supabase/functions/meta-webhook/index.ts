@@ -438,11 +438,12 @@ async function upsertConversation(
 
   if (existing) {
     await supabase.from("inbox_conversations").update({
-      status:            "open",
-      unread_count:      (existing.unread_count as number) + 1,
-      last_message_at:   ts,
-      last_message_body: lastBody,
-      updated_at:        ts,
+      status:                  "open",
+      unread_count:            (existing.unread_count as number) + 1,
+      last_message_at:         ts,
+      last_message_body:       lastBody,
+      last_message_direction:  "inbound",
+      updated_at:              ts,
     }).eq("id", existing.id);
     return existing.id as string;
   }
@@ -450,13 +451,14 @@ async function upsertConversation(
   const { data: created, error: insertErr } = await supabase
     .from("inbox_conversations")
     .insert({
-      workspace_id:       workspaceId,
-      meta_connection_id: connectionId,
-      contact_id:         contactId,
-      status:             "open",
-      unread_count:       1,
-      last_message_at:    ts,
-      last_message_body:  lastBody,
+      workspace_id:            workspaceId,
+      meta_connection_id:      connectionId,
+      contact_id:              contactId,
+      status:                  "open",
+      unread_count:            1,
+      last_message_at:         ts,
+      last_message_body:       lastBody,
+      last_message_direction:  "inbound",
     })
     .select("id")
     .single();

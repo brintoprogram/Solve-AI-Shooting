@@ -217,10 +217,13 @@ export function ConversationList({
 
                 <div className="flex items-center justify-between gap-1 mt-0.5">
                   <p
-                    className={`text-xs truncate ${
+                    className={`text-xs truncate flex items-center gap-1 ${
                       hasUnread ? "text-agro-muted" : "text-agro-muted-2"
                     }`}
                   >
+                    {conv.last_message_direction === "outbound" && (
+                      <span className="shrink-0 text-agro-muted-2" style={{ fontSize: "10px" }}>Você:</span>
+                    )}
                     {conv.last_message_body ?? ""}
                   </p>
 
@@ -272,10 +275,10 @@ function AssigneeMini({ assignee }: { assignee: UserProfile | null | undefined }
   return (
     <div
       title={assignee.full_name ?? "Agente"}
-      className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0"
+      className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
       style={{ background: rs.color }}
     >
-      {profileInitials(assignee.full_name).slice(0, 2)}
+      {profileInitials(assignee.full_name).slice(0, 1)}
     </div>
   );
 }

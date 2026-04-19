@@ -171,9 +171,10 @@ async function handleRequest(req: Request): Promise<Response> {
   await supabase
     .from("inbox_conversations")
     .update({
-      last_message_at:   now,
-      last_message_body: msgType === "text" ? (bodyText ?? "") : mediaLabel(msgType),
-      updated_at:        now,
+      last_message_at:        now,
+      last_message_body:      msgType === "text" ? (bodyText ?? "") : mediaLabel(msgType),
+      last_message_direction: "outbound",
+      updated_at:             now,
     })
     .eq("id", conversation_id);
 

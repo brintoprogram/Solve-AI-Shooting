@@ -18,6 +18,7 @@ export interface InboxConversation {
   unread_count: number;
   last_message_at: string | null;
   last_message_body: string | null;
+  last_message_direction: "inbound" | "outbound" | null;
   created_at: string;
   updated_at: string;
   inbox_contacts: InboxContact;
