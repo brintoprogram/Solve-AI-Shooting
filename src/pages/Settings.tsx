@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
-  Mail, Trash2, Send,
+  Mail, Trash2, Send, LogIn,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -118,7 +118,7 @@ export function Settings() {
   const [emailConns, setEmailConns]       = useState<EmailConn[]>([]);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [emailForm, setEmailForm]         = useState({
-    name: "", provider: "smtp" as "smtp" | "graph",
+    name: "", provider: "smtp" as "smtp" | "graph" | "oauth2",
     host: "", port: "587", secure: false, username: "", password: "",
     tenant_id: "", client_id: "",
     from_name: "", from_email: "",
@@ -127,7 +127,7 @@ export function Settings() {
   const [emailSaving,  setEmailSaving]    = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
 
-  useEffect(() => {
+  const loadEmailConns = useCallback(() => {
     supabase
       .from("email_connections")
       .select("id,name,provider,host,port,secure,username,from_name,from_email,tenant_id,client_id")
@@ -136,12 +136,31 @@ export function Settings() {
       .then(({ data }) => { if (data) setEmailConns(data as EmailConn[]); });
   }, []);
 
+  // Initial load + handle OAuth2 callback redirect
+  useEffect(() => {
+    loadEmailConns();
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("ms_oauth_success") === "1") {
+      toast({ title: "Microsoft conectado!", description: "A conexão OAuth2 foi adicionada com sucesso.", variant: "success" });
+      loadEmailConns();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("ms_oauth_error")) {
+      toast({ title: "Erro ao conectar com Microsoft", description: decodeURIComponent(params.get("ms_oauth_error")!), variant: "destructive" });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   const emailFormValid = emailForm.provider === "graph"
     ? !!(emailForm.name && emailForm.tenant_id && emailForm.client_id && emailForm.password && emailForm.from_email)
+    : emailForm.provider === "oauth2"
+    ? !!(emailForm.name && emailForm.client_id && emailForm.password && emailForm.from_email)
     : !!(emailForm.name && emailForm.host && emailForm.username && emailForm.password && emailForm.from_email);
 
   const emailTestValid = emailForm.provider === "graph"
     ? !!(emailForm.tenant_id && emailForm.client_id && emailForm.password && emailForm.from_email)
+    : emailForm.provider === "oauth2"
+    ? false // OAuth2 uses browser redirect, not API test
     : !!(emailForm.host && emailForm.username && emailForm.password);
 
   async function handleEmailTest() {
@@ -184,6 +203,31 @@ export function Settings() {
     }
   }
 
+  function handleMicrosoftOAuth() {
+    const state = btoa(JSON.stringify({
+      workspace_id:  WORKSPACE_ID,
+      name:          emailForm.name,
+      from_name:     emailForm.from_name,
+      from_email:    emailForm.from_email,
+      tenant_id:     emailForm.tenant_id,
+      client_id:     emailForm.client_id,
+      client_secret: emailForm.password,
+      frontend_url:  window.location.origin,
+    }));
+
+    const tenant   = emailForm.tenant_id || "common";
+    const redirect = `${SUPABASE_URL}/functions/v1/ms-oauth-callback`;
+    const authUrl  = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?` + new URLSearchParams({
+      client_id:     emailForm.client_id,
+      response_type: "code",
+      redirect_uri:  redirect,
+      scope:         "https://graph.microsoft.com/Mail.Send offline_access",
+      state,
+    }).toString();
+
+    window.location.href = authUrl;
+  }
+
   async function handleEmailSave() {
     setEmailSaving(true);
     try {
@@ -208,7 +252,7 @@ export function Settings() {
 
       if (error) throw new Error(error.message);
       setEmailConns((prev) => [...prev, data as EmailConn]);
-      setEmailForm({ name: "", provider: "smtp", host: "", port: "587", secure: false, username: "", password: "", tenant_id: "", client_id: "", from_name: "", from_email: "" });
+      setEmailForm({ name: "", provider: "smtp" as "smtp" | "graph" | "oauth2", host: "", port: "587", secure: false, username: "", password: "", tenant_id: "", client_id: "", from_name: "", from_email: "" });
       setEmailTestResult(null);
       setShowEmailForm(false);
       toast({ title: "Conexão de email salva!", variant: "success" });
@@ -614,17 +658,19 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                           <p className="font-semibold text-agro-text text-sm">{conn.name}</p>
                           <span
                             className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                            style={conn.provider === "graph"
-                              ? { background: "rgba(0,120,212,0.15)", color: "#60a5fa", border: "1px solid rgba(0,120,212,0.3)" }
-                              : { background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                            style={conn.provider === "smtp"
+                              ? { background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                              : conn.provider === "oauth2"
+                              ? { background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.3)" }
+                              : { background: "rgba(0,120,212,0.15)", color: "#60a5fa", border: "1px solid rgba(0,120,212,0.3)" }
                             }
                           >
-                            {conn.provider === "graph" ? "M365" : "SMTP"}
+                            {conn.provider === "smtp" ? "SMTP" : conn.provider === "oauth2" ? "OAuth2" : "M365"}
                           </span>
                         </div>
                         <p className="text-xs text-agro-muted">
                           {conn.from_email}
-                          {conn.provider !== "graph" && ` · ${conn.host}:${conn.port}`}
+                          {conn.provider === "smtp" && ` · ${conn.host}:${conn.port}`}
                         </p>
                       </div>
                     </div>
@@ -662,23 +708,24 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                     style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.12)" }}
                   >
                     {([
-                      { id: "smtp",  label: "SMTP"          },
-                      { id: "graph", label: "Microsoft 365" },
+                      { id: "smtp",   label: "SMTP"          },
+                      { id: "graph",  label: "Microsoft 365 (App)" },
+                      { id: "oauth2", label: "Microsoft (Login)" },
                     ] as const).map((p) => {
                       const active = emailForm.provider === p.id;
                       return (
                         <button
                           key={p.id}
                           onClick={() => setEmailForm({ ...emailForm, provider: p.id })}
-                          className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                           style={active ? {
-                            background: p.id === "graph"
-                              ? "rgba(0,120,212,0.2)"
-                              : "rgba(63,176,108,0.2)",
-                            border: p.id === "graph"
-                              ? "1px solid rgba(0,120,212,0.4)"
-                              : "1px solid rgba(63,176,108,0.4)",
-                            color: p.id === "graph" ? "#60a5fa" : "#fff",
+                            background: p.id === "smtp"
+                              ? "rgba(63,176,108,0.2)"
+                              : "rgba(0,120,212,0.2)",
+                            border: p.id === "smtp"
+                              ? "1px solid rgba(63,176,108,0.4)"
+                              : "1px solid rgba(0,120,212,0.4)",
+                            color: p.id === "smtp" ? "#fff" : "#60a5fa",
                           } : { color: "#6b7280" }}
                         >
                           {p.label}
@@ -727,6 +774,37 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                           placeholder="••••••••••••"
                           value={emailForm.password}
                           onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  ) : emailForm.provider === "oauth2" ? (
+                    <>
+                      <div>
+                        <FieldLabel>Client ID (App ID) *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          value={emailForm.client_id}
+                          onChange={(e) => setEmailForm({ ...emailForm, client_id: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>Client Secret *</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          type="password"
+                          placeholder="••••••••••••"
+                          value={emailForm.password}
+                          onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <FieldLabel>Tenant ID (opcional — deixe vazio para contas pessoais @outlook.com)</FieldLabel>
+                        <input
+                          className="input-agro w-full"
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (ou vazio para common)"
+                          value={emailForm.tenant_id}
+                          onChange={(e) => setEmailForm({ ...emailForm, tenant_id: e.target.value })}
                         />
                       </div>
                     </>
@@ -815,7 +893,7 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   </label>
                 )}
 
-                {/* M365 info note */}
+                {/* Provider info notes */}
                 {emailForm.provider === "graph" && (
                   <div className="flex items-start gap-2 p-3 rounded-xl text-xs text-agro-muted"
                     style={{ background: "rgba(0,120,212,0.06)", border: "1px solid rgba(0,120,212,0.15)" }}
@@ -824,6 +902,18 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                     <span>
                       O app Entra ID precisa da permissão <strong className="text-agro-text">Mail.Send</strong> (aplicativo, não delegada).
                       O email do remetente deve ser uma caixa de entrada válida no tenant.
+                    </span>
+                  </div>
+                )}
+                {emailForm.provider === "oauth2" && (
+                  <div className="flex items-start gap-2 p-3 rounded-xl text-xs text-agro-muted"
+                    style={{ background: "rgba(0,120,212,0.06)", border: "1px solid rgba(0,120,212,0.15)" }}
+                  >
+                    <span className="text-blue-400 shrink-0">ℹ</span>
+                    <span>
+                      O app Entra ID precisa da permissão <strong className="text-agro-text">Mail.Send</strong> (delegada, não aplicativo).
+                      Suporta contas pessoais <strong className="text-agro-text">@outlook.com</strong> e organizacionais M365.
+                      URI de redirecionamento registrada no Azure: <strong className="text-agro-text font-mono">{SUPABASE_URL}/functions/v1/ms-oauth-callback</strong>
                     </span>
                   </div>
                 )}
@@ -847,7 +937,7 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-1">
+                <div className="flex gap-3 pt-1 flex-wrap">
                   <button
                     onClick={() => { setShowEmailForm(false); setEmailTestResult(null); }}
                     className="px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
@@ -855,23 +945,38 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   >
                     Cancelar
                   </button>
-                  <button
-                    onClick={handleEmailTest}
-                    disabled={!emailTestValid || emailTesting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
-                    style={{ border: "1px solid rgba(63,176,108,0.2)" }}
-                  >
-                    <Send className={cn("w-3.5 h-3.5", emailTesting && "animate-pulse")} />
-                    {emailTesting ? "Testando…" : "Testar conexão"}
-                  </button>
-                  <button
-                    onClick={handleEmailSave}
-                    disabled={!emailFormValid || emailSaving}
-                    className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    <Mail className="w-4 h-4" />
-                    {emailSaving ? "Salvando…" : "Salvar conexão"}
-                  </button>
+
+                  {emailForm.provider === "oauth2" ? (
+                    <button
+                      onClick={handleMicrosoftOAuth}
+                      disabled={!emailFormValid}
+                      className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50 transition-colors"
+                      style={{ background: "rgba(0,120,212,0.85)", border: "1px solid rgba(0,120,212,0.6)" }}
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Conectar com Microsoft
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleEmailTest}
+                        disabled={!emailTestValid || emailTesting}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
+                        style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+                      >
+                        <Send className={cn("w-3.5 h-3.5", emailTesting && "animate-pulse")} />
+                        {emailTesting ? "Testando…" : "Testar conexão"}
+                      </button>
+                      <button
+                        onClick={handleEmailSave}
+                        disabled={!emailFormValid || emailSaving}
+                        className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                      >
+                        <Mail className="w-4 h-4" />
+                        {emailSaving ? "Salvando…" : "Salvar conexão"}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

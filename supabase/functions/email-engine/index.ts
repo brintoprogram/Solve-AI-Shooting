@@ -93,6 +93,47 @@ async function getGraphToken(tenantId: string, clientId: string, clientSecret: s
   return data.access_token as string;
 }
 
+async function refreshOAuthToken(
+  connId:       string,
+  tenantId:     string | null,
+  clientId:     string | null,
+  clientSecret: string,
+  refreshToken: string,
+): Promise<string> {
+  const tenant = tenantId || "common";
+  const res = await fetch(
+    `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+    {
+      method:  "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:    new URLSearchParams({
+        client_id:     clientId ?? "",
+        client_secret: clientSecret,
+        grant_type:    "refresh_token",
+        refresh_token: refreshToken,
+        scope:         "https://graph.microsoft.com/Mail.Send offline_access",
+      }),
+    },
+  );
+  const data = await res.json() as {
+    access_token?:  string;
+    refresh_token?: string;
+    expires_in?:    number;
+    error?:         string;
+    error_description?: string;
+  };
+  if (!res.ok || !data.access_token) {
+    throw new Error(data.error_description ?? data.error ?? "Falha ao renovar token OAuth2");
+  }
+  const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000).toISOString();
+  await db.from("email_connections").update({
+    oauth_access_token:     data.access_token,
+    oauth_refresh_token:    data.refresh_token ?? refreshToken,
+    oauth_token_expires_at: expiresAt,
+  }).eq("id", connId);
+  return data.access_token;
+}
+
 async function sendViaGraph(
   token:     string,
   fromEmail: string,
@@ -102,6 +143,7 @@ async function sendViaGraph(
   subject:   string,
   html:      string,
   cc:        string[],
+  delegated: boolean,
 ): Promise<void> {
   const body = {
     message: {
@@ -114,30 +156,37 @@ async function sendViaGraph(
     saveToSentItems: true,
   };
 
-  const res = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${fromEmail}/sendMail`,
-    {
-      method:  "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body:    JSON.stringify(body),
-    },
-  );
+  // Delegated (oauth2): /me/sendMail — token is already bound to the user
+  // Client credentials (graph): /users/{email}/sendMail
+  const endpoint = delegated
+    ? "https://graph.microsoft.com/v1.0/me/sendMail"
+    : `https://graph.microsoft.com/v1.0/users/${fromEmail}/sendMail`;
+
+  const res = await fetch(endpoint, {
+    method:  "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+  });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+    throw new Error((err as { error?: { message?: string } })?.error?.message ?? `Graph API error ${res.status}`);
   }
 }
 
 // ── Config types ──────────────────────────────────────────────────
 
 interface EmailConnConfig {
+  id:         string;
   provider:   string;
   host:       string; port: number; secure: boolean;
   username:   string; password: string;
   from_name:  string; from_email: string;
   tenant_id:  string | null;
   client_id:  string | null;
+  oauth_access_token:     string | null;
+  oauth_refresh_token:    string | null;
+  oauth_token_expires_at: string | null;
 }
 
 interface EmailMessage {
@@ -164,7 +213,7 @@ async function sendEmail(
   const finalHtml     = interpolate(bodyHtml, data);
 
   try {
-    if (conn.provider === "graph") {
+    if (conn.provider === "graph" || conn.provider === "oauth2") {
       if (!graphToken) throw new Error("Graph token ausente");
       await sendViaGraph(
         graphToken,
@@ -172,6 +221,7 @@ async function sendEmail(
         msg.recipient_email, msg.recipient_name,
         finalSubject, finalHtml,
         msg.cc_emails,
+        conn.provider === "oauth2",
       );
     } else {
       const client = new SMTPClient({
@@ -274,7 +324,7 @@ async function startSendLoop(
   if (!conn || !campaign) {
     const { data } = await db
       .from("email_campaigns")
-      .select("*, email_connections(*)")
+      .select("*, email_connections(id,provider,host,port,secure,username,password,from_name,from_email,tenant_id,client_id,oauth_access_token,oauth_refresh_token,oauth_token_expires_at)")
       .eq("id", campaignId)
       .single();
     if (!data) return;
@@ -297,15 +347,28 @@ async function startSendLoop(
   let graphToken: string | null = null;
   if (conn.provider === "graph") {
     try {
-      graphToken = await getGraphToken(
-        conn.tenant_id!,
-        conn.client_id!,
-        conn.password,
-      );
+      graphToken = await getGraphToken(conn.tenant_id!, conn.client_id!, conn.password);
       console.log(`[email-engine] Graph token obtained for campaign ${campaignId}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[email-engine] Failed to get Graph token: ${msg}`);
+      await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
+      return;
+    }
+  } else if (conn.provider === "oauth2") {
+    try {
+      const expiresAt  = conn.oauth_token_expires_at ? new Date(conn.oauth_token_expires_at).getTime() : 0;
+      const needsRefresh = expiresAt - Date.now() < 5 * 60 * 1000; // refresh if < 5 min left
+      if (needsRefresh && conn.oauth_refresh_token) {
+        graphToken = await refreshOAuthToken(conn.id, conn.tenant_id, conn.client_id, conn.password, conn.oauth_refresh_token);
+        console.log(`[email-engine] OAuth2 token refreshed for campaign ${campaignId}`);
+      } else {
+        graphToken = conn.oauth_access_token;
+        if (!graphToken) throw new Error("oauth_access_token ausente e sem refresh_token");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[email-engine] Failed to get OAuth2 token: ${msg}`);
       await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
       return;
     }
@@ -407,7 +470,7 @@ Deno.serve(async (req: Request) => {
     // ── START ─────────────────────────────────────────────────
     const { data: campaign, error: campErr } = await db
       .from("email_campaigns")
-      .select("*, email_connections(*)")
+      .select("*, email_connections(id,provider,host,port,secure,username,password,from_name,from_email,tenant_id,client_id,oauth_access_token,oauth_refresh_token,oauth_token_expires_at)")
       .eq("id", campaign_id)
       .single();
 

@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.email-engine]
 verify_jwt = false
+
+[functions.ms-oauth-callback]
+verify_jwt = false
