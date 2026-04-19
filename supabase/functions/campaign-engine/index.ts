@@ -38,12 +38,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 // ── Auth ─────────────────────────────────────────────────
 
 async function authorizeRequest(req: Request): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
@@ -299,7 +293,7 @@ async function processMessage(
 
   if ("wamid" in result) {
     await db.from("shooting_messages")
-      .update({ status: "sent", wamid: result.wamid })
+      .update({ status: "sent", wamid: result.wamid, sent_at: now })
       .eq("id", msg.id);
     await db.rpc("increment_campaign_counters", {
       p_campaign_id: campaignId, p_counter_name: "sent_count",
@@ -467,14 +461,14 @@ async function startSendLoop(
     campaign = data;
   }
 
-  const mapping        = (campaign.column_mapping ?? {}) as Record<string, unknown>;
-  const workspaceId    = String(campaign.workspace_id     ?? "");
-  const connectionId   = String(campaign.meta_connection_id ?? "");
-  const sendingSpeed   = Number(campaign.sending_speed ?? 80); // msg/min
-  // delay between batches = (batchSize / speed) * 60s → ms
-  const batchDelayMs = Math.max(1000, Math.ceil((BATCH_SIZE / sendingSpeed) * 60_000));
+  const mapping          = (campaign.column_mapping ?? {}) as Record<string, unknown>;
+  const workspaceId      = String(campaign.workspace_id     ?? "");
+  const connectionId     = String(campaign.meta_connection_id ?? "");
+  const sendingSpeed     = Number(campaign.sending_speed ?? 80); // msg/min
+  // Target interval per message so throughput matches user setting regardless of send latency
+  const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
 
-  let offset = 0;
+  console.log(`[engine] starting campaign ${campaignId} speed=${sendingSpeed}msg/min interval=${targetIntervalMs}ms/msg`);
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -491,23 +485,23 @@ async function startSendLoop(
       .eq("campaign_id", campaignId)
       .eq("status", "pending")
       .order("created_at")
-      .range(offset, offset + BATCH_SIZE - 1);
+      .limit(BATCH_SIZE);
 
     if (!batch || batch.length === 0) break;
 
-    console.log(`[engine] batch offset=${offset} size=${batch.length} speed=${sendingSpeed}msg/min delay=${batchDelayMs}ms`);
+    console.log(`[engine] batch size=${batch.length}`);
 
-    // Process entire batch concurrently; failures don't abort the batch
-    await Promise.allSettled(
-      (batch as Message[]).map((msg) =>
-        processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId)
-      )
-    );
+    // Process messages sequentially with per-message interval
+    for (const msg of batch as Message[]) {
+      if (!await isCampaignActive(campaignId)) break;
+
+      const t0 = Date.now();
+      await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
+      const remaining = targetIntervalMs - (Date.now() - t0);
+      if (remaining > 50) await sleep(remaining);
+    }
 
     if (batch.length < BATCH_SIZE) break; // last batch — done
-
-    offset += BATCH_SIZE;
-    await sleep(batchDelayMs);
   }
 
   // Final status — only update if still "sending" (wasn't cancelled mid-way)
