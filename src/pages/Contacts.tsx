@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2, Plus,
+  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2, Plus, Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { getWorkspaceId } from "@/lib/config";
 import { ImportModal } from "./contacts/ImportModal";
-import { ContactPanel, Contact, tagColor } from "./contacts/ContactPanel";
+import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { ContactFormModal } from "./contacts/ContactFormModal";
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -63,10 +64,72 @@ function useContacts(search: string, page: number) {
   return { contacts, total, loading, refresh: load };
 }
 
+// ── XLSX Export ────────────────────────────────────────────────────
+
+async function exportXlsx(workspaceId: string) {
+  // 1. Fetch ALL contacts (no pagination)
+  const { data: allContacts } = await db
+    .from("inbox_contacts")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("name", { ascending: true });
+
+  const contacts: Contact[] = allContacts ?? [];
+
+  // 2. Fetch ALL invoices for this workspace
+  const { data: allInvoices } = await db
+    .from("contact_invoices")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("vencimento", { ascending: true });
+
+  const invoices: Array<Record<string, unknown>> = allInvoices ?? [];
+
+  // 3. Build contacts sheet
+  const contactRows = contacts.map((c) => ({
+    "Nome":               c.name ?? "",
+    "Empresa":            c.empresa ?? "",
+    "Telefone":           c.phone ?? "",
+    "CPF / CNPJ":         c.cpf_cnpj ?? "",
+    "Email":              c.email ?? "",
+    "Email 2":            c.email2 ?? "",
+    "Representante":      c.nome_representante ?? "",
+    "Email Representante": c.email_representante ?? "",
+    "CEP":                c.cep ?? "",
+    "Logradouro":         c.logradouro ?? "",
+    "Número":             c.numero ?? "",
+    "Complemento":        c.complemento ?? "",
+    "Bairro":             c.bairro ?? "",
+    "Cidade":             c.cidade ?? "",
+    "Estado":             c.estado ?? "",
+    "Tags":               (c.tags ?? []).join(", "),
+    "Cadastrado em":      c.created_at ? new Date(c.created_at).toLocaleDateString("pt-BR") : "",
+  }));
+
+  // 4. Build invoices sheet (with contact name for cross-reference)
+  const contactMap = new Map(contacts.map((c) => [c.id, c.name ?? c.phone ?? c.id]));
+  const invoiceRows = invoices.map((inv) => ({
+    "Contato":        contactMap.get(inv.contact_id as string) ?? "",
+    "Número NF":      inv.numero_nf ?? "",
+    "Valor":          typeof inv.valor === "number" ? inv.valor : "",
+    "Vencimento":     formatDate(inv.vencimento as string | null),
+    "Status":         inv.status ?? "",
+    "Código de Barras": inv.codigo_barras ?? "",
+  }));
+
+  // 5. Create workbook with 2 sheets
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contactRows),  "Contatos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invoiceRows),  "Boletos");
+
+  const date = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `contatos_${date}.xlsx`);
+}
+
 // ── Tag chips ──────────────────────────────────────────────────────
 
 function TagChips({ tags }: { tags: string[] }) {
-  const visible = tags.slice(0, 3);
+  const visible = tags.slice(0, 2);
   const rest    = tags.length - visible.length;
   return (
     <div className="flex flex-wrap gap-1">
@@ -169,6 +232,16 @@ function EmptyState({ search, onImport }: { search: string; onImport: () => void
   );
 }
 
+// ── Column header helper ───────────────────────────────────────────
+
+function TH({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th className={`px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap ${className}`}>
+      {children}
+    </th>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────
 
 export function Contacts() {
@@ -178,8 +251,9 @@ export function Contacts() {
   const [selected, setSelected] = useState<Contact | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [showNewContact, setShowNewContact] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const workspaceId = getWorkspaceId();
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedSearch(search);
@@ -190,6 +264,11 @@ export function Contacts() {
 
   const { contacts, total, loading, refresh } = useContacts(debouncedSearch, page);
   const pages = Math.ceil(total / PAGE_SIZE);
+
+  async function handleExport() {
+    setExporting(true);
+    try { await exportXlsx(workspaceId); } finally { setExporting(false); }
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: "#0a110e" }}>
@@ -208,6 +287,15 @@ export function Contacts() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            disabled={exporting || total === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-[#6b7f6e] transition-colors hover:bg-[#1e2e22] hover:text-white disabled:opacity-40"
+            style={{ border: "1px solid #2a3d30" }}
+          >
+            <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} />
+            {exporting ? "Exportando…" : "Exportar XLSX"}
+          </button>
           <button
             onClick={() => setShowNewContact(true)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-[#3fb06c] transition-colors hover:bg-[#1e2e22]"
@@ -247,21 +335,16 @@ export function Contacts() {
         ) : contacts.length === 0 ? (
           <EmptyState search={debouncedSearch} onImport={() => setShowImport(true)} />
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ minWidth: 1100 }}>
             <thead className="sticky top-0 z-10" style={{ background: "#0d1710", borderBottom: "1px solid #1e2e22" }}>
               <tr>
-                <th className="px-5 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] w-[280px]">
-                  Nome / Empresa
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] w-[160px]">
-                  Telefone
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] w-[160px]">
-                  CPF / CNPJ
-                </th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e]">
-                  Tags
-                </th>
+                <TH className="pl-5 w-[220px]">Nome / Empresa</TH>
+                <TH className="w-[140px]">Telefone</TH>
+                <TH className="w-[140px]">CPF / CNPJ</TH>
+                <TH className="w-[190px]">Email</TH>
+                <TH className="w-[170px]">Representante</TH>
+                <TH className="w-[160px]">Cidade / UF</TH>
+                <TH>Tags</TH>
               </tr>
             </thead>
             <tbody>
@@ -302,6 +385,37 @@ export function Contacts() {
                       if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
                       return raw;
                     })()}
+                  </td>
+
+                  {/* Email */}
+                  <td className="px-4 py-3 text-xs text-[#6b7f6e] max-w-[190px]">
+                    {contact.email ? (
+                      <span className="truncate block" title={contact.email}>{contact.email}</span>
+                    ) : "—"}
+                    {contact.email2 && (
+                      <span className="truncate block text-[#4a6b50] mt-0.5" title={contact.email2}>{contact.email2}</span>
+                    )}
+                  </td>
+
+                  {/* Representante */}
+                  <td className="px-4 py-3 text-xs max-w-[170px]">
+                    {contact.nome_representante ? (
+                      <>
+                        <p className="text-[#b0c4b8] truncate" title={contact.nome_representante}>{contact.nome_representante}</p>
+                        {contact.email_representante && (
+                          <p className="text-[#4a6b50] truncate mt-0.5" title={contact.email_representante}>{contact.email_representante}</p>
+                        )}
+                      </>
+                    ) : "—"}
+                  </td>
+
+                  {/* Cidade / UF */}
+                  <td className="px-4 py-3 text-xs text-[#6b7f6e]">
+                    {contact.cidade || contact.estado ? (
+                      <span>
+                        {[contact.cidade, contact.estado].filter(Boolean).join(" / ")}
+                      </span>
+                    ) : "—"}
                   </td>
 
                   {/* Tags */}
