@@ -305,8 +305,8 @@ function Section({ title, optional, right, children }: {
   title: string; optional?: boolean; right?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
-      <div className="flex items-center justify-between px-4 py-2.5"
+    <div className="rounded-xl" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+      <div className="flex items-center justify-between px-4 py-2.5 rounded-t-xl"
         style={{ background: "rgba(63,176,108,0.04)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
         <div className="flex items-center gap-2">
           <p className="text-[11px] font-bold uppercase tracking-widest text-agro-muted-2">{title}</p>
@@ -751,8 +751,8 @@ export function TemplateBuilder({ connection, workspaceId, onClose, onSuccess }:
                   </div>
                 ))}
 
-                {/* Add button menu */}
-                <div className="relative">
+                {/* Add button menu — inline (não absolute) para evitar clipping do overflow */}
+                <div className="space-y-1">
                   <button
                     onClick={() => setShowBtnMenu((v) => !v)}
                     disabled={form.buttons.length >= 10}
@@ -761,16 +761,16 @@ export function TemplateBuilder({ connection, workspaceId, onClose, onSuccess }:
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Adicionar botão
-                    <ChevronDown className="w-3 h-3 ml-1" />
+                    <ChevronDown className={`w-3 h-3 ml-1 transition-transform ${showBtnMenu ? "rotate-180" : ""}`} />
                   </button>
 
                   {showBtnMenu && (
-                    <div className="absolute top-9 left-0 z-10 w-64 rounded-xl overflow-hidden shadow-xl"
+                    <div className="w-64 rounded-xl overflow-hidden shadow-xl"
                       style={{ background: "#0d1a11", border: "1px solid rgba(63,176,108,0.2)" }}>
                       {[
-                        { type: "QUICK_REPLY" as BtnType, icon: MessageSquare, label: "Resposta Rápida", desc: `máx ${MAX_QUICK}`, ok: canAddQR },
-                        { type: "URL"         as BtnType, icon: Link2,         label: "Link",            desc: `máx ${MAX_URL}`,   ok: canAddURL },
-                        { type: "PHONE_NUMBER"as BtnType, icon: Phone,         label: "Telefone",        desc: `máx ${MAX_PHONE}`, ok: canAddPhone },
+                        { type: "QUICK_REPLY"  as BtnType, icon: MessageSquare, label: "Resposta Rápida", desc: `máx ${MAX_QUICK}`,  ok: canAddQR    },
+                        { type: "URL"          as BtnType, icon: Link2,         label: "Link",            desc: `máx ${MAX_URL}`,    ok: canAddURL   },
+                        { type: "PHONE_NUMBER" as BtnType, icon: Phone,         label: "Telefone",        desc: `máx ${MAX_PHONE}`,  ok: canAddPhone },
                       ].map(({ type, icon: Icon, label, desc, ok }) => (
                         <button key={type} disabled={!ok} onClick={() => addButton(type)}
                           className="w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white/5">

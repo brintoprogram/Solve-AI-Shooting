@@ -137,7 +137,7 @@ async function handleCreate(req: Request): Promise<Response> {
       "Content-Type":  "application/json",
       "Authorization": `Bearer ${conn.access_token}`,
     },
-    body: JSON.stringify({ name, language, category, components }),
+    body: JSON.stringify({ name, language, category, components, allow_category_change: true }),
   });
 
   const metaBody = await metaRes.json() as Record<string, unknown>;
@@ -148,10 +148,10 @@ async function handleCreate(req: Request): Promise<Response> {
 
     // Retorna erro detalhado para o frontend exibir ao usuário
     return json({
-      error:   String(err?.message ?? "Erro na Meta API"),
-      code:    err?.code     ?? null,
-      subcode: (err?.error_subcode) ?? null,
-      details: err            ?? metaBody,
+      error:   String(err?.error_user_msg ?? err?.message ?? "Erro na Meta API"),
+      code:    err?.code           ?? null,
+      subcode: err?.error_subcode  ?? null,
+      details: err                 ?? metaBody,
     }, 400);
   }
 
