@@ -19,24 +19,52 @@ function json(data: unknown, status = 200): Response {
 // ── Microsoft Graph helpers ───────────────────────────────────────
 
 async function getGraphToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {
-  const res = await fetch(
-    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id:     clientId,
-        client_secret: clientSecret,
-        scope:         "https://graph.microsoft.com/.default",
-        grant_type:    "client_credentials",
-      }),
-    },
-  );
-  const data = await res.json();
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  console.log(`[test-email-connection] getGraphToken → ${tokenUrl}`);
+
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id:     clientId,
+      client_secret: clientSecret,
+      scope:         "https://graph.microsoft.com/.default",
+      grant_type:    "client_credentials",
+    }),
+  });
+
+  const data = await res.json() as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+    error_codes?: number[];
+    suberror?: string;
+  };
+
+  console.log(`[test-email-connection] token response status=${res.status} ok=${res.ok} error=${data.error ?? "none"}`);
+
   if (!res.ok || !data.access_token) {
-    throw new Error(data.error_description ?? data.error ?? "Falha ao obter token do Entra ID");
+    // Erro específico para contas pessoais (erro 700016 ou AADSTS700016)
+    const codes = data.error_codes ?? [];
+    if (codes.includes(700016) || data.error === "invalid_client") {
+      throw new Error(
+        `Credenciais inválidas (client_id ou client_secret incorretos). ` +
+        `Detalhes: ${data.error_description ?? data.error}`
+      );
+    }
+    if (data.error === "unauthorized_client" || codes.includes(7000222)) {
+      throw new Error(
+        `App não tem permissão de Client Credentials. ` +
+        `Verifique se a permissão Mail.Send (aplicativo) foi concedida como Admin no Azure. ` +
+        `Detalhes: ${data.error_description ?? data.error}`
+      );
+    }
+    throw new Error(
+      `Falha ao obter token do Entra ID (HTTP ${res.status}): ` +
+      (data.error_description ?? data.error ?? "Erro desconhecido")
+    );
   }
-  return data.access_token as string;
+  return data.access_token;
 }
 
 async function sendViaGraph(
@@ -72,8 +100,23 @@ async function sendViaGraph(
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+    const err = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+    const code = err?.error?.code ?? "";
+    const msg  = err?.error?.message ?? `Graph API error ${res.status}`;
+    if (res.status === 403 || code === "Authorization_RequestDenied") {
+      throw new Error(
+        `Acesso negado pela Graph API (403). ` +
+        `Verifique se a permissão Mail.Send foi concedida como "Consentimento de administrador" no Azure. ` +
+        `Detalhe: ${msg}`
+      );
+    }
+    if (res.status === 404) {
+      throw new Error(
+        `Caixa de email "${fromEmail}" não encontrada no tenant (404). ` +
+        `Verifique se o email do remetente é uma conta válida no tenant Entra ID.`
+      );
+    }
+    throw new Error(`Graph API (HTTP ${res.status}): ${msg}`);
   }
 }
 

@@ -166,38 +166,64 @@ export function Settings() {
   async function handleEmailTest() {
     setEmailTesting(true);
     setEmailTestResult(null);
+
+    if (!SUPABASE_URL) {
+      setEmailTestResult({ ok: false, info: "VITE_SUPABASE_URL não configurada. Verifique as variáveis de ambiente." });
+      setEmailTesting(false);
+      return;
+    }
+
+    const endpoint = `${SUPABASE_URL}/functions/v1/test-email-connection`;
+
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/functions/v1/test-email-connection`,
-        {
-          method: "POST",
+      const controller = new AbortController();
+      const timeout    = setTimeout(() => controller.abort(), 30_000);
+
+      let res: Response;
+      try {
+        res = await fetch(endpoint, {
+          method:  "POST",
           headers: { "Content-Type": "application/json" },
+          signal:  controller.signal,
           body: JSON.stringify({
             provider:    emailForm.provider,
-            // SMTP
             host:        emailForm.host,
             port:        Number(emailForm.port),
             secure:      emailForm.secure,
             username:    emailForm.username,
             password:    emailForm.password,
-            // Graph
             tenant_id:   emailForm.tenant_id,
             client_id:   emailForm.client_id,
-            // Common
             from_name:   emailForm.from_name,
             from_email:  emailForm.from_email,
             workspace_id: WORKSPACE_ID,
           }),
-        }
-      );
-      const data = await res.json() as { ok?: boolean; error?: string };
+        });
+        clearTimeout(timeout);
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        const isAbort = fetchErr instanceof DOMException && fetchErr.name === "AbortError";
+        throw new Error(
+          isAbort
+            ? "Tempo limite excedido (30s). A função pode estar em cold start ou o servidor não respondeu."
+            : `Falha de rede ao chamar ${endpoint}: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`
+        );
+      }
+
+      let data: { ok?: boolean; error?: string };
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Resposta inválida do servidor (HTTP ${res.status} ${res.statusText})`);
+      }
+
       if (data.ok) {
         setEmailTestResult({ ok: true, info: "Email de teste enviado com sucesso!" });
       } else {
-        setEmailTestResult({ ok: false, info: data.error ?? "Falha ao conectar" });
+        setEmailTestResult({ ok: false, info: data.error ?? `Erro HTTP ${res.status}` });
       }
     } catch (err) {
-      setEmailTestResult({ ok: false, info: err instanceof Error ? err.message : "Erro desconhecido" });
+      setEmailTestResult({ ok: false, info: err instanceof Error ? err.message : String(err) });
     } finally {
       setEmailTesting(false);
     }
