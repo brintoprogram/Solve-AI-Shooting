@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, RefreshCw, Send, AlertTriangle, Zap } from "lucide-react";
+import { Plus, RefreshCw, Send, AlertTriangle, Zap, Mail, MessageSquare } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignList } from "./components/CampaignList";
 import { CampaignBuilder } from "./CampaignBuilder";
+import { EmailCampaignList } from "@/pages/email/EmailCampaignList";
+import { EmailCampaignWizard } from "@/pages/email/EmailCampaignWizard";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
@@ -17,7 +19,10 @@ const WORKSPACE_ID = getWorkspaceId();
 export function ShootingPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [channel, setChannel]         = useState<"whatsapp" | "email">("whatsapp");
   const [showBuilder, setShowBuilder] = useState(false);
+  const [showEmailWizard, setShowEmailWizard] = useState(false);
+  const [emailListKey, setEmailListKey]       = useState(0);
   const { campaigns, loading, deleteCampaign, refetch } = useCampaigns(WORKSPACE_ID);
   const { connections } = useMetaConnections(WORKSPACE_ID);
   const { templates, syncing, syncTemplates } = useMetaTemplates(WORKSPACE_ID);
@@ -58,7 +63,7 @@ export function ShootingPage() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* ── Page header ───────────────────────── */}
-        <div className="flex items-start justify-between mb-8 animate-fade-up">
+        <div className="flex items-start justify-between mb-6 animate-fade-up">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center glow-green-sm"
@@ -69,28 +74,75 @@ export function ShootingPage() {
               <h1 className="font-display text-2xl font-bold text-agro-text">Solve AI Shooting</h1>
             </div>
             <p className="text-sm text-agro-muted ml-12">
-              Disparos em massa via API oficial do WhatsApp Business
+              Disparos em massa via WhatsApp e Email
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={refetch}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-all hover:bg-white/5"
-              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Atualizar
-            </button>
-            <button
-              onClick={() => setShowBuilder(true)}
-              className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
-            >
-              <Plus className="w-4 h-4" />
-              Nova Campanha
-            </button>
+            {channel === "whatsapp" ? (
+              <>
+                <button
+                  onClick={refetch}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-all hover:bg-white/5"
+                  style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Atualizar
+                </button>
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Campanha
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowEmailWizard(true)}
+                className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
+              >
+                <Plus className="w-4 h-4" />
+                Nova Campanha de Email
+              </button>
+            )}
           </div>
         </div>
+
+        {/* ── Channel tabs ─────────────────────── */}
+        <div className="flex gap-1 mb-6 p-1 rounded-xl w-fit animate-fade-up"
+          style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}
+        >
+          {([
+            { id: "whatsapp", label: "WhatsApp", icon: MessageSquare },
+            { id: "email",    label: "Email",     icon: Mail          },
+          ] as const).map((ch) => {
+            const isActive = channel === ch.id;
+            return (
+              <button key={ch.id} onClick={() => setChannel(ch.id)}
+                className={cn(
+                  "flex items-center gap-2 py-2 px-5 rounded-lg text-sm font-medium transition-all duration-200",
+                  isActive ? "text-white" : "text-agro-muted hover:text-agro-text",
+                )}
+                style={isActive ? {
+                  background: "linear-gradient(135deg, rgba(63,176,108,0.2), rgba(22,163,74,0.1))",
+                  border: "1px solid rgba(63,176,108,0.3)",
+                } : undefined}
+              >
+                <ch.icon className="w-4 h-4" />
+                {ch.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Email tab ────────────────────────── */}
+        {channel === "email" && (
+          <EmailCampaignList key={emailListKey} onNew={() => setShowEmailWizard(true)} />
+        )}
+
+        {/* ── WhatsApp tab ──────────────────────── */}
+        {channel === "whatsapp" && <>
 
         {/* ── Connection status bar ─────────────── */}
         {connections.length > 0 && (
@@ -176,6 +228,8 @@ export function ShootingPage() {
 
         {/* ── Tabs ─────────────────────────────── */}
         <TabsView tabs={tabs} loading={loading} onDelete={deleteCampaign} onNew={() => setShowBuilder(true)} onAction={handleCampaignAction} />
+
+        </> /* end WhatsApp tab */}
       </div>
 
       <CampaignBuilder
@@ -183,6 +237,27 @@ export function ShootingPage() {
         onClose={() => setShowBuilder(false)}
         onCreated={refetch}
       />
+
+      {/* ── Email Wizard (full-screen overlay) ── */}
+      {showEmailWizard && (
+        <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: "#0a110e" }}>
+          <div className="sticky top-0 z-10 flex items-center px-6 py-4"
+            style={{ background: "rgba(10,17,14,0.9)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}
+          >
+            <button onClick={() => setShowEmailWizard(false)}
+              className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors"
+            >
+              ← Voltar para Disparos
+            </button>
+            <span className="mx-3 text-agro-border">|</span>
+            <span className="text-sm font-semibold text-agro-text">Nova Campanha de Email</span>
+          </div>
+          <EmailCampaignWizard
+            onClose={() => setShowEmailWizard(false)}
+            onCreated={() => { setEmailListKey((k) => k + 1); setChannel("email"); }}
+          />
+        </div>
+      )}
     </div>
   );
 }

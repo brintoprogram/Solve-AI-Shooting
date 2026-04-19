@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
+  Mail, Trash2, Send,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -10,6 +11,7 @@ import { getPhoneNumberInfo }  from "@/services/metaApi";
 import { getWorkspaceId }      from "@/lib/config";
 import { useToast }            from "@/hooks/use-toast";
 import { cn }                  from "@/lib/utils";
+import { supabase }            from "@/lib/supabase";
 
 const WORKSPACE_ID = getWorkspaceId();
 
@@ -105,6 +107,93 @@ export function Settings() {
   const [saving,   setSaving]     = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
+
+  // ── Email connections state ──────────────────────────────────────
+  type EmailConn = {
+    id: string; name: string; host: string; port: number;
+    secure: boolean; username: string; from_name: string; from_email: string;
+  };
+  const [emailConns, setEmailConns]       = useState<EmailConn[]>([]);
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [emailForm, setEmailForm]         = useState({
+    name: "", host: "", port: "587", secure: false,
+    username: "", password: "", from_name: "", from_email: "",
+  });
+  const [emailTesting, setEmailTesting]   = useState(false);
+  const [emailSaving,  setEmailSaving]    = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("email_connections")
+      .select("id,name,host,port,secure,username,from_name,from_email")
+      .eq("workspace_id", WORKSPACE_ID)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => { if (data) setEmailConns(data as EmailConn[]); });
+  }, []);
+
+  async function handleEmailTest() {
+    setEmailTesting(true);
+    setEmailTestResult(null);
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/functions/v1/test-email-connection`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...emailForm, port: Number(emailForm.port), workspace_id: WORKSPACE_ID }),
+        }
+      );
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (data.ok) {
+        setEmailTestResult({ ok: true, info: "Email de teste enviado com sucesso!" });
+      } else {
+        setEmailTestResult({ ok: false, info: data.error ?? "Falha ao conectar" });
+      }
+    } catch (err) {
+      setEmailTestResult({ ok: false, info: err instanceof Error ? err.message : "Erro desconhecido" });
+    } finally {
+      setEmailTesting(false);
+    }
+  }
+
+  async function handleEmailSave() {
+    setEmailSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("email_connections")
+        .insert({
+          workspace_id: WORKSPACE_ID,
+          name:         emailForm.name,
+          host:         emailForm.host,
+          port:         Number(emailForm.port),
+          secure:       emailForm.secure,
+          username:     emailForm.username,
+          password:     emailForm.password,
+          from_name:    emailForm.from_name,
+          from_email:   emailForm.from_email,
+        })
+        .select("id,name,host,port,secure,username,from_name,from_email")
+        .single();
+
+      if (error) throw new Error(error.message);
+      setEmailConns((prev) => [...prev, data as EmailConn]);
+      setEmailForm({ name: "", host: "", port: "587", secure: false, username: "", password: "", from_name: "", from_email: "" });
+      setEmailTestResult(null);
+      setShowEmailForm(false);
+      toast({ title: "Conexão de email salva!", variant: "success" });
+    } catch (err) {
+      toast({ title: "Erro ao salvar", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function handleEmailDelete(id: string) {
+    await supabase.from("email_connections").delete().eq("id", id);
+    setEmailConns((prev) => prev.filter((c) => c.id !== id));
+    toast({ title: "Conexão removida" });
+  }
 
   function copy(text: string, label = "Copiado!") {
     navigator.clipboard.writeText(text);
@@ -468,6 +557,196 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
               </div>
             )}
           </div>
+        </div>
+
+        {/* ── Conexões de Email ───────────────── */}
+        <div className="animate-fade-up-delay-1">
+          <DarkCard title="Conexões de Email" subtitle="Configure contas SMTP para disparos em massa via email">
+
+            {/* Lista de conexões existentes */}
+            {emailConns.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {emailConns.map((conn) => (
+                  <div
+                    key={conn.id}
+                    className="flex items-center justify-between p-3 rounded-xl"
+                    style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.08)" }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.2)" }}
+                      >
+                        <Mail className="w-4 h-4 text-agro-green" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-agro-text text-sm">{conn.name}</p>
+                        <p className="text-xs text-agro-muted">{conn.from_email} · {conn.host}:{conn.port}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleEmailDelete(conn.id)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-red-400 transition-colors"
+                      style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Botão para mostrar form */}
+            {!showEmailForm && (
+              <button
+                onClick={() => setShowEmailForm(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+                style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                {emailConns.length > 0 ? "Adicionar outra conexão" : "Adicionar conexão SMTP"}
+              </button>
+            )}
+
+            {/* Formulário */}
+            {showEmailForm && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <FieldLabel>Nome da conexão *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="Ex: Gmail Financeiro"
+                      value={emailForm.name}
+                      onChange={(e) => setEmailForm({ ...emailForm, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Servidor SMTP *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="smtp.gmail.com"
+                      value={emailForm.host}
+                      onChange={(e) => setEmailForm({ ...emailForm, host: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Porta *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="587"
+                      value={emailForm.port}
+                      onChange={(e) => setEmailForm({ ...emailForm, port: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Usuário *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="usuario@empresa.com"
+                      value={emailForm.username}
+                      onChange={(e) => setEmailForm({ ...emailForm, username: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Senha / App Password *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      type="password"
+                      placeholder="••••••••••••"
+                      value={emailForm.password}
+                      onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Nome do remetente *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="Cobranças Nitro"
+                      value={emailForm.from_name}
+                      onChange={(e) => setEmailForm({ ...emailForm, from_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Email do remetente *</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      placeholder="cobrancas@empresa.com"
+                      value={emailForm.from_email}
+                      onChange={(e) => setEmailForm({ ...emailForm, from_email: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                {/* Toggle TLS */}
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <div
+                    onClick={() => setEmailForm({ ...emailForm, secure: !emailForm.secure })}
+                    className={cn(
+                      "w-10 h-6 rounded-full transition-colors relative",
+                      emailForm.secure ? "bg-agro-green" : "bg-agro-border"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
+                        emailForm.secure && "translate-x-4"
+                      )}
+                    />
+                  </div>
+                  <span className="text-sm text-agro-muted">
+                    Usar TLS (porta 465) — desative para STARTTLS/587
+                  </span>
+                </label>
+
+                {/* Test result */}
+                {emailTestResult && (
+                  <div
+                    className="flex items-start gap-3 p-3 rounded-xl"
+                    style={emailTestResult.ok
+                      ? { background: "rgba(63,176,108,0.08)",  border: "1px solid rgba(63,176,108,0.25)"  }
+                      : { background: "rgba(239,68,68,0.08)",   border: "1px solid rgba(239,68,68,0.25)"   }
+                    }
+                  >
+                    {emailTestResult.ok
+                      ? <CheckCircle className="w-4 h-4 text-agro-green shrink-0 mt-0.5" />
+                      : <XCircle    className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    }
+                    <p className={cn("text-sm", emailTestResult.ok ? "text-agro-green" : "text-red-400")}>
+                      {emailTestResult.info}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => { setShowEmailForm(false); setEmailTestResult(null); }}
+                    className="px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+                    style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleEmailTest}
+                    disabled={!emailForm.host || !emailForm.username || !emailForm.password || emailTesting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
+                    style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+                  >
+                    <Send className={cn("w-3.5 h-3.5", emailTesting && "animate-pulse")} />
+                    {emailTesting ? "Testando…" : "Testar conexão"}
+                  </button>
+                  <button
+                    onClick={handleEmailSave}
+                    disabled={!emailForm.name || !emailForm.host || !emailForm.username || !emailForm.password || !emailForm.from_email || emailSaving}
+                    className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    <Mail className="w-4 h-4" />
+                    {emailSaving ? "Salvando…" : "Salvar conexão"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </DarkCard>
         </div>
 
         {/* ── Webhook Meta ─────────────────────── */}
