@@ -10,7 +10,7 @@
 // Rate limiting: targetIntervalMs = 60_000 / sending_speed — elapsed time per message
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SMTPClient }   from "https://deno.land/x/smtp@v0.7.0/mod.ts";
+import nodemailer from "npm:nodemailer@6";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -224,28 +224,20 @@ async function sendEmail(
         conn.provider === "oauth2",
       );
     } else {
-      const client = new SMTPClient({
-        connection: {
-          hostname: conn.host,
-          port:     conn.port,
-          tls:      conn.secure,
-          auth:     { username: conn.username, password: conn.password },
-        },
+      const transport = nodemailer.createTransport({
+        host:   conn.host,
+        port:   conn.port,
+        secure: conn.secure,
+        auth:   { user: conn.username, pass: conn.password },
       });
-      try {
-        await client.send({
-          from:    `${conn.from_name} <${conn.from_email}>`,
-          to:      msg.recipient_name ? `${msg.recipient_name} <${msg.recipient_email}>` : msg.recipient_email,
-          cc:      msg.cc_emails.length > 0 ? msg.cc_emails.join(", ") : undefined,
-          subject: finalSubject,
-          html:    finalHtml,
-          content: finalHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
-        });
-        await client.close();
-      } catch (err) {
-        try { await client.close(); } catch { /* ignore */ }
-        throw err;
-      }
+      await transport.sendMail({
+        from:    `${conn.from_name} <${conn.from_email}>`,
+        to:      msg.recipient_name ? `${msg.recipient_name} <${msg.recipient_email}>` : msg.recipient_email,
+        cc:      msg.cc_emails.length > 0 ? msg.cc_emails : undefined,
+        subject: finalSubject,
+        html:    finalHtml,
+        text:    finalHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+      });
     }
     return { ok: true };
   } catch (err) {

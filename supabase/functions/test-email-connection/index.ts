@@ -2,7 +2,7 @@
 // POST body (SMTP):  { provider:"smtp",  host, port, secure, username, password, from_name, from_email }
 // POST body (Graph): { provider:"graph", tenant_id, client_id, password (=client_secret), from_name, from_email }
 
-import { SMTPClient } from "https://deno.land/x/smtp@v0.7.0/mod.ts";
+import nodemailer from "npm:nodemailer@6";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -33,38 +33,28 @@ async function getGraphToken(tenantId: string, clientId: string, clientSecret: s
     }),
   });
 
-  const data = await res.json() as {
-    access_token?: string;
-    error?: string;
-    error_description?: string;
-    error_codes?: number[];
-    suberror?: string;
-  };
+  // deno-lint-ignore no-explicit-any
+  const data: any = await res.json();
 
-  console.log(`[test-email-connection] token response status=${res.status} ok=${res.ok} error=${data.error ?? "none"}`);
+  console.log(`[test-email-connection] token status=${res.status} error=${data.error ?? "none"}`);
 
   if (!res.ok || !data.access_token) {
-    // Erro específico para contas pessoais (erro 700016 ou AADSTS700016)
-    const codes = data.error_codes ?? [];
+    const codes: number[] = data.error_codes ?? [];
     if (codes.includes(700016) || data.error === "invalid_client") {
       throw new Error(
-        `Credenciais inválidas (client_id ou client_secret incorretos). ` +
-        `Detalhes: ${data.error_description ?? data.error}`
+        `Credenciais inválidas (client_id ou client_secret incorretos). Detalhes: ${data.error_description ?? data.error}`
       );
     }
     if (data.error === "unauthorized_client" || codes.includes(7000222)) {
       throw new Error(
-        `App não tem permissão de Client Credentials. ` +
-        `Verifique se a permissão Mail.Send (aplicativo) foi concedida como Admin no Azure. ` +
-        `Detalhes: ${data.error_description ?? data.error}`
+        `App sem permissão Client Credentials. Conceda Mail.Send (aplicativo) como Admin no Azure. Detalhes: ${data.error_description ?? data.error}`
       );
     }
     throw new Error(
-      `Falha ao obter token do Entra ID (HTTP ${res.status}): ` +
-      (data.error_description ?? data.error ?? "Erro desconhecido")
+      `Falha ao obter token Entra ID (HTTP ${res.status}): ${data.error_description ?? data.error ?? "Erro desconhecido"}`
     );
   }
-  return data.access_token;
+  return data.access_token as string;
 }
 
 async function sendViaGraph(
@@ -100,20 +90,18 @@ async function sendViaGraph(
   );
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+    // deno-lint-ignore no-explicit-any
+    const err: any = await res.json().catch(() => ({}));
     const code = err?.error?.code ?? "";
     const msg  = err?.error?.message ?? `Graph API error ${res.status}`;
     if (res.status === 403 || code === "Authorization_RequestDenied") {
       throw new Error(
-        `Acesso negado pela Graph API (403). ` +
-        `Verifique se a permissão Mail.Send foi concedida como "Consentimento de administrador" no Azure. ` +
-        `Detalhe: ${msg}`
+        `Acesso negado (403). Conceda Mail.Send como "Consentimento de admin" no Azure. Detalhe: ${msg}`
       );
     }
     if (res.status === 404) {
       throw new Error(
-        `Caixa de email "${fromEmail}" não encontrada no tenant (404). ` +
-        `Verifique se o email do remetente é uma conta válida no tenant Entra ID.`
+        `Email "${fromEmail}" nao encontrado no tenant (404). Verifique se e uma conta valida no Entra ID.`
       );
     }
     throw new Error(`Graph API (HTTP ${res.status}): ${msg}`);
@@ -166,25 +154,19 @@ Deno.serve(async (req: Request) => {
         return json({ error: "host, username, password e from_email são obrigatórios" }, 400);
       }
 
-      const client = new SMTPClient({
-        connection: { hostname: host, port, tls: secure, auth: { username, password } },
+      const transport = nodemailer.createTransport({
+        host, port, secure,
+        auth: { user: username, pass: password },
       });
 
-      try {
-        await client.send({
-          from:    `${from_name} <${from_email}>`,
-          to:      from_email,
-          subject: "✅ Teste de conexão SMTP — Solve AI",
-          content: "Sua conexão SMTP está funcionando corretamente. Este email foi enviado como teste de configuração.",
-        });
-        await client.close();
-        console.log(`[test-email-connection] SMTP OK → ${host}:${port} / ${from_email}`);
-        return json({ ok: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        try { await client.close(); } catch { /* ignore */ }
-        throw new Error(msg);
-      }
+      await transport.sendMail({
+        from:    `${from_name} <${from_email}>`,
+        to:      from_email,
+        subject: "Teste de conexao SMTP - Solve AI",
+        text:    "Sua conexao SMTP esta funcionando corretamente.",
+      });
+      console.log(`[test-email-connection] SMTP OK → ${host}:${port} / ${from_email}`);
+      return json({ ok: true });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
