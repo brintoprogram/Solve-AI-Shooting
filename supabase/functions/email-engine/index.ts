@@ -319,15 +319,14 @@ async function startSendLoop(
       .select("*, email_connections(id,provider,host,port,secure,username,password,from_name,from_email,tenant_id,client_id,oauth_access_token,oauth_refresh_token,oauth_token_expires_at)")
       .eq("id", campaignId)
       .single();
-    if (!data) return;
+    if (!data) throw new Error("Campanha não encontrada no banco de dados");
     campaign = data as Record<string, unknown>;
     conn     = data.email_connections as EmailConnConfig;
   }
 
   if (!conn) {
-    console.error(`[email-engine] no connection config for campaign ${campaignId}`);
     await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
-    return;
+    throw new Error("Conexão de email não encontrada para esta campanha");
   }
 
   const subject      = String(campaign.subject      ?? "");
@@ -343,26 +342,24 @@ async function startSendLoop(
       console.log(`[email-engine] Graph token obtained for campaign ${campaignId}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[email-engine] Failed to get Graph token: ${msg}`);
       await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
-      return;
+      throw new Error(`Falha ao autenticar no Microsoft 365 (App): ${msg}`);
     }
   } else if (conn.provider === "oauth2") {
     try {
-      const expiresAt  = conn.oauth_token_expires_at ? new Date(conn.oauth_token_expires_at).getTime() : 0;
-      const needsRefresh = expiresAt - Date.now() < 5 * 60 * 1000; // refresh if < 5 min left
+      const expiresAt    = conn.oauth_token_expires_at ? new Date(conn.oauth_token_expires_at).getTime() : 0;
+      const needsRefresh = expiresAt - Date.now() < 5 * 60 * 1000;
       if (needsRefresh && conn.oauth_refresh_token) {
         graphToken = await refreshOAuthToken(conn.id, conn.tenant_id, conn.client_id, conn.password, conn.oauth_refresh_token);
         console.log(`[email-engine] OAuth2 token refreshed for campaign ${campaignId}`);
       } else {
         graphToken = conn.oauth_access_token;
-        if (!graphToken) throw new Error("oauth_access_token ausente e sem refresh_token");
+        if (!graphToken) throw new Error("Token OAuth2 ausente. Reconecte a conta Microsoft em Configurações → Conexões de Email.");
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[email-engine] Failed to get OAuth2 token: ${msg}`);
       await db.from("email_campaigns").update({ status: "failed" }).eq("id", campaignId);
-      return;
+      throw new Error(`Falha ao obter token OAuth2: ${msg}`);
     }
   }
 

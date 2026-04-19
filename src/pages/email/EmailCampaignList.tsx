@@ -19,6 +19,9 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { getWorkspaceId } from "@/lib/config";
 
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? "";
+const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? "";
+
 const WORKSPACE_ID = getWorkspaceId();
 
 type EmailStatus = "draft" | "sending" | "paused" | "completed" | "cancelled" | "failed";
@@ -82,15 +85,41 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   async function handleAction(id: string, action: "start" | "pause" | "resume" | "cancel") {
     setActionId(id);
     try {
-      const { error } = await supabase.functions.invoke("email-engine", {
-        body: { action, campaign_id: id },
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token ?? "";
+
+      const res  = await fetch(`${SUPABASE_URL}/functions/v1/email-engine`, {
+        method:  "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${token}`,
+          "apikey":        SUPABASE_ANON,
+        },
+        body: JSON.stringify({ action, campaign_id: id }),
       });
-      if (error) throw new Error(error.message);
-      const OK: Record<string, string> = { start: "Disparo iniciado!", pause: "Pausado.", resume: "Retomado!", cancel: "Cancelado." };
+
+      let data: { ok?: boolean; error?: string; info?: string; processed?: number } = {};
+      try { data = await res.json(); } catch { /* empty body */ }
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? `Erro HTTP ${res.status}`);
+      }
+
+      const OK: Record<string, string> = {
+        start:  "Disparo iniciado!",
+        pause:  "Pausado.",
+        resume: "Retomado!",
+        cancel: "Cancelado.",
+      };
       toast({ title: OK[action], variant: "success" });
       await load();
     } catch (err) {
-      toast({ title: "Erro", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+      toast({
+        title:       "Erro no disparo",
+        description: err instanceof Error ? err.message : "Erro desconhecido. Tente novamente.",
+        variant:     "destructive",
+      });
+      await load(); // reload to show updated status (e.g. "failed")
     } finally {
       setActionId(null);
     }
