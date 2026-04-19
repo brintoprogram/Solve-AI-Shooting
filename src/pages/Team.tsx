@@ -499,7 +499,7 @@ export function Team() {
                         value={member.role}
                         disabled={isSaving}
                         onChange={(e) => handleRoleChange(member.id, e.target.value as RoleOption)}
-                        className="input-agro text-xs py-1.5 pr-7 pl-2 w-32 disabled:opacity-50"
+                        className="input-agro text-xs py-1.5 pr-7 pl-2 min-w-[7rem] disabled:opacity-50"
                       >
                         <option value="admin">Admin</option>
                         <option value="manager">Gerente</option>
