@@ -326,7 +326,6 @@ async function processWebhook(body: Record<string, unknown>) {
             console.log(`[status] inbox_message ${wamid} já em status=${inboxMsg.status}, sem update necessário`);
           }
 
-          continue; // wamid encontrado no inbox — não checar shooting
         }
 
         // ── 2b. Tenta atualizar shooting_messages ───────────────────
