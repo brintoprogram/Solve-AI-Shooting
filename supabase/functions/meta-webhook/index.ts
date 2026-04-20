@@ -15,6 +15,29 @@ const supabase = createClient(
 
 const ENV_VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN") ?? "";
 
+// ── Signature validation ─────────────────────────────────────────
+
+async function verifySignature(secret: string, rawBody: string, sigHeader: string): Promise<boolean> {
+  if (!sigHeader.startsWith("sha256=")) return false;
+  const expectedHex = sigHeader.slice(7);
+  const encoder     = new TextEncoder();
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const sig         = await crypto.subtle.sign("HMAC", key, encoder.encode(rawBody));
+  const computedHex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return computedHex === expectedHex;
+}
+
 // ── Media helpers ────────────────────────────────────────────────
 
 function mimeToExt(mime: string): string {
@@ -119,9 +142,26 @@ Deno.serve(async (req: Request) => {
 
   // ── POST: eventos recebidos ────────────────────────────────────
   if (req.method === "POST") {
+    // Lê o body bruto antes de qualquer parsing — necessário para HMAC
+    const rawBody = await req.text();
+
+    // Valida X-Hub-Signature-256 se META_APP_SECRET estiver configurado.
+    // Enquanto a env não estiver setada, o webhook continua funcionando
+    // normalmente (retrocompatível com conexão existente).
+    const appSecret = Deno.env.get("META_APP_SECRET") ?? "";
+    if (appSecret) {
+      const sigHeader = req.headers.get("X-Hub-Signature-256") ?? "";
+      const valid     = await verifySignature(appSecret, rawBody, sigHeader);
+      if (!valid) {
+        console.warn("[webhook] assinatura X-Hub-Signature-256 inválida — rejeitando");
+        return new Response("Forbidden", { status: 403 });
+      }
+      console.log("[webhook] assinatura verificada ✓");
+    }
+
     let body: Record<string, unknown>;
     try {
-      body = await req.json();
+      body = JSON.parse(rawBody);
     } catch {
       return new Response("Invalid JSON", { status: 400 });
     }

@@ -102,7 +102,7 @@ export function Settings() {
   const { connections, upsertConnection }  = useMetaConnections(WORKSPACE_ID);
   const { toast }                          = useToast();
 
-  const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "" });
+  const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
   const [testing,  setTesting]    = useState(false);
   const [saving,   setSaving]     = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
@@ -328,13 +328,13 @@ export function Settings() {
         business_name:        phoneInfo.verified_name,
         access_token:         form.access_token,
         token_expires_at:     null,
-        webhook_verify_token: CHATWOOT_VERIFY_TOKEN,
+        webhook_verify_token: form.webhook_verify_token,
         status:               "active",
         quality_rating:       (phoneInfo.quality_rating as "GREEN" | "YELLOW" | "RED") ?? null,
         messaging_limit:      (phoneInfo.messaging_limit_tier as "TIER_1K" | "TIER_10K" | "TIER_100K" | "UNLIMITED") ?? null,
       });
       toast({ title: "Conexão salva com sucesso!", variant: "success" });
-      setForm({ waba_id: "", phone_number_id: "", access_token: "" });
+      setForm({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
       setTestResult(null);
     } catch (err) {
       toast({
@@ -449,41 +449,58 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                   return (
                     <div
                       key={conn.id}
-                      className="flex items-center justify-between p-3 rounded-xl"
+                      className="rounded-xl overflow-hidden"
                       style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.08)" }}
                     >
-                      <div className="flex items-center gap-3">
-                        {/* Status indicator */}
-                        <div className="relative shrink-0">
-                          <Wifi className={cn("w-5 h-5", conn.status === "active" ? "text-agro-green" : "text-red-400")} />
-                          <span
-                            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#0d1710]"
-                            style={{ background: conn.status === "active" ? "#3fb06c" : "#f87171" }}
-                          />
+                      <div className="flex items-center justify-between p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="relative shrink-0">
+                            <Wifi className={cn("w-5 h-5", conn.status === "active" ? "text-agro-green" : "text-red-400")} />
+                            <span
+                              className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#0d1710]"
+                              style={{ background: conn.status === "active" ? "#3fb06c" : "#f87171" }}
+                            />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-agro-text text-sm">{conn.display_phone}</p>
+                            <p className="text-xs text-agro-muted">{conn.business_name} · WABA {conn.waba_id}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-semibold text-agro-text text-sm">{conn.display_phone}</p>
-                          <p className="text-xs text-agro-muted">{conn.business_name} · WABA {conn.waba_id}</p>
+                        <div className="flex items-center gap-2">
+                          {conn.quality_rating && (
+                            <span
+                              className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                              style={{ background: qColor, color: qText, border: `1px solid ${qColor}` }}
+                            >
+                              {conn.quality_rating}
+                            </span>
+                          )}
+                          {conn.messaging_limit && (
+                            <span
+                              className="px-2.5 py-1 rounded-full text-xs font-medium text-agro-muted"
+                              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                            >
+                              {conn.messaging_limit}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {conn.quality_rating && (
-                          <span
-                            className="px-2.5 py-1 rounded-full text-xs font-semibold"
-                            style={{ background: qColor, color: qText, border: `1px solid ${qColor}` }}
+                      {conn.webhook_verify_token && (
+                        <div
+                          className="flex items-center gap-2 px-3 py-2"
+                          style={{ borderTop: "1px solid rgba(63,176,108,0.06)" }}
+                        >
+                          <p className="text-[10px] text-agro-muted-2 uppercase tracking-widest shrink-0">Verify Token</p>
+                          <p className="text-[11px] font-mono text-agro-muted flex-1 truncate">{conn.webhook_verify_token}</p>
+                          <button
+                            onClick={() => copy(conn.webhook_verify_token!, "Token copiado!")}
+                            className="shrink-0 text-agro-muted-2 hover:text-agro-text transition-colors"
+                            title="Copiar token"
                           >
-                            {conn.quality_rating}
-                          </span>
-                        )}
-                        {conn.messaging_limit && (
-                          <span
-                            className="px-2.5 py-1 rounded-full text-xs font-medium text-agro-muted"
-                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
-                          >
-                            {conn.messaging_limit}
-                          </span>
-                        )}
-                      </div>
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -528,6 +545,17 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                 />
                 <p className="text-xs text-agro-muted mt-1.5">
                   Use um System User Token permanente, não um token temporário.
+                </p>
+              </div>
+
+              <div>
+                <FieldLabel>Webhook Verify Token (gerado automaticamente)</FieldLabel>
+                <ReadonlyField
+                  value={form.webhook_verify_token}
+                  onCopy={() => copy(form.webhook_verify_token, "Token copiado!")}
+                />
+                <p className="text-xs text-agro-muted mt-1.5">
+                  Copie este token e use-o no campo <strong className="text-agro-text">Verify Token</strong> ao configurar o webhook desta conexão no Meta for Developers.
                 </p>
               </div>
 
@@ -1026,13 +1054,14 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
 
               <div>
                 <FieldLabel>Verificar Token</FieldLabel>
-                <ReadonlyField
-                  value={CHATWOOT_VERIFY_TOKEN}
-                  onCopy={() => copy(CHATWOOT_VERIFY_TOKEN, "Token copiado!")}
-                />
-                <p className="text-xs text-agro-muted mt-1.5">
-                  Clique em <strong className="text-agro-text">Verificar e salvar</strong> — a Meta confirmará o token automaticamente.
-                </p>
+                <div
+                  className="p-3 rounded-xl text-xs text-agro-muted"
+                  style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.12)" }}
+                >
+                  Cada conexão WhatsApp possui seu próprio <strong className="text-agro-text">Verify Token</strong> — visível na seção <strong className="text-agro-text">Conexões WhatsApp ativas</strong> acima (clique em copiar ao lado do token).
+                  <br /><br />
+                  Clique em <strong className="text-agro-text">Verificar e salvar</strong> após colar o token no painel da Meta — a confirmação é automática.
+                </div>
               </div>
 
               <div>
