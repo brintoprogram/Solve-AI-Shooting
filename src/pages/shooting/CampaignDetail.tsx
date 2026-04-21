@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText } from "lucide-react";
 import jsPDF from "jspdf";
-import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
+import autoTable from "jspdf-autotable";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignMetrics } from "./components/CampaignMetrics";
 import { MessagesTable } from "./components/MessagesTable";
@@ -123,47 +123,175 @@ export function CampaignDetail() {
   const isLive = campaign?.status === "sending";
   const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
 
-  function exportPdf() {
+  async function exportPdf() {
     if (!campaign) return;
-    const doc = new jsPDF();
-    let y = drawPdfHeader(doc, `Relatório: ${campaign.name}`, STATUS_LABELS[campaign.status]);
 
-    y = drawSection(doc, "Informações da Campanha", y);
-    const rows: [string, string][] = [
+    const doc  = new jsPDF({ unit: "mm", format: "a4" });
+    const W    = 210;
+    const DARK = [10, 26, 16]    as [number,number,number];
+    const GRN  = [63, 176, 108]  as [number,number,number];
+    const HEAD = [22, 56, 36]    as [number,number,number];
+    const ALT  = [242, 250, 244] as [number,number,number];
+    const TXT  = [20, 40, 26]    as [number,number,number];
+    const MUT  = [107, 135, 115] as [number,number,number];
+
+    // ── Logo ──────────────────────────────────────────
+    let logo: string | null = null;
+    try {
+      const res  = await fetch("/logo.png");
+      const blob = await res.blob();
+      logo = await new Promise<string>((resolve) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.readAsDataURL(blob);
+      });
+    } catch { /* sem logo */ }
+
+    // ── Header bar ────────────────────────────────────
+    doc.setFillColor(...DARK);
+    doc.rect(0, 0, W, 36, "F");
+
+    if (logo) doc.addImage(logo, "PNG", 14, 7, 30, 12);
+    const textX = logo ? 50 : 14;
+
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...GRN);
+    doc.text("SOLVE AI SHOOTING", textX, 12);
+
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text(campaign.name, textX, 22);
+
+    doc.setFontSize(8);
+    doc.setTextColor(...GRN);
+    doc.setFont("helvetica", "normal");
+    doc.text(STATUS_LABELS[campaign.status], textX, 30);
+
+    const dateStr = new Date().toLocaleDateString("pt-BR", {
+      day: "2-digit", month: "2-digit", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+    doc.setTextColor(160, 210, 180);
+    doc.text(`Gerado em ${dateStr}`, W - 14, 30, { align: "right" });
+
+    doc.setDrawColor(...GRN);
+    doc.setLineWidth(0.6);
+    doc.line(0, 36, W, 36);
+
+    // ── Informações (2 colunas) ───────────────────────
+    let y = 46;
+    const MX = 14;
+    const C2 = W / 2 + 4;
+
+    const sectionLabel = (label: string, sy: number) => {
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...MUT);
+      doc.text(label, MX, sy);
+      doc.setDrawColor(200, 225, 210);
+      doc.setLineWidth(0.25);
+      doc.line(MX, sy + 1.8, W - MX, sy + 1.8);
+      return sy + 7;
+    };
+
+    const kv = (label: string, value: string, x: number, ky: number) => {
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...MUT);
+      doc.text(label, x, ky);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...TXT);
+      doc.text(value, x + 38, ky);
+      return ky + 7;
+    };
+
+    y = sectionLabel("INFORMAÇÕES DA CAMPANHA", y);
+
+    const leftRows: [string, string][] = [
       ["Template",      campaign.meta_templates?.template_name ?? "—"],
       ["Status",        STATUS_LABELS[campaign.status]],
       ["Destinatários", campaign.total_recipients.toLocaleString("pt-BR")],
-      ["Criada em",     format(new Date(campaign.created_at), "dd/MM/yyyy")],
     ];
-    if (campaign.started_at)   rows.push(["Iniciada em",   format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm")]);
-    if (campaign.completed_at) rows.push(["Concluída em",  format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm")]);
-    y = drawKVRows(doc, rows, y);
+    const rightRows: [string, string][] = [
+      ["Criada em", format(new Date(campaign.created_at), "dd/MM/yyyy")],
+    ];
+    if (campaign.started_at)   rightRows.push(["Iniciada em",  format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm")]);
+    if (campaign.completed_at) rightRows.push(["Concluída em", format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm")]);
 
-    y = drawSection(doc, "Métricas de Envio", y);
-    const total = campaign.sent_count || 1;
-    const pct   = (n: number) => `${n.toLocaleString("pt-BR")} (${Math.round((n / total) * 100)}%)`;
-    y = drawTable(doc,
-      ["Métrica", "Quantidade", "% de enviadas"],
-      [
+    let yL = y, yR = y;
+    for (const [k, v] of leftRows)  yL = kv(k, v, MX, yL);
+    for (const [k, v] of rightRows) yR = kv(k, v, C2, yR);
+    y = Math.max(yL, yR) + 6;
+
+    // ── Métricas ──────────────────────────────────────
+    y = sectionLabel("MÉTRICAS DE ENVIO", y);
+
+    const base = campaign.sent_count || 1;
+    const pct  = (n: number) => `${Math.round((n / base) * 100)}%`;
+
+    autoTable(doc, {
+      head: [["Métrica", "Quantidade", "% de enviadas"]],
+      body: [
         ["Enviadas",    campaign.sent_count.toLocaleString("pt-BR"),      "100%"],
-        ["Entregues",   pct(campaign.delivered_count),                    ""],
-        ["Lidas",       pct(campaign.read_count),                         ""],
-        ["Respondidas", pct(campaign.replied_count),                      ""],
-        ["Falhas",      campaign.failed_count.toLocaleString("pt-BR"),    ""],
+        ["Entregues",   campaign.delivered_count.toLocaleString("pt-BR"), pct(campaign.delivered_count)],
+        ["Lidas",       campaign.read_count.toLocaleString("pt-BR"),      pct(campaign.read_count)],
+        ["Respondidas", campaign.replied_count.toLocaleString("pt-BR"),   pct(campaign.replied_count)],
+        ["Falhas",      campaign.failed_count.toLocaleString("pt-BR"),    campaign.failed_count > 0 ? pct(campaign.failed_count) : "—"],
       ],
-      y,
-    );
+      startY: y,
+      margin: { left: MX, right: MX },
+      styles:     { fontSize: 9, cellPadding: 4, textColor: TXT, lineColor: [220, 235, 220], lineWidth: 0.2 },
+      headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
+      alternateRowStyles: { fillColor: ALT },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 60 },
+        1: { halign: "right", cellWidth: 40 },
+        2: { halign: "right", textColor: GRN, fontStyle: "bold" },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 10;
+
+    // ── Timeline ──────────────────────────────────────
     if (chartData.length > 0) {
-      y = drawSection(doc, "Timeline de Envios (30 min)", y);
-      y = drawTable(doc,
-        ["Horário", "Enviadas (acum.)", "Entregues (acum.)", "Lidas (acum.)"],
-        chartData.map((b) => [b.time, b.enviadas, b.entregues, b.lidas]),
-        y,
-      );
+      y = sectionLabel("TIMELINE DE ENVIOS (30 MIN)", y);
+
+      autoTable(doc, {
+        head: [["Horário", "Enviadas (acum.)", "Entregues (acum.)", "Lidas (acum.)"]],
+        body: chartData.map((b) => [b.time, b.enviadas, b.entregues, b.lidas]),
+        startY: y,
+        margin: { left: MX, right: MX },
+        styles:     { fontSize: 8.5, cellPadding: 3.5, textColor: TXT, lineColor: [220, 235, 220], lineWidth: 0.2 },
+        headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: ALT },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 28 },
+          1: { halign: "right" },
+          2: { halign: "right" },
+          3: { halign: "right", textColor: GRN },
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
     }
 
-    drawFooter(doc);
+    // ── Footer ────────────────────────────────────────
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7.5);
+      doc.setTextColor(...MUT);
+      doc.setFont("helvetica", "normal");
+      doc.text("Solve AI — solveai.consulting", MX, 288);
+      doc.text(`Página ${i} / ${pages}`, W - MX, 288, { align: "right" });
+      doc.setDrawColor(220, 235, 220);
+      doc.setLineWidth(0.2);
+      doc.line(MX, 284, W - MX, 284);
+    }
+
     doc.save(`relatorio_${campaign.name.replace(/\s+/g, "_")}.pdf`);
   }
 
