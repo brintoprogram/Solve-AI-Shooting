@@ -1,5 +1,6 @@
+import { Component, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Leaf } from "lucide-react";
+import { Leaf, AlertTriangle } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Login } from "@/pages/Login";
@@ -16,13 +17,58 @@ import { Contacts } from "@/pages/Contacts";
 import { Alerts }      from "@/pages/Alerts";
 import { SetPassword } from "@/pages/SetPassword";
 
+// ── Error boundary — shows error message instead of blank screen ──
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      const err = this.state.error as Error;
+      return (
+        <div
+          style={{ background: "#0a110e", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}
+        >
+          <div
+            style={{ maxWidth: 480, width: "100%", background: "rgba(13,26,17,0.9)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 16, padding: "32px" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+              <AlertTriangle style={{ color: "#f87171", width: 24, height: 24, flexShrink: 0 }} />
+              <p style={{ color: "#f87171", fontWeight: 700, fontSize: 16 }}>Erro na aplicação</p>
+            </div>
+            <p style={{ color: "#7a9e83", fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>
+              Ocorreu um erro inesperado. Copie a mensagem abaixo e envie para o suporte:
+            </p>
+            <pre
+              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, padding: "12px 16px", fontSize: 11, color: "#fca5a5", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+            >
+              {err.message}{"\n\n"}{err.stack}
+            </pre>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ marginTop: 20, width: "100%", padding: "12px", background: "#3fb06c", color: "#fff", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer" }}
+            >
+              Recarregar página
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
