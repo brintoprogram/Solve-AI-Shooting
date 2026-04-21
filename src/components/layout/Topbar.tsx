@@ -95,14 +95,20 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setOpen((v) => !v)}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all duration-200"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all duration-200 overflow-hidden"
             style={{
-              background: "linear-gradient(135deg, #3fb06c, #16A34A)",
+              background: profile?.avatar_url ? "transparent" : "linear-gradient(135deg, #3fb06c, #16A34A)",
               outline: open ? "2px solid rgba(63,176,108,0.5)" : "2px solid transparent",
               outlineOffset: 2,
             }}
           >
-            {avatarText}
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={profile?.full_name ?? "Avatar"}
+                className="w-full h-full object-cover"
+              />
+            ) : avatarText}
           </button>
 
           {open && (

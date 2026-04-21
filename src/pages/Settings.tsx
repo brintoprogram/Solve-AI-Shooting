@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
-  Mail, Trash2, Send, LogIn, Zap,
+  Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
@@ -97,7 +97,7 @@ function StepBadge({ n }: { n: number }) {
 
 export function Settings() {
   const navigate                           = useNavigate();
-  const { profile, workspaceId }           = useAuth();
+  const { profile, workspaceId, updateProfile } = useAuth();
   const WORKSPACE_ID = workspaceId ?? "";
   const { connections, upsertConnection }  = useMetaConnections(WORKSPACE_ID);
   const { toast }                          = useToast();
@@ -107,6 +107,71 @@ export function Settings() {
   const [saving,   setSaving]     = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
   const [deployOpen, setDeployOpen] = useState(false);
+
+  // ── Profile editing state ─────────────────────────────────────────
+  const [profileForm,    setProfileForm]    = useState({ name: "", description: "" });
+  const [avatarFile,     setAvatarFile]     = useState<File | null>(null);
+  const [avatarPreview,  setAvatarPreview]  = useState<string | null>(null);
+  const [profileSaving,  setProfileSaving]  = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    setProfileForm({ name: profile.full_name ?? "", description: profile.description ?? "" });
+    setAvatarPreview(null);
+    setAvatarFile(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
+
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  }
+
+  async function handleProfileSave() {
+    if (!profile) return;
+    setProfileSaving(true);
+    try {
+      let newAvatarUrl = profile.avatar_url ?? null;
+
+      if (avatarFile) {
+        const path = `${profile.id}/avatar`;
+        const { error: uploadError } = await supabase.storage
+          .from("avatars")
+          .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type });
+        if (uploadError) throw new Error(uploadError.message);
+        const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+        newAvatarUrl = `${publicUrl}?t=${Date.now()}`;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any)
+        .from("user_profiles")
+        .update({
+          full_name:   profileForm.name.trim()        || null,
+          description: profileForm.description.trim() || null,
+          avatar_url:  newAvatarUrl,
+        })
+        .eq("id", profile.id);
+
+      if (error) throw new Error(error.message);
+
+      updateProfile({
+        full_name:   profileForm.name.trim()        || null,
+        description: profileForm.description.trim() || null,
+        avatar_url:  newAvatarUrl,
+      });
+
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      toast({ title: "Perfil atualizado!", variant: "success" });
+    } catch (err) {
+      toast({ title: "Erro ao salvar perfil", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setProfileSaving(false);
+    }
+  }
 
   // ── Email connections state ──────────────────────────────────────
   type EmailConn = {
@@ -494,8 +559,33 @@ DROP POLICY IF EXISTS "inbox_media_delete" ON storage.objects;
 CREATE POLICY "inbox_media_delete" ON storage.objects
   FOR DELETE USING (bucket_id = 'inbox_media');`;
 
+  const sql_profile = `-- Campos de perfil e bucket de fotos
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url  TEXT;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('avatars', 'avatars', true, 5242880)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "avatars_select" ON storage.objects;
+CREATE POLICY "avatars_select" ON storage.objects
+  FOR SELECT USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "avatars_insert" ON storage.objects;
+CREATE POLICY "avatars_insert" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "avatars_update" ON storage.objects;
+CREATE POLICY "avatars_update" ON storage.objects
+  FOR UPDATE USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "avatars_delete" ON storage.objects;
+CREATE POLICY "avatars_delete" ON storage.objects
+  FOR DELETE USING (bucket_id = 'avatars');`;
+
   const rs        = profile ? ROLE_STYLE[profile.role]  : null;
   const roleLabel = profile ? ROLE_LABELS[profile.role] : null;
+  const displayAvatar = avatarPreview ?? profile?.avatar_url ?? null;
 
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
@@ -512,36 +602,95 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
         {/* ── Meu Perfil ───────────────────────── */}
         <div className="animate-fade-up">
           <DarkCard title="Meu Perfil" subtitle="Informações da sua conta">
-            <div className="flex items-center gap-4">
-              {/* Avatar */}
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-base shrink-0"
-                style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
-              >
-                {initials(profile?.full_name)}
-              </div>
+            <div className="space-y-5">
 
-              <div className="flex-1 min-w-0">
-                <p className="text-base font-semibold text-agro-text truncate">
-                  {profile?.full_name ?? "—"}
-                </p>
-                {rs && roleLabel && (
-                  <span
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full mt-1"
-                    style={{ background: rs.bg, color: rs.color, border: `1px solid ${rs.border}` }}
+              {/* Avatar + nome */}
+              <div className="flex items-start gap-5">
+                {/* Avatar clicável */}
+                <div className="relative group shrink-0">
+                  {displayAvatar ? (
+                    <img
+                      src={displayAvatar}
+                      alt="Avatar"
+                      className="w-16 h-16 rounded-2xl object-cover"
+                      style={{ border: "1px solid rgba(63,176,108,0.25)" }}
+                    />
+                  ) : (
+                    <div
+                      className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-lg"
+                      style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+                    >
+                      {initials(profileForm.name || profile?.full_name)}
+                    </div>
+                  )}
+                  <label
+                    htmlFor="avatar-upload"
+                    className="absolute inset-0 rounded-2xl flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: "rgba(0,0,0,0.55)" }}
+                    title="Alterar foto"
                   >
-                    <Shield className="w-3 h-3" />
-                    {roleLabel}
-                  </span>
-                )}
+                    <Camera className="w-5 h-5 text-white" />
+                  </label>
+                  <input
+                    id="avatar-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                  />
+                </div>
+
+                {/* Nome + cargo */}
+                <div className="flex-1 space-y-3 min-w-0">
+                  <div>
+                    <FieldLabel>Nome completo</FieldLabel>
+                    <input
+                      className="input-agro w-full"
+                      value={profileForm.name}
+                      onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                      placeholder="Seu nome"
+                    />
+                  </div>
+                  {rs && roleLabel && (
+                    <span
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                      style={{ background: rs.bg, color: rs.color, border: `1px solid ${rs.border}` }}
+                    >
+                      <Shield className="w-3 h-3" />
+                      {roleLabel}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.15)" }}
-              >
-                <User className="w-5 h-5 text-agro-green" />
+              {/* Descrição */}
+              <div>
+                <FieldLabel>Descrição / Bio</FieldLabel>
+                <textarea
+                  className="input-agro w-full resize-none text-sm"
+                  rows={3}
+                  value={profileForm.description}
+                  onChange={(e) => setProfileForm({ ...profileForm, description: e.target.value })}
+                  placeholder="Fale um pouco sobre você ou seu papel na equipe…"
+                  maxLength={280}
+                  style={{ lineHeight: "1.5" }}
+                />
+                <p className="text-[11px] text-agro-muted-2 mt-1 text-right">
+                  {profileForm.description.length}/280
+                </p>
               </div>
+
+              <button
+                onClick={handleProfileSave}
+                disabled={profileSaving}
+                className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {profileSaving
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Check className="w-4 h-4" />
+                }
+                {profileSaving ? "Salvando…" : "Salvar perfil"}
+              </button>
             </div>
           </DarkCard>
         </div>
@@ -842,6 +991,17 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                     </div>
                   </div>
                   <CodeBlock code={sql_audit_logs} onCopy={() => copy(sql_audit_logs, "SQL copiado!")} />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <StepBadge n={5} />
+                    <div>
+                      <p className="text-sm font-semibold text-agro-text">Habilite fotos de perfil</p>
+                      <p className="text-xs text-agro-muted">Adiciona campos de descrição e avatar + bucket de storage</p>
+                    </div>
+                  </div>
+                  <CodeBlock code={sql_profile} onCopy={() => copy(sql_profile, "SQL copiado!")} />
                 </div>
               </div>
             )}

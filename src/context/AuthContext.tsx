@@ -15,6 +15,8 @@ export type PermissionKey =
 export interface UserProfile {
   id: string;
   full_name: string | null;
+  description: string | null;
+  avatar_url: string | null;
   role: "admin" | "manager" | "agent";
   permissions: Partial<Record<PermissionKey, boolean>>;
   created_at: string;
@@ -37,6 +39,7 @@ interface AuthContextValue {
   loading: boolean;
   setupType: "invite" | "recovery" | null;
   clearSetupType: () => void;
+  updateProfile: (patch: Partial<Pick<UserProfile, "full_name" | "description" | "avatar_url">>) => void;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -53,6 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading]         = useState(true);
   const [setupType, setSetupType]     = useState<"invite" | "recovery" | null>(detectSetupType);
   const fetchingRef                   = useRef(false); // mutex — prevents concurrent fetchProfile calls
+
+  function updateProfile(patch: Partial<Pick<UserProfile, "full_name" | "description" | "avatar_url">>) {
+    setProfile((prev) => prev ? { ...prev, ...patch } : prev);
+  }
 
   function clearSetupType() {
     setSetupType(null);
@@ -162,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, workspaceId, loading, setupType, clearSetupType, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, workspaceId, loading, setupType, clearSetupType, updateProfile, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

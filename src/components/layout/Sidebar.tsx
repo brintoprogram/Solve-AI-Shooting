@@ -195,12 +195,21 @@ export function Sidebar() {
             to="/settings"
             className="flex items-center gap-3 flex-1 min-w-0 px-3 py-2.5 hover:bg-white/5 transition-colors duration-200"
           >
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-              style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
-            >
-              {avatarText}
-            </div>
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={profile.full_name ?? "Avatar"}
+                className="w-8 h-8 rounded-full object-cover shrink-0"
+                style={{ border: "1px solid rgba(63,176,108,0.3)" }}
+              />
+            ) : (
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+              >
+                {avatarText}
+              </div>
+            )}
             <div className="min-w-0">
               <p className="text-xs font-semibold text-agro-text truncate">
                 {profile?.full_name ?? "…"}
