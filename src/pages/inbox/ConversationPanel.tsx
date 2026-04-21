@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2 } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2 } from "lucide-react";
 import type { InboxConversation } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
@@ -9,12 +9,23 @@ import { supabase } from "@/lib/supabase";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
 
+const CONVERSATION_TAGS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  importante:     { label: "Importante",     color: "#f59e0b", bg: "rgba(245,158,11,0.1)",  border: "rgba(245,158,11,0.25)"  },
+  acompanhamento: { label: "Acompanhamento", color: "#60a5fa", bg: "rgba(59,130,246,0.1)",  border: "rgba(59,130,246,0.25)"  },
+  urgente:        { label: "Urgente",        color: "#f87171", bg: "rgba(239,68,68,0.1)",   border: "rgba(239,68,68,0.25)"   },
+  resolvido:      { label: "Resolvido",      color: "#3fb06c", bg: "rgba(63,176,108,0.1)",  border: "rgba(63,176,108,0.25)"  },
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
 interface Props {
-  conversation: InboxConversation;
-  teamMembers: UserProfile[];
+  conversation:  InboxConversation;
+  teamMembers:   UserProfile[];
+  onPin:         (pinned: boolean) => void;
+  onArchive:     (archived: boolean) => void;
+  onDelete:      () => void;
+  onUpdateTags:  (tags: string[]) => void;
 }
 
 async function triggerResolveMedia(conversationId: string) {
@@ -35,7 +46,7 @@ async function triggerResolveMedia(conversationId: string) {
   }
 }
 
-export function ConversationPanel({ conversation, teamMembers }: Props) {
+export function ConversationPanel({ conversation, teamMembers, onPin, onArchive, onDelete, onUpdateTags }: Props) {
   const { profile } = useAuth();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
@@ -95,13 +106,13 @@ export function ConversationPanel({ conversation, teamMembers }: Props) {
             style={{ filter: "drop-shadow(0 0 4px rgba(63,176,108,0.3))" }}
           />
 
-          <button
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
-            style={{ border: "1px solid rgba(63,176,108,0.1)" }}
-            title="Mais opções"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
+          <ConversationActionsMenu
+            conversation={conversation}
+            onPin={onPin}
+            onArchive={onArchive}
+            onDelete={onDelete}
+            onUpdateTags={onUpdateTags}
+          />
         </div>
 
         {/* Row 2: assignment bar */}
@@ -161,6 +172,155 @@ export function ConversationPanel({ conversation, teamMembers }: Props) {
         workspaceId={conversation.workspace_id}
         sentBy={profile?.id ?? ""}
       />
+    </div>
+  );
+}
+
+// ── ConversationActionsMenu ─────────────────────────────────
+
+interface ActionsMenuProps {
+  conversation: InboxConversation;
+  onPin:        (pinned: boolean) => void;
+  onArchive:    (archived: boolean) => void;
+  onDelete:     () => void;
+  onUpdateTags: (tags: string[]) => void;
+}
+
+function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onUpdateTags }: ActionsMenuProps) {
+  const [open, setOpen]                   = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const ref                               = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setConfirmDelete(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  function toggleTag(tag: string) {
+    const current = conversation.tags ?? [];
+    const next    = current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag];
+    onUpdateTags(next);
+  }
+
+  const tags = conversation.tags ?? [];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => { setOpen((v) => !v); setConfirmDelete(false); }}
+        className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
+        style={{ border: "1px solid rgba(63,176,108,0.1)" }}
+        title="Mais opções"
+      >
+        <MoreVertical className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 rounded-xl overflow-hidden"
+          style={{
+            background:   "rgba(13,26,17,0.98)",
+            border:       "1px solid rgba(63,176,108,0.2)",
+            boxShadow:    "0 8px 32px rgba(0,0,0,0.5)",
+            minWidth:     200,
+            backdropFilter: "blur(16px)",
+          }}
+        >
+          {/* Pin */}
+          <button
+            onClick={() => { onPin(!conversation.pinned); setOpen(false); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-agro-muted hover:text-agro-text hover:bg-white/5 transition-colors"
+          >
+            <Pin
+              className="w-3.5 h-3.5 shrink-0"
+              style={{ color: conversation.pinned ? "#f59e0b" : undefined, transform: "rotate(45deg)" }}
+            />
+            {conversation.pinned ? "Desafixar" : "Fixar conversa"}
+          </button>
+
+          {/* Archive */}
+          <button
+            onClick={() => { onArchive(!conversation.archived); setOpen(false); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-agro-muted hover:text-agro-text hover:bg-white/5 transition-colors"
+            style={{ borderTop: "1px solid rgba(63,176,108,0.06)" }}
+          >
+            <Archive className="w-3.5 h-3.5 shrink-0" />
+            {conversation.archived ? "Desarquivar" : "Arquivar"}
+          </button>
+
+          {/* Tags */}
+          <div style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-agro-muted-2 px-3 pt-2.5 pb-1 select-none">
+              Tags
+            </p>
+            {Object.entries(CONVERSATION_TAGS).map(([key, cfg]) => {
+              const active = tags.includes(key);
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleTag(key)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-white/5"
+                >
+                  <span
+                    className="w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center"
+                    style={{
+                      background: active ? cfg.bg : "rgba(255,255,255,0.05)",
+                      border:     `1px solid ${active ? cfg.border : "rgba(255,255,255,0.1)"}`,
+                    }}
+                  >
+                    {active && (
+                      <span className="w-1.5 h-1.5 rounded-full block" style={{ background: cfg.color }} />
+                    )}
+                  </span>
+                  <span style={{ color: active ? cfg.color : undefined }} className={active ? "" : "text-agro-muted"}>
+                    {cfg.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Delete */}
+          <div style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-red-400 hover:bg-red-400/10 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                Excluir conversa
+              </button>
+            ) : (
+              <div className="px-3 py-2.5 space-y-2">
+                <p className="text-xs text-agro-muted">Tem certeza? Esta ação é irreversível.</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="flex-1 py-1.5 rounded-lg text-xs text-agro-muted transition-colors hover:bg-white/5"
+                    style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => { onDelete(); setOpen(false); }}
+                    className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors"
+                    style={{ background: "#ef4444" }}
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -38,17 +38,33 @@ export function useInboxConversations(_workspaceId?: string) {
   }, [load]);
 
   async function markAsRead(conversationId: string) {
-    await db
-      .from("inbox_conversations")
-      .update({ unread_count: 0 })
-      .eq("id", conversationId);
-    // Optimistic update
+    await db.from("inbox_conversations").update({ unread_count: 0 }).eq("id", conversationId);
     setConversations((prev) =>
       prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c))
     );
   }
 
-  return { conversations, loading, markAsRead };
+  async function pinConversation(id: string, pinned: boolean) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned } : c)));
+    await db.from("inbox_conversations").update({ pinned }).eq("id", id);
+  }
+
+  async function archiveConversation(id: string, archived: boolean) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, archived } : c)));
+    await db.from("inbox_conversations").update({ archived }).eq("id", id);
+  }
+
+  async function deleteConversation(id: string) {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    await db.from("inbox_conversations").delete().eq("id", id);
+  }
+
+  async function updateTags(id: string, tags: string[]) {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, tags } : c)));
+    await db.from("inbox_conversations").update({ tags }).eq("id", id);
+  }
+
+  return { conversations, loading, markAsRead, pinConversation, archiveConversation, deleteConversation, updateTags };
 }
 
 export function useInboxMessages(conversationId: string | null) {

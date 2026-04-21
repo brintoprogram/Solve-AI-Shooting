@@ -10,7 +10,10 @@ import type { InboxConversation } from "@/types/inbox";
 
 export function Inbox() {
   const workspaceId = useAuth().workspaceId ?? "";
-  const { conversations, loading, markAsRead } = useInboxConversations(workspaceId);
+  const {
+    conversations, loading, markAsRead,
+    pinConversation, archiveConversation, deleteConversation, updateTags,
+  } = useInboxConversations(workspaceId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
 
@@ -19,12 +22,19 @@ export function Inbox() {
     if (!selectedConv) return;
     const updated = conversations.find((c) => c.id === selectedConv.id);
     if (updated) setSelectedConv(updated);
+    else setSelectedConv(null); // deleted
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations]);
 
   function handleSelect(conv: InboxConversation) {
     setSelectedConv(conv);
     if (conv.unread_count > 0) markAsRead(conv.id);
+  }
+
+  function handleDelete() {
+    if (!selectedConv) return;
+    deleteConversation(selectedConv.id);
+    setSelectedConv(null);
   }
 
   return (
@@ -48,6 +58,10 @@ export function Inbox() {
             key={selectedConv.id}
             conversation={selectedConv}
             teamMembers={teamMembers}
+            onPin={(pinned) => pinConversation(selectedConv.id, pinned)}
+            onArchive={(archived) => archiveConversation(selectedConv.id, archived)}
+            onDelete={handleDelete}
+            onUpdateTags={(tags) => updateTags(selectedConv.id, tags)}
           />
         ) : (
           <EmptyState />

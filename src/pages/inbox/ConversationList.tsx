@@ -1,11 +1,18 @@
 import { useState } from "react";
-import { Search, MessageSquareDashed, Clock, User, List } from "lucide-react";
+import { Search, MessageSquareDashed, Clock, User, List, Pin, Archive } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useAuth, initials as profileInitials, ROLE_STYLE } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
 import type { InboxConversation } from "@/types/inbox";
 
-type TabId = "waiting" | "mine" | "all";
+type TabId = "waiting" | "mine" | "all" | "archived";
+
+const CONVERSATION_TAGS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  importante:     { label: "Importante",     color: "#f59e0b", bg: "rgba(245,158,11,0.1)",  border: "rgba(245,158,11,0.25)"  },
+  acompanhamento: { label: "Acompanhamento", color: "#60a5fa", bg: "rgba(59,130,246,0.1)",  border: "rgba(59,130,246,0.25)"  },
+  urgente:        { label: "Urgente",        color: "#f87171", bg: "rgba(239,68,68,0.1)",   border: "rgba(239,68,68,0.25)"   },
+  resolvido:      { label: "Resolvido",      color: "#3fb06c", bg: "rgba(63,176,108,0.1)",  border: "rgba(63,176,108,0.25)"  },
+};
 
 interface Props {
   conversations: InboxConversation[];
@@ -27,28 +34,39 @@ export function ConversationList({
 
   // ── Tab filtering ──────────────────────────────────
   const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: "waiting", label: "Aguardando", icon: Clock },
-    { id: "mine",    label: "Minhas",     icon: User  },
+    { id: "waiting",  label: "Aguardando",  icon: Clock   },
+    { id: "mine",     label: "Minhas",      icon: User    },
     ...(isAdminManager ? [{ id: "all" as TabId, label: "Todas", icon: List }] : []),
+    { id: "archived", label: "Arquivadas",  icon: Archive },
   ];
 
-  const byTab = conversations.filter((c) => {
+  const active = conversations.filter((c) => !c.archived);
+  const byTab = (activeTab === "archived" ? conversations.filter((c) => c.archived) : active).filter((c) => {
     if (activeTab === "waiting") return c.assigned_to === null;
     if (activeTab === "mine")    return c.assigned_to === myId;
+    if (activeTab === "archived") return true;
     return true; // "all"
   });
 
-  const filtered = byTab.filter((c) => {
-    const name = (c.inbox_contacts.name ?? c.inbox_contacts.phone).toLowerCase();
-    const q = search.toLowerCase();
-    return name.includes(q) || c.inbox_contacts.phone.includes(q);
-  });
+  const filtered = byTab
+    .filter((c) => {
+      const name = (c.inbox_contacts.name ?? c.inbox_contacts.phone).toLowerCase();
+      const q = search.toLowerCase();
+      return name.includes(q) || c.inbox_contacts.phone.includes(q);
+    })
+    // Pinned conversations float to the top
+    .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return 0;
+    });
 
   // Tab counts (from unfiltered conversations, ignoring search)
   const counts: Record<TabId, number> = {
-    waiting: conversations.filter((c) => c.assigned_to === null).length,
-    mine:    conversations.filter((c) => c.assigned_to === myId).length,
-    all:     conversations.length,
+    waiting:  active.filter((c) => c.assigned_to === null).length,
+    mine:     active.filter((c) => c.assigned_to === myId).length,
+    all:      active.length,
+    archived: conversations.filter((c) => c.archived).length,
   };
 
   // Member lookup map
@@ -203,13 +221,18 @@ export function ConversationList({
               {/* Info */}
               <div className="flex-1 min-w-0 relative">
                 <div className="flex items-baseline justify-between gap-1">
-                  <p
-                    className={`text-sm truncate ${
-                      hasUnread ? "font-semibold text-agro-text" : "font-medium text-agro-text-2"
-                    }`}
-                  >
-                    {displayName}
-                  </p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    {conv.pinned && (
+                      <Pin className="w-2.5 h-2.5 shrink-0 text-amber-400" style={{ transform: "rotate(45deg)" }} />
+                    )}
+                    <p
+                      className={`text-sm truncate ${
+                        hasUnread ? "font-semibold text-agro-text" : "font-medium text-agro-text-2"
+                      }`}
+                    >
+                      {displayName}
+                    </p>
+                  </div>
                   <p className="text-[10px] text-agro-muted-2 shrink-0">
                     {formatTime(conv.last_message_at)}
                   </p>
@@ -228,11 +251,9 @@ export function ConversationList({
                   </p>
 
                   <div className="flex items-center gap-1 shrink-0">
-                    {/* Assignee mini-badge (admin/manager only) */}
                     {isAdminManager && (
                       <AssigneeMini assignee={assignee} />
                     )}
-
                     {hasUnread && (
                       <span
                         className="min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white px-1"
@@ -243,6 +264,25 @@ export function ConversationList({
                     )}
                   </div>
                 </div>
+
+                {/* Tag badges */}
+                {conv.tags?.length > 0 && (
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    {conv.tags.map((tag) => {
+                      const cfg = CONVERSATION_TAGS[tag];
+                      if (!cfg) return null;
+                      return (
+                        <span
+                          key={tag}
+                          className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                          style={{ color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }}
+                        >
+                          {cfg.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </button>
           );

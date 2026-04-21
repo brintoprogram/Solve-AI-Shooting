@@ -15,6 +15,9 @@ export interface InboxConversation {
   contact_id: string;
   assigned_to: string | null;
   status: "open" | "resolved" | "pending";
+  pinned:   boolean;
+  archived: boolean;
+  tags:     string[];
   unread_count: number;
   last_message_at: string | null;
   last_message_body: string | null;
