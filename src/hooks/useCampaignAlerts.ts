@@ -5,6 +5,10 @@ import { useAuth } from "@/context/AuthContext";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
+// Supabase Realtime garante INSERT mas pode perder UPDATE events.
+// Polling de 30s garante que alertas atualizados apareçam mesmo sem o evento realtime.
+const POLL_INTERVAL_MS = 30_000;
+
 export interface CampaignAlert {
   id:              string;
   workspace_id:    string;
@@ -39,10 +43,12 @@ export function useCampaignAlerts() {
     setLoading(false);
   }, [workspaceId]);
 
+  // Fetch inicial
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
 
+  // Realtime — captura INSERTs e UPDATEs instantaneamente quando o evento chega
   useEffect(() => {
     if (!workspaceId) return;
     const channel = supabase
@@ -56,6 +62,14 @@ export function useCampaignAlerts() {
       }, () => { fetchAlerts(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
+  }, [workspaceId, fetchAlerts]);
+
+  // Polling de fallback — garante sincronização mesmo que o evento UPDATE
+  // do Realtime não chegue (ex: alerta com conteúdo novo mas sem escalada de severidade)
+  useEffect(() => {
+    if (!workspaceId) return;
+    const timer = setInterval(fetchAlerts, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [workspaceId, fetchAlerts]);
 
   const markAsRead = useCallback(async (id: string) => {
