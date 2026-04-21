@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
   const [setupType, setSetupType]     = useState<"invite" | "recovery" | null>(detectSetupType);
+  const fetchingRef                   = useRef(false); // mutex — prevents concurrent fetchProfile calls
 
   function clearSetupType() {
     setSetupType(null);
@@ -59,16 +60,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function fetchProfile(userId: string): Promise<void> {
-    const [profileRes, wsRes] = await Promise.all([
-      db.from("user_profiles").select("*").eq("id", userId).single(),
-      db.from("workspace_members").select("workspace_id").eq("user_id", userId).maybeSingle(),
-    ]);
-    if (profileRes.data) setProfile(profileRes.data as UserProfile);
+    // Prevent concurrent execution (onAuthStateChange + getSession both fire on startup)
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    try {
+      const [profileRes, wsRes] = await Promise.all([
+        db.from("user_profiles").select("*").eq("id", userId).single(),
+        // INNER JOIN with workspaces skips orphaned entries whose workspace was deleted.
+        // ORDER BY created_at ensures deterministic result when user has multiple memberships.
+        db.from("workspace_members")
+          .select("workspace_id, workspaces!inner(id)")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (profileRes.data) setProfile(profileRes.data as UserProfile);
 
-    if (wsRes.data?.workspace_id) {
-      setWorkspaceId(wsRes.data.workspace_id as string);
-    } else {
-      // First login — check for a pending workspace invite first
+      if (wsRes.data?.workspace_id) {
+        setWorkspaceId(wsRes.data.workspace_id as string);
+        return;
+      }
+
+      // No valid workspace membership — check for a pending invite
       const userEmail = (await supabase.auth.getUser()).data.user?.email ?? "";
       const { data: invite } = await db
         .from("workspace_invites")
@@ -79,7 +93,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (invite?.workspace_id) {
-        // Accept invite — join existing workspace
+        // Verify the target workspace actually exists before accepting
+        const { data: wsExists } = await db
+          .from("workspaces")
+          .select("id")
+          .eq("id", invite.workspace_id)
+          .maybeSingle();
+
+        if (!wsExists) {
+          console.warn("[auth] invite workspace does not exist — access denied, signing out");
+          await supabase.auth.signOut();
+          return;
+        }
+
         await db.from("workspace_members").insert({
           workspace_id: invite.workspace_id,
           user_id:      userId,
@@ -91,32 +117,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .eq("token", invite.token);
         setWorkspaceId(invite.workspace_id as string);
       } else {
-        // No invite and no workspace — this account was not authorized by an admin.
-        // Sign out immediately to prevent unauthorized access.
-        console.warn("[auth] user has no workspace and no pending invite — access denied, signing out");
+        console.warn("[auth] no workspace and no valid invite — access denied, signing out");
         await supabase.auth.signOut();
       }
+    } finally {
+      fetchingRef.current = false;
     }
   }
 
   useEffect(() => {
+    // getSession only controls the initial loading state.
+    // fetchProfile is driven exclusively by onAuthStateChange to avoid concurrent calls.
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id).finally(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
+      if (!session?.user) setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
         if (session?.user) {
-          fetchProfile(session.user.id);
+          fetchProfile(session.user.id).finally(() => setLoading(false));
         } else {
           setProfile(null);
           setWorkspaceId(null);
+          setLoading(false);
         }
       }
     );
