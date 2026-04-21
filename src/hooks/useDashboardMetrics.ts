@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { startOfMonth, subDays, format } from "date-fns";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
@@ -23,6 +24,7 @@ export interface DashboardMetrics {
 }
 
 export function useDashboardMetrics(): DashboardMetrics {
+  const { workspaceId } = useAuth();
   const [m, setM] = useState<Omit<DashboardMetrics, "loading">>({
     activeCampaigns:    0,
     messagesSent:       0,
@@ -38,6 +40,7 @@ export function useDashboardMetrics(): DashboardMetrics {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!workspaceId) return;
     let cancelled = false;
 
     async function load() {
@@ -59,46 +62,55 @@ export function useDashboardMetrics(): DashboardMetrics {
       ] = await Promise.all([
         // Total de campanhas
         db.from("shooting_campaigns")
-          .select("*", { count: "exact", head: true }),
+          .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId),
 
         // Campanhas criadas este mês
         db.from("shooting_campaigns")
           .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
           .gte("created_at", monthStart),
 
         // Total de mensagens efetivamente enviadas (não pending)
         db.from("shooting_messages")
           .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
           .in("status", [...SENT_STATUSES, "failed"]),
 
         // Mensagens enviadas este mês
         db.from("shooting_messages")
           .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
           .in("status", [...SENT_STATUSES, "failed"])
           .gte("created_at", monthStart),
 
         // Total de contatos no Inbox
         db.from("inbox_contacts")
-          .select("*", { count: "exact", head: true }),
+          .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId),
 
         // Contatos novos este mês
         db.from("inbox_contacts")
           .select("*", { count: "exact", head: true })
+          .eq("workspace_id", workspaceId)
           .gte("first_seen_at", monthStart),
 
         // Contadores acumulados das campanhas (taxa de entrega + tempo de automação)
         db.from("shooting_campaigns")
           .select("sent_count, delivered_count, read_count, replied_count, started_at, completed_at")
+          .eq("workspace_id", workspaceId)
           .not("started_at", "is", null),
 
         // Valor disparado — campo inv_valor no recipient_data (snapshot do contato)
         db.from("shooting_messages")
           .select("recipient_data")
+          .eq("workspace_id", workspaceId)
           .in("status", SENT_STATUSES),
 
         // Últimos 30 dias — só sent_at e read_at para o gráfico de área
         db.from("shooting_messages")
           .select("sent_at, read_at")
+          .eq("workspace_id", workspaceId)
           .in("status", SENT_STATUSES)
           .gte("sent_at", thirtyDaysAgo),
       ]);
@@ -172,7 +184,7 @@ export function useDashboardMetrics(): DashboardMetrics {
 
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, []);
+  }, [workspaceId]);
 
   return { ...m, loading };
 }
