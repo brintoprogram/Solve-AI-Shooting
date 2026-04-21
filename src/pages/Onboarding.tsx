@@ -153,7 +153,7 @@ export function Onboarding() {
     try {
     window.FB.login(
       // deno-lint-ignore no-explicit-any
-      async (response: any) => {
+      (response: any) => { void (async () => {
         const code = response?.authResponse?.code;
 
         if (!code) {
@@ -200,7 +200,7 @@ export function Onboarding() {
           setStep("error");
           setErrorMsg(err instanceof Error ? err.message : String(err));
         }
-      },
+      })(); },
       {
         config_id:                      META_CONFIG_ID,
         response_type:                  "code",
