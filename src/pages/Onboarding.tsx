@@ -16,7 +16,7 @@ declare global {
   }
 }
 
-type Step = "idle" | "waiting_user" | "processing" | "success" | "error";
+type Step = "idle" | "sdk_loading" | "waiting_user" | "processing" | "success" | "error";
 
 const SQL_MIGRATIONS = [
   {
@@ -58,8 +58,17 @@ export function Onboarding() {
     if (sdkLoaded.current || !META_APP_ID) return;
     sdkLoaded.current = true;
 
+    // If SDK already loaded from a previous navigation, just re-init
+    if (window.FB) {
+      window.FB.init({ appId: META_APP_ID, version: "v19.0", xfbml: false, cookie: true });
+      return;
+    }
+
+    setStep("sdk_loading");
+
     window.fbAsyncInit = function () {
       window.FB.init({ appId: META_APP_ID, version: "v19.0", xfbml: false, cookie: true });
+      setStep("idle");
     };
 
     const existing = document.getElementById("facebook-jssdk");
@@ -69,7 +78,17 @@ export function Onboarding() {
       script.async       = true;
       script.src         = "https://connect.facebook.net/en_US/sdk.js";
       script.crossOrigin = "anonymous";
+      script.onerror     = () => {
+        setStep("error");
+        setErrorMsg(
+          "Não foi possível carregar o SDK do Facebook. " +
+          "Verifique sua conexão ou desative extensões que bloqueiam scripts (ex: uBlock Origin)."
+        );
+      };
       document.body.appendChild(script);
+    } else {
+      // Script tag exists but FB might already be available
+      if (window.FB) setStep("idle");
     }
   }, []);
 
@@ -116,12 +135,22 @@ export function Onboarding() {
       return;
     }
 
+    if (!window.FB) {
+      setStep("error");
+      setErrorMsg(
+        "SDK do Facebook ainda não carregou. Aguarde 2-3 segundos e tente novamente. " +
+        "Se o problema persistir, verifique se há extensões bloqueando scripts externos (ex: uBlock Origin)."
+      );
+      return;
+    }
+
     // Clear any stale session storage values
     sessionStorage.removeItem("_ob_phone");
     sessionStorage.removeItem("_ob_waba");
 
     setStep("waiting_user");
 
+    try {
     window.FB.login(
       // deno-lint-ignore no-explicit-any
       async (response: any) => {
@@ -184,6 +213,14 @@ export function Onboarding() {
         },
       }
     );
+    } catch (err) {
+      setStep("error");
+      setErrorMsg(
+        "Não foi possível abrir o diálogo do Facebook. " +
+        "Verifique se pop-ups estão liberados para este site e tente novamente. " +
+        `(${String(err)})`
+      );
+    }
   }
 
   // ── UI ─────────────────────────────────────────────────────────────
@@ -254,10 +291,16 @@ export function Onboarding() {
 
             <button
               onClick={handleConnect}
-              className="w-full py-3 rounded-xl font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
+              disabled={step === "sdk_loading"}
+              className="w-full py-3 rounded-xl font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{ background: "linear-gradient(135deg, #1877F2, #0d65d9)" }}
             >
-              Continuar com o Facebook
+              {step === "sdk_loading" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Carregando SDK…
+                </>
+              ) : "Continuar com o Facebook"}
             </button>
             <button
               onClick={() => navigate("/settings")}
