@@ -74,8 +74,8 @@ export function ConversationList({
 
   return (
     <div
-      className="flex flex-col shrink-0 overflow-hidden"
-      style={{ width: 300, borderRight: "1px solid rgba(63,176,108,0.1)" }}
+      className="flex flex-col w-full md:w-[300px] md:shrink-0 overflow-hidden"
+      style={{ borderRight: "1px solid rgba(63,176,108,0.1)" }}
     >
       {/* ── Header ──────────────────────────────────── */}
       <div className="px-4 pt-4 pb-3" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>

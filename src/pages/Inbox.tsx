@@ -39,33 +39,38 @@ export function Inbox() {
 
   return (
     <div
-      className="flex flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden pb-16 md:pb-0"
       style={{ height: "100vh", background: "#0a110e" }}
     >
       <Topbar breadcrumbs={[{ label: "Inbox" }]} />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <ConversationList
-          conversations={conversations}
-          loading={loading}
-          selectedId={selectedConv?.id ?? null}
-          onSelect={handleSelect}
-          teamMembers={teamMembers}
-        />
-
-        {selectedConv ? (
-          <ConversationPanel
-            key={selectedConv.id}
-            conversation={selectedConv}
+        <div className={selectedConv ? "hidden md:flex" : "flex w-full md:w-auto"}>
+          <ConversationList
+            conversations={conversations}
+            loading={loading}
+            selectedId={selectedConv?.id ?? null}
+            onSelect={handleSelect}
             teamMembers={teamMembers}
-            onPin={(pinned) => pinConversation(selectedConv.id, pinned)}
-            onArchive={(archived) => archiveConversation(selectedConv.id, archived)}
-            onDelete={handleDelete}
-            onUpdateTags={(tags) => updateTags(selectedConv.id, tags)}
           />
-        ) : (
-          <EmptyState />
-        )}
+        </div>
+
+        <div className={`${!selectedConv ? "hidden md:flex" : "flex"} flex-1 min-w-0`}>
+          {selectedConv ? (
+            <ConversationPanel
+              key={selectedConv.id}
+              conversation={selectedConv}
+              teamMembers={teamMembers}
+              onBack={() => setSelectedConv(null)}
+              onPin={(pinned) => pinConversation(selectedConv.id, pinned)}
+              onArchive={(archived) => archiveConversation(selectedConv.id, archived)}
+              onDelete={handleDelete}
+              onUpdateTags={(tags) => updateTags(selectedConv.id, tags)}
+            />
+          ) : (
+            <EmptyState />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft } from "lucide-react";
 import type { InboxConversation } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
@@ -23,6 +23,7 @@ const db = supabase as any;
 interface Props {
   conversation:  InboxConversation;
   teamMembers:   UserProfile[];
+  onBack?:       () => void;
   onPin:         (pinned: boolean) => void;
   onArchive:     (archived: boolean) => void;
   onDelete:      () => void;
@@ -47,7 +48,7 @@ async function triggerResolveMedia(conversationId: string) {
   }
 }
 
-export function ConversationPanel({ conversation, teamMembers, onPin, onArchive, onDelete, onUpdateTags }: Props) {
+export function ConversationPanel({ conversation, teamMembers, onBack, onPin, onArchive, onDelete, onUpdateTags }: Props) {
   const { profile, workspaceId } = useAuth();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
@@ -88,6 +89,14 @@ export function ConversationPanel({ conversation, teamMembers, onPin, onArchive,
       >
         {/* Row 1: avatar, name, status, menu */}
         <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden p-1.5 -ml-1 mr-0 rounded-lg text-agro-muted hover:text-agro-text transition-colors shrink-0"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
           <div
             className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 select-none"
             style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
