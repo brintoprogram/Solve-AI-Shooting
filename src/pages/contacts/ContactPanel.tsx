@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   X, Mail, Phone, Building2, Hash, MapPin,
-  User, CreditCard, Loader2, Pencil, Plus,
+  User, CreditCard, Loader2, Pencil, Plus, ClipboardList,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 import { ContactFormModal } from "./ContactFormModal";
 import { InvoiceFormModal } from "./InvoiceFormModal";
+import { ContactHistory } from "./ContactHistory";
 import type { Invoice } from "./InvoiceFormModal";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -128,8 +130,9 @@ interface ContactPanelProps {
 }
 
 export function ContactPanel({ contact: initialContact, onClose, onUpdated }: ContactPanelProps) {
+  const { workspaceId } = useAuth();
   const [contact,    setContact]    = useState<Contact>(initialContact);
-  const [tab,        setTab]        = useState<"cadastro" | "financeiro">("cadastro");
+  const [tab,        setTab]        = useState<"cadastro" | "financeiro" | "historico">("cadastro");
   const [invoices,   setInvoices]   = useState<Invoice[]>([]);
   const [invLoading, setInvLoading] = useState(false);
   const [visible,    setVisible]    = useState(false);
@@ -243,7 +246,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
 
         {/* Tabs */}
         <div className="flex shrink-0 px-5 pt-3" style={{ borderBottom: "1px solid #1e2e22" }}>
-          {(["cadastro", "financeiro"] as const).map((t) => (
+          {(["cadastro", "financeiro", "historico"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -253,7 +256,12 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
                   : "text-[#6b7f6e] border-transparent hover:text-white"
               }`}
             >
-              {t === "cadastro" ? "Cadastro" : "Financeiro"}
+              {t === "cadastro" ? "Cadastro" : t === "financeiro" ? "Financeiro" : (
+                <span className="flex items-center gap-1">
+                  <ClipboardList className="w-3.5 h-3.5" />
+                  Histórico
+                </span>
+              )}
               {t === "financeiro" && invoices.length > 0 && (
                 <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-[#3fb06c]/20 text-[#3fb06c]">
                   {invoices.length}
@@ -325,6 +333,15 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
                 </button>
               )}
             </div>
+          )}
+
+          {/* ── Histórico ─────────────────────────────── */}
+          {tab === "historico" && contact.phone && (
+            <ContactHistory
+              phone={contact.phone}
+              contactName={contact.name ?? undefined}
+              workspaceId={workspaceId ?? ""}
+            />
           )}
 
           {/* ── Financeiro ────────────────────────────── */}

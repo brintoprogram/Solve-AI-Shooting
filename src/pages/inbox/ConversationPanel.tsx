@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2 } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X } from "lucide-react";
 import type { InboxConversation } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
@@ -8,6 +8,7 @@ import { useInboxMessages } from "@/hooks/useInbox";
 import { supabase } from "@/lib/supabase";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
+import { ContactHistory } from "@/pages/contacts/ContactHistory";
 
 const CONVERSATION_TAGS: Record<string, { label: string; color: string; bg: string; border: string }> = {
   importante:     { label: "Importante",     color: "#f59e0b", bg: "rgba(245,158,11,0.1)",  border: "rgba(245,158,11,0.25)"  },
@@ -47,12 +48,13 @@ async function triggerResolveMedia(conversationId: string) {
 }
 
 export function ConversationPanel({ conversation, teamMembers, onPin, onArchive, onDelete, onUpdateTags }: Props) {
-  const { profile } = useAuth();
+  const { profile, workspaceId } = useAuth();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
   const { messages, loading } = useInboxMessages(conversation.id);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const resolvedRef = useRef<Set<string>>(new Set());
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,7 +73,10 @@ export function ConversationPanel({ conversation, teamMembers, onPin, onArchive,
   }, [loading, messages, conversation.id]);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div className="flex-1 flex flex-row min-w-0 overflow-hidden">
+      {/* ── Main column (header + messages + input) ────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
       {/* ── Contact header ─────────────────────────────────── */}
       <div
         className="px-5 py-3 shrink-0"
@@ -105,6 +110,19 @@ export function ConversationPanel({ conversation, teamMembers, onPin, onArchive,
             className="h-6 w-auto object-contain opacity-40"
             style={{ filter: "drop-shadow(0 0 4px rgba(63,176,108,0.3))" }}
           />
+
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            title="Histórico do cliente"
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+            style={
+              showHistory
+                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { color: "#6b8a75", border: "1px solid rgba(63,176,108,0.1)" }
+            }
+          >
+            <ClipboardList className="w-4 h-4" />
+          </button>
 
           <ConversationActionsMenu
             conversation={conversation}
@@ -172,6 +190,46 @@ export function ConversationPanel({ conversation, teamMembers, onPin, onArchive,
         workspaceId={conversation.workspace_id}
         sentBy={profile?.id ?? ""}
       />
+
+      </div>{/* end main column */}
+
+      {/* ── History sidebar ─────────────────────────────────── */}
+      {showHistory && contact.phone && (
+        <div
+          className="flex flex-col overflow-hidden shrink-0"
+          style={{
+            width: 280,
+            borderLeft: "1px solid rgba(63,176,108,0.1)",
+            background: "rgba(8,14,10,0.7)",
+          }}
+        >
+          {/* Sidebar header */}
+          <div
+            className="flex items-center justify-between px-4 py-3 shrink-0"
+            style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-3.5 h-3.5 text-[#3fb06c]" />
+              <span className="text-xs font-semibold text-agro-text">Histórico</span>
+            </div>
+            <button
+              onClick={() => setShowHistory(false)}
+              className="w-6 h-6 flex items-center justify-center rounded text-agro-muted hover:text-agro-text transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* History content */}
+          <div className="flex-1 overflow-hidden p-3">
+            <ContactHistory
+              phone={contact.phone}
+              contactName={contact.name ?? undefined}
+              workspaceId={workspaceId ?? ""}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

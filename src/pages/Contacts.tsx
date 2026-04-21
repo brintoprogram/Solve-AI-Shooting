@@ -85,6 +85,15 @@ async function exportXlsx(workspaceId: string) {
 
   const invoices: Array<Record<string, unknown>> = allInvoices ?? [];
 
+  // 3. Fetch ALL contact notes for this workspace
+  const { data: allNotes } = await db
+    .from("contact_notes")
+    .select("*")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false });
+
+  const notes: Array<Record<string, unknown>> = allNotes ?? [];
+
   // 3. Build contacts sheet
   const contactRows = contacts.map((c) => ({
     "Nome":               c.name ?? "",
@@ -117,10 +126,27 @@ async function exportXlsx(workspaceId: string) {
     "Código de Barras": inv.codigo_barras ?? "",
   }));
 
-  // 5. Create workbook with 2 sheets
+  // Build notes sheet
+  const TYPE_LABELS: Record<string, string> = {
+    nota: "Nota", ligacao: "Ligação", email: "E-mail",
+    reuniao: "Reunião", follow_up: "Follow-up", acao: "Ação urgente",
+  };
+  const noteRows = notes.map((n) => ({
+    "Contato":          n.contact_name ?? "",
+    "Telefone":         n.contact_phone ?? "",
+    "Tipo":             TYPE_LABELS[n.type as string] ?? (n.type as string),
+    "Conteúdo":         n.content ?? "",
+    "Registrado por":   n.created_by_name ?? "",
+    "Data follow-up":   n.follow_up_date ? formatDate(n.follow_up_date as string) : "",
+    "Follow-up feito":  n.follow_up_done ? "Sim" : "Não",
+    "Data registro":    n.created_at ? new Date(n.created_at as string).toLocaleString("pt-BR") : "",
+  }));
+
+  // 5. Create workbook with 3 sheets
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contactRows),  "Contatos");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invoiceRows),  "Boletos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(noteRows),     "Histórico");
 
   const date = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `contatos_${date}.xlsx`);
