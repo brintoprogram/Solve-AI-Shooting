@@ -81,16 +81,29 @@ function TemplateCard({ preview }: { preview: TemplatePreview }) {
 }
 
 interface Props {
-  message: InboxMessage;
+  message:       InboxMessage;
+  teamMembers?:  { id: string; full_name: string | null; avatar_url?: string | null }[];
+  currentUserId?: string;
 }
 
-export function MessageBubble({ message }: Props) {
-  const isInbound = message.direction === "inbound";
+export function MessageBubble({ message, teamMembers, currentUserId }: Props) {
+  const isInbound  = message.direction === "inbound";
   const isTemplate = message.message_type === "template";
-  const time = format(new Date(message.created_at), "HH:mm");
+  const time       = format(new Date(message.created_at), "HH:mm");
+
+  const senderLabel = !isInbound && message.sent_by
+    ? message.sent_by === currentUserId
+      ? "Você"
+      : (teamMembers?.find((m) => m.id === message.sent_by)?.full_name?.split(" ")[0] ?? "Agente")
+    : null;
 
   return (
-    <div className={`flex ${isInbound ? "justify-start" : "justify-end"} mb-1`}>
+    <div className={`flex flex-col ${isInbound ? "items-start" : "items-end"} mb-1`}>
+      {senderLabel && (
+        <span className="text-[10px] text-agro-muted-2 mb-0.5 px-1 select-none">
+          {senderLabel}
+        </span>
+      )}
       <div
         className={`max-w-[72%] rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
         style={isTemplate ? { background: "transparent" } : (

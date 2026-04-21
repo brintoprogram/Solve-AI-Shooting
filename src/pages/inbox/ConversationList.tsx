@@ -20,7 +20,7 @@ export function ConversationList({
 }: Props) {
   const { profile } = useAuth();
   const [search, setSearch]     = useState("");
-  const [activeTab, setActiveTab] = useState<TabId>("waiting");
+  const [activeTab, setActiveTab] = useState<TabId>("mine");
 
   const myId           = profile?.id ?? "";
   const isAdminManager = profile ? ["admin", "manager"].includes(profile.role) : false;
@@ -256,30 +256,51 @@ export function ConversationList({
 
 function AssigneeMini({ assignee }: { assignee: UserProfile | null | undefined }) {
   if (!assignee) {
-    // Unassigned — faint dashed circle
     return (
-      <div
-        title="Sem atribuição"
-        className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold"
+      <span
+        className="text-[9px] font-medium px-1.5 py-0.5 rounded-md shrink-0"
         style={{
-          border: "1px dashed rgba(63,176,108,0.3)",
-          color: "rgba(63,176,108,0.4)",
+          background: "rgba(255,255,255,0.03)",
+          color: "rgba(107,138,117,0.5)",
+          border: "1px dashed rgba(63,176,108,0.18)",
         }}
       >
-        ?
+        livre
+      </span>
+    );
+  }
+
+  const firstName = (assignee.full_name ?? "Agente").split(" ")[0];
+  const label     = firstName.length > 8 ? firstName.slice(0, 7) + "…" : firstName;
+
+  if (assignee.avatar_url) {
+    return (
+      <div className="flex items-center gap-1 shrink-0" title={assignee.full_name ?? "Agente"}>
+        <img
+          src={assignee.avatar_url}
+          alt={firstName}
+          className="w-4 h-4 rounded-full object-cover shrink-0"
+          style={{ border: "1px solid rgba(63,176,108,0.3)" }}
+        />
+        <span className="text-[9px] font-medium text-agro-muted-2 max-w-[44px] truncate">
+          {label}
+        </span>
       </div>
     );
   }
 
-  const rs = ROLE_STYLE[assignee.role];
   return (
-    <div
+    <span
       title={assignee.full_name ?? "Agente"}
-      className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
-      style={{ background: rs.color }}
+      className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md shrink-0 max-w-[56px] truncate"
+      style={{
+        background: "rgba(63,176,108,0.08)",
+        color: "#6b8a75",
+        border: "1px solid rgba(63,176,108,0.15)",
+      }}
     >
-      {profileInitials(assignee.full_name).slice(0, 1)}
-    </div>
+      {label}
+    </span>
   );
 }
 

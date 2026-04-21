@@ -143,7 +143,11 @@ export function ConversationPanel({ conversation, teamMembers }: Props) {
           return (
             <div key={msg.id}>
               {showSep && <DateSeparator date={msg.created_at} />}
-              <MessageBubble message={msg} />
+              <MessageBubble
+                message={msg}
+                teamMembers={teamMembers}
+                currentUserId={profile?.id}
+              />
             </div>
           );
         })}
@@ -155,6 +159,7 @@ export function ConversationPanel({ conversation, teamMembers }: Props) {
       <MessageInput
         conversationId={conversation.id}
         workspaceId={conversation.workspace_id}
+        sentBy={profile?.id ?? ""}
       />
     </div>
   );

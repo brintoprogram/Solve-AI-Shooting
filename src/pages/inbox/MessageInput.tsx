@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 interface Props {
   conversationId: string;
   workspaceId:    string;
+  sentBy:         string;
 }
 
 type AttachType = "image" | "audio" | "video" | "document";
@@ -27,7 +28,7 @@ function mimeToType(mime: string): AttachType {
   return "document";
 }
 
-export function MessageInput({ conversationId, workspaceId }: Props) {
+export function MessageInput({ conversationId, workspaceId, sentBy }: Props) {
   const [text, setText]           = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [sending, setSending]     = useState(false);
@@ -97,6 +98,7 @@ export function MessageInput({ conversationId, workspaceId }: Props) {
           body: {
             conversation_id: conversationId,
             workspace_id:    workspaceId,
+            sent_by:         sentBy,
             type:            messageType,
             // text messages: body; media messages: caption
             ...(messageType === "text"

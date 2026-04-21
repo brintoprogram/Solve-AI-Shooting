@@ -52,6 +52,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const {
     conversation_id,
     workspace_id,
+    sent_by,
     type = "text",
     text,
     media_url,
@@ -59,6 +60,7 @@ async function handleRequest(req: Request): Promise<Response> {
   } = body as {
     conversation_id: string;
     workspace_id:    string;
+    sent_by?:        string;
     type?:           string;
     text?:           string;
     media_url?:      string;
@@ -156,6 +158,7 @@ async function handleRequest(req: Request): Promise<Response> {
     media_url:      media_url      ?? null,
     media_filename: media_filename ?? null,
     media_caption:  captionText,
+    sent_by:        sent_by        ?? null,
     status:         "sending",
     created_at:     now,
   }).select("id").single();
