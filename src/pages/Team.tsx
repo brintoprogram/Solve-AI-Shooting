@@ -516,12 +516,21 @@ export function Team() {
                   }}
                 >
                   {/* Avatar */}
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                    style={{ background: AVATAR_COLORS[i % AVATAR_COLORS.length] }}
-                  >
-                    {initials(member.full_name)}
-                  </div>
+                  {member.avatar_url ? (
+                    <img
+                      src={member.avatar_url}
+                      alt={member.full_name ?? ""}
+                      className="w-9 h-9 rounded-full object-cover shrink-0"
+                      style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+                    />
+                  ) : (
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                      style={{ background: AVATAR_COLORS[i % AVATAR_COLORS.length] }}
+                    >
+                      {initials(member.full_name)}
+                    </div>
+                  )}
 
                   {/* Name + meta */}
                   <div className="min-w-0">
