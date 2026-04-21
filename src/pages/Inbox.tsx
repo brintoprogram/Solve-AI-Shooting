@@ -55,7 +55,7 @@ export function Inbox() {
           />
         </div>
 
-        <div className={`${!selectedConv ? "hidden md:flex" : "flex"} flex-1 min-w-0`}>
+        <div className={`${!selectedConv ? "hidden md:flex" : "flex"} flex-1 min-w-0 min-h-0 overflow-hidden`}>
           {selectedConv ? (
             <ConversationPanel
               key={selectedConv.id}
