@@ -132,10 +132,13 @@ export function Settings() {
   async function handleProfileSave() {
     if (!profile) return;
     setProfileSaving(true);
-    try {
-      let newAvatarUrl = profile.avatar_url ?? null;
 
-      if (avatarFile) {
+    // 1. Try avatar upload separately — non-fatal
+    let newAvatarUrl = profile.avatar_url ?? null;
+    let avatarUploadError: string | null = null;
+
+    if (avatarFile) {
+      try {
         const path = `${profile.id}/avatar`;
         const { error: uploadError } = await supabase.storage
           .from("avatars")
@@ -143,8 +146,13 @@ export function Settings() {
         if (uploadError) throw new Error(uploadError.message);
         const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
         newAvatarUrl = `${publicUrl}?t=${Date.now()}`;
+      } catch (err) {
+        avatarUploadError = err instanceof Error ? err.message : "Erro ao salvar foto";
       }
+    }
 
+    // 2. Always save text fields (name + description + avatar if upload succeeded)
+    try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
         .from("user_profiles")
@@ -165,7 +173,16 @@ export function Settings() {
 
       setAvatarFile(null);
       setAvatarPreview(null);
-      toast({ title: "Perfil atualizado!", variant: "success" });
+
+      if (avatarUploadError) {
+        toast({
+          title:       "Nome e bio salvos — foto não",
+          description: "Rode o SQL do Passo 5 nas Configurações para habilitar fotos de perfil.",
+          variant:     "destructive",
+        });
+      } else {
+        toast({ title: "Perfil atualizado!", variant: "success" });
+      }
     } catch (err) {
       toast({ title: "Erro ao salvar perfil", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
     } finally {
