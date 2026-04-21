@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
@@ -25,6 +25,7 @@ export function useCampaignAlerts() {
   const { workspaceId } = useAuth();
   const [alerts,  setAlerts]  = useState<CampaignAlert[]>([]);
   const [loading, setLoading] = useState(true);
+  const channelName = useRef(`campaign_alerts_${Math.random().toString(36).slice(2)}`);
 
   const fetchAlerts = useCallback(async () => {
     if (!workspaceId) return;
@@ -45,7 +46,7 @@ export function useCampaignAlerts() {
   useEffect(() => {
     if (!workspaceId) return;
     const channel = supabase
-      .channel("campaign_alerts_rt")
+      .channel(channelName.current)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .on("postgres_changes" as any, {
         event:  "*",
