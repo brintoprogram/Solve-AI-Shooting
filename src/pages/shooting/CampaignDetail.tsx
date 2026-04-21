@@ -2,9 +2,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText } from "lucide-react";
+import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import type { ShootingMessage } from "@/types/shooting";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignMetrics } from "./components/CampaignMetrics";
 import { MessagesTable } from "./components/MessagesTable";
@@ -122,177 +123,262 @@ export function CampaignDetail() {
   const { campaign, loading } = useCampaignDetail(id ?? "");
   const isLive = campaign?.status === "sending";
   const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   async function exportPdf() {
     if (!campaign) return;
+    setExportingPdf(true);
 
-    const doc  = new jsPDF({ unit: "mm", format: "a4" });
-    const W    = 210;
-    const DARK = [10, 26, 16]    as [number,number,number];
-    const GRN  = [63, 176, 108]  as [number,number,number];
-    const HEAD = [22, 56, 36]    as [number,number,number];
-    const ALT  = [242, 250, 244] as [number,number,number];
-    const TXT  = [20, 40, 26]    as [number,number,number];
-    const MUT  = [107, 135, 115] as [number,number,number];
-
-    // ── Logo ──────────────────────────────────────────
-    let logo: string | null = null;
     try {
-      const res  = await fetch("/logo.png");
-      const blob = await res.blob();
-      logo = await new Promise<string>((resolve) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result as string);
-        r.readAsDataURL(blob);
-      });
-    } catch { /* sem logo */ }
+      // A4 landscape
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const W  = 297;
+      const MX = 14;
 
-    // ── Header bar ────────────────────────────────────
-    doc.setFillColor(...DARK);
-    doc.rect(0, 0, W, 36, "F");
+      // ── Logo ──────────────────────────────────────
+      let logo: string | null = null;
+      try {
+        const res  = await fetch("/logo.png");
+        const blob = await res.blob();
+        logo = await new Promise<string>((res2) => {
+          const r = new FileReader();
+          r.onload = () => res2(r.result as string);
+          r.readAsDataURL(blob);
+        });
+      } catch { /* sem logo */ }
 
-    if (logo) doc.addImage(logo, "PNG", 14, 7, 30, 12);
-    const textX = logo ? 50 : 14;
+      // ── Fetch all messages ─────────────────────────
+      const { data: rawMsgs } = await db
+        .from("shooting_messages")
+        .select("*")
+        .eq("campaign_id", campaign.id)
+        .order("sent_at", { ascending: true, nullsFirst: false });
+      const messages: ShootingMessage[] = rawMsgs ?? [];
 
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...GRN);
-    doc.text("SOLVE AI SHOOTING", textX, 12);
+      // Compute total value from recipient_data
+      const MONETARY = ["valor", "value", "total", "amount", "preco", "preço", "boleto", "cobrado"];
+      let totalValue = 0;
+      for (const m of messages) {
+        const rd = m.recipient_data as Record<string, unknown> | null;
+        if (!rd) continue;
+        const key = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t)));
+        if (!key) continue;
+        const raw = rd[key];
+        const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,.]/g, "").replace(",", "."));
+        if (!isNaN(n) && n > 0) totalValue += n;
+      }
 
-    doc.setFontSize(14);
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.text(campaign.name, textX, 22);
+      // ── HEADER ────────────────────────────────────
+      const LOGO_SIZE = 30;
+      let y = MX;
 
-    doc.setFontSize(8);
-    doc.setTextColor(...GRN);
-    doc.setFont("helvetica", "normal");
-    doc.text(STATUS_LABELS[campaign.status], textX, 30);
+      if (logo) doc.addImage(logo, "PNG", MX, y, LOGO_SIZE, LOGO_SIZE);
+      const tX = logo ? MX + LOGO_SIZE + 6 : MX;
 
-    const dateStr = new Date().toLocaleDateString("pt-BR", {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-    doc.setTextColor(160, 210, 180);
-    doc.text(`Gerado em ${dateStr}`, W - 14, 30, { align: "right" });
-
-    doc.setDrawColor(...GRN);
-    doc.setLineWidth(0.6);
-    doc.line(0, 36, W, 36);
-
-    // ── Informações (2 colunas) ───────────────────────
-    let y = 46;
-    const MX = 14;
-    const C2 = W / 2 + 4;
-
-    const sectionLabel = (label: string, sy: number) => {
-      doc.setFontSize(7);
+      doc.setFontSize(22);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...MUT);
-      doc.text(label, MX, sy);
-      doc.setDrawColor(200, 225, 210);
-      doc.setLineWidth(0.25);
-      doc.line(MX, sy + 1.8, W - MX, sy + 1.8);
-      return sy + 7;
-    };
+      doc.setTextColor(25, 25, 25);
+      doc.text("Relatório de Disparo", tX, y + 11);
 
-    const kv = (label: string, value: string, x: number, ky: number) => {
-      doc.setFontSize(8.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...MUT);
-      doc.text(label, x, ky);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(120, 120, 120);
+      doc.text("Inteligência que cultiva resultados", tX, y + 19);
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+        + " às " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(...TXT);
-      doc.text(value, x + 38, ky);
-      return ky + 7;
-    };
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Gerado em ${dateStr}`, tX, y + 26);
 
-    y = sectionLabel("INFORMAÇÕES DA CAMPANHA", y);
+      y += LOGO_SIZE + 6;
 
-    const leftRows: [string, string][] = [
-      ["Template",      campaign.meta_templates?.template_name ?? "—"],
-      ["Status",        STATUS_LABELS[campaign.status]],
-      ["Destinatários", campaign.total_recipients.toLocaleString("pt-BR")],
-    ];
-    const rightRows: [string, string][] = [
-      ["Criada em", format(new Date(campaign.created_at), "dd/MM/yyyy")],
-    ];
-    if (campaign.started_at)   rightRows.push(["Iniciada em",  format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm")]);
-    if (campaign.completed_at) rightRows.push(["Concluída em", format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm")]);
+      // Thick separator
+      doc.setDrawColor(25, 25, 25);
+      doc.setLineWidth(1.2);
+      doc.line(MX, y, W - MX, y);
+      y += 10;
 
-    let yL = y, yR = y;
-    for (const [k, v] of leftRows)  yL = kv(k, v, MX, yL);
-    for (const [k, v] of rightRows) yR = kv(k, v, C2, yR);
-    y = Math.max(yL, yR) + 6;
+      // ── Helper: section bar ────────────────────────
+      const sectionBar = (label: string, sy: number): number => {
+        doc.setFillColor(30, 30, 30);
+        doc.rect(MX, sy, W - MX * 2, 9, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text(label, MX + 4, sy + 6.3);
+        return sy + 13;
+      };
 
-    // ── Métricas ──────────────────────────────────────
-    y = sectionLabel("MÉTRICAS DE ENVIO", y);
+      // ── Helper: inline bold + normal text ─────────
+      const infoLine = (label: string, value: string, x: number, iy: number): number => {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(25, 25, 25);
+        doc.text(`${label}: `, x, iy);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(60, 60, 60);
+        doc.text(value, x + doc.getTextWidth(`${label}: `), iy);
+        return iy + 7;
+      };
 
-    const base = campaign.sent_count || 1;
-    const pct  = (n: number) => `${Math.round((n / base) * 100)}%`;
+      // ── INFORMAÇÕES DO DISPARO ─────────────────────
+      y = sectionBar("INFORMAÇÕES DO DISPARO", y);
+      const c2 = MX + (W - MX * 2) / 2 + 4;
+      const SOURCE_PT: Record<string, string> = {
+        contacts: "Contatos da base", xlsx_upload: "Planilha importada",
+      };
+      let yL = y, yR = y;
+      yL = infoLine("Nome do Disparo", campaign.name, MX, yL);
+      yL = infoLine("Template", campaign.meta_templates?.template_name ?? "—", MX, yL);
+      yR = infoLine("Tipo", SOURCE_PT[campaign.data_source] ?? campaign.data_source, c2, yR);
+      yR = infoLine("Limpeza de Base", "Não", c2, yR);
+      if (campaign.started_at)   yR = infoLine("Iniciada em",  format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm"), c2, yR);
+      if (campaign.completed_at) yR = infoLine("Concluída em", format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm"), c2, yR);
+      y = Math.max(yL, yR) + 8;
 
-    autoTable(doc, {
-      head: [["Métrica", "Quantidade", "% de enviadas"]],
-      body: [
-        ["Enviadas",    campaign.sent_count.toLocaleString("pt-BR"),      "100%"],
-        ["Entregues",   campaign.delivered_count.toLocaleString("pt-BR"), pct(campaign.delivered_count)],
-        ["Lidas",       campaign.read_count.toLocaleString("pt-BR"),      pct(campaign.read_count)],
-        ["Respondidas", campaign.replied_count.toLocaleString("pt-BR"),   pct(campaign.replied_count)],
-        ["Falhas",      campaign.failed_count.toLocaleString("pt-BR"),    campaign.failed_count > 0 ? pct(campaign.failed_count) : "—"],
-      ],
-      startY: y,
-      margin: { left: MX, right: MX },
-      styles:     { fontSize: 9, cellPadding: 4, textColor: TXT, lineColor: [220, 235, 220], lineWidth: 0.2 },
-      headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
-      alternateRowStyles: { fillColor: ALT },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 60 },
-        1: { halign: "right", cellWidth: 40 },
-        2: { halign: "right", textColor: GRN, fontStyle: "bold" },
-      },
+      // ── RESUMO DE RESULTADOS ───────────────────────
+      y = sectionBar("RESUMO DE RESULTADOS", y);
+
+      const successRate = campaign.sent_count > 0
+        ? ((campaign.sent_count - campaign.failed_count) / campaign.sent_count * 100).toFixed(1) + "%"
+        : "—";
+
+      const CARDS = [
+        { label: "Total de Contatos",    value: campaign.total_recipients.toLocaleString("pt-BR"), color: [25, 25, 25]     as [number,number,number] },
+        { label: "Enviados com Sucesso", value: (campaign.sent_count - campaign.failed_count).toLocaleString("pt-BR"), color: [22, 163, 74] as [number,number,number] },
+        { label: "Falhas",               value: campaign.failed_count.toLocaleString("pt-BR"),     color: [220, 38, 38]    as [number,number,number] },
+        { label: "Taxa de Sucesso",      value: successRate,                                       color: [22, 163, 74]    as [number,number,number] },
+      ];
+
+      const cardW = (W - MX * 2 - 3 * 5) / 4;
+      const cardH = 28;
+
+      CARDS.forEach((card, i) => {
+        const cx = MX + i * (cardW + 5);
+        doc.setFillColor(250, 250, 250);
+        doc.setDrawColor(210, 210, 210);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(cx, y, cardW, cardH, 2, 2, "FD");
+        // Label
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(130, 130, 130);
+        doc.text(card.label, cx + cardW / 2, y + 9, { align: "center" });
+        // Value
+        doc.setFontSize(20);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...card.color);
+        doc.text(card.value, cx + cardW / 2, y + 22, { align: "center" });
+      });
+
+      y += cardH + 6;
+
+      // Total value line
+      if (totalValue > 0) {
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(25, 25, 25);
+        doc.text(
+          `Valor Total Disparado: ${totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+          MX, y,
+        );
+        y += 10;
+      } else {
+        y += 4;
+      }
+
+      // ── LISTA DE DESTINATÁRIOS ─────────────────────
+      y = sectionBar("LISTA DE DESTINATÁRIOS", y);
+
+      // Auto-detect extra columns from recipient_data
+      let valorKey: string | null = null;
+      let nfKey:    string | null = null;
+      let vencKey:  string | null = null;
+      for (const m of messages) {
+        const rd = m.recipient_data as Record<string, unknown> | null;
+        if (!rd) continue;
+        if (!valorKey) valorKey = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t))) ?? null;
+        if (!nfKey)    nfKey    = Object.keys(rd).find((k) => ["nf", "nota", "numero", "duplicata"].some((t) => k.toLowerCase().includes(t))) ?? null;
+        if (!vencKey)  vencKey  = Object.keys(rd).find((k) => ["venc", "vencimento", "prazo"].some((t) => k.toLowerCase().includes(t))) ?? null;
+        if (valorKey && nfKey && vencKey) break;
+      }
+
+      const STATUS_PT: Record<string, string> = {
+        pending: "Na fila", sent: "Enviado", delivered: "Entregue",
+        read: "Lido", replied: "Respondido", failed: "Falhou", undeliverable: "Não entregável",
+      };
+
+      const head: string[] = ["#", "Nome", "Telefone"];
+      if (nfKey)    head.push("Nº NF");
+      if (valorKey) head.push("Valor");
+      if (vencKey)  head.push("Vencimento");
+      head.push("Status", "Enviado em");
+
+      const statusColIdx = head.indexOf("Status");
+
+      const body = messages.map((m, idx) => {
+        const rd = m.recipient_data as Record<string, unknown> | null ?? {};
+        const row: string[] = [`${idx + 1}`, m.recipient_name ?? "—", m.recipient_phone];
+
+        if (nfKey)    row.push(String(rd[nfKey!]    ?? "—"));
+        if (valorKey) {
+          const v = rd[valorKey!];
+          const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^\d,.]/g, "").replace(",", "."));
+          row.push(isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+        }
+        if (vencKey) {
+          const v  = String(rd[vencKey!] ?? "");
+          const d  = v ? new Date(v) : null;
+          row.push(d && !isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : (v || "—"));
+        }
+
+        row.push(STATUS_PT[m.status] ?? m.status);
+        row.push(m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy, HH:mm") : "—");
+        return row;
+      });
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    y = (doc as any).lastAutoTable.finalY + 10;
-
-    // ── Timeline ──────────────────────────────────────
-    if (chartData.length > 0) {
-      y = sectionLabel("TIMELINE DE ENVIOS (30 MIN)", y);
-
       autoTable(doc, {
-        head: [["Horário", "Enviadas (acum.)", "Entregues (acum.)", "Lidas (acum.)"]],
-        body: chartData.map((b) => [b.time, b.enviadas, b.entregues, b.lidas]),
+        head:  [head],
+        body,
         startY: y,
         margin: { left: MX, right: MX },
-        styles:     { fontSize: 8.5, cellPadding: 3.5, textColor: TXT, lineColor: [220, 235, 220], lineWidth: 0.2 },
-        headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: "bold" },
-        alternateRowStyles: { fillColor: ALT },
-        columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 28 },
-          1: { halign: "right" },
-          2: { halign: "right" },
-          3: { halign: "right", textColor: GRN },
+        styles:     { fontSize: 8, cellPadding: 3, textColor: [25, 25, 25], lineColor: [215, 215, 215], lineWidth: 0.2 },
+        headStyles: { fillColor: [75, 75, 75], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+        alternateRowStyles: { fillColor: [248, 250, 248] },
+        columnStyles: { 0: { cellWidth: 8, halign: "center" } },
+        didParseCell: (data: { column: { index: number }; section: string; cell: { raw: unknown; styles: { textColor: number[] } } }) => {
+          if (data.section !== "body" || data.column.index !== statusColIdx) return;
+          const v = data.cell.raw as string;
+          if (["Enviado", "Entregue", "Lido", "Respondido"].includes(v)) {
+            data.cell.styles.textColor = [22, 163, 74];
+          } else if (["Falhou", "Não entregável"].includes(v)) {
+            data.cell.styles.textColor = [220, 38, 38];
+          }
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-    }
+      } as never);
 
-    // ── Footer ────────────────────────────────────────
-    const pages = doc.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7.5);
-      doc.setTextColor(...MUT);
-      doc.setFont("helvetica", "normal");
-      doc.text("Solve AI — solveai.consulting", MX, 288);
-      doc.text(`Página ${i} / ${pages}`, W - MX, 288, { align: "right" });
-      doc.setDrawColor(220, 235, 220);
-      doc.setLineWidth(0.2);
-      doc.line(MX, 284, W - MX, 284);
-    }
+      // ── Footer ────────────────────────────────────
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(200, 200, 200);
+        doc.setLineWidth(0.2);
+        doc.line(MX, 203, W - MX, 203);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(150, 150, 150);
+        doc.text("Solve AI — solveai.consulting", MX, 207);
+        doc.text(`Página ${i} / ${pages}`, W - MX, 207, { align: "right" });
+      }
 
-    doc.save(`relatorio_${campaign.name.replace(/\s+/g, "_")}.pdf`);
+      doc.save(`relatorio_${campaign.name.replace(/\s+/g, "_")}.pdf`);
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   async function handleAction(action: "pause" | "resume" | "cancel") {
