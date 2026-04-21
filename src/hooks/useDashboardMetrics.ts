@@ -116,36 +116,44 @@ export function useDashboardMetrics(): DashboardMetrics {
       ]);
 
       // Taxa de entrega + tempo de automação
+      // delivered_count já inclui mensagens que depois foram lidas ou respondidas
+      // (o WhatsApp acumula por estado máximo), então somar read+replied dobra a contagem.
+      // Usamos só delivered_count como proxy de "entregue ou melhor" e capamos em 100%.
       let totalSent           = 0;
       let totalDelivered      = 0;
       let automationMinutes   = 0;
       for (const c of (campaignAgg.data ?? [])) {
-        totalSent      += c.sent_count      ?? 0;
-        totalDelivered += (c.delivered_count ?? 0) + (c.read_count ?? 0) + (c.replied_count ?? 0);
+        totalSent      += c.sent_count ?? 0;
+        totalDelivered += c.delivered_count ?? 0;
         if (c.started_at && c.completed_at) {
           automationMinutes +=
             (new Date(c.completed_at).getTime() - new Date(c.started_at).getTime()) / 60_000;
         }
       }
       const deliveryRate =
-        totalSent > 0 ? Math.round((totalDelivered / totalSent) * 1000) / 10 : 0;
+        totalSent > 0 ? Math.min(100, Math.round((totalDelivered / totalSent) * 1000) / 10) : 0;
 
       // Economia de tempo: assume 2 min/mensagem para envio humano (abrir WA, colar número, digitar, enviar)
       const HUMAN_MIN_PER_MSG = 2;
       const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
       const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
 
-      // Valor disparado: soma inv_valor do recipient_data de cada mensagem enviada
-      // inv_valor é o campo monetário mapeado nos templates (ex: valor do boleto)
+      // Valor disparado: busca o primeiro campo numérico cujo nome contenha
+      // palavras relacionadas a valor monetário (case-insensitive).
+      // Cobre nomes como "valor", "inv_valor", "valor_boleto", "Valor Cobrado", "total", etc.
+      const MONETARY_TERMS = ["valor", "value", "total", "amount", "preco", "preço", "boleto", "cobrado"];
       let valueDispatched = 0;
       for (const msg of (valueMsgs.data ?? [])) {
         const rd = msg.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
-        // Tenta múltiplos nomes de campo monetário por ordem de prioridade
-        const raw = rd["inv_valor"] ?? rd["valor_total"] ?? rd["valor"] ?? rd["total"];
+        const key = Object.keys(rd).find((k) =>
+          MONETARY_TERMS.some((t) => k.toLowerCase().includes(t))
+        );
+        if (!key) continue;
+        const raw = rd[key];
         if (raw == null) continue;
         const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,.]/g, "").replace(",", "."));
-        if (!isNaN(n)) valueDispatched += n;
+        if (!isNaN(n) && n > 0) valueDispatched += n;
       }
 
       // Últimos 30 dias: gerar array com todos os dias e contar por dia
