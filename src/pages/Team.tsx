@@ -375,7 +375,7 @@ export function Team() {
     const [membersRes, invitesRes] = await Promise.all([
       db
         .from("workspace_members")
-        .select("user_id, role, user_profiles(*)")
+        .select("user_id, role, created_at")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true }),
       isAdmin
@@ -392,13 +392,28 @@ export function Team() {
     if (membersRes.error) {
       console.error("[Team] load error:", membersRes.error.message);
     } else {
-      // Flatten nested user_profiles into UserProfile[]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const profiles = (membersRes.data ?? []).map((row: any) => {
-        const p = Array.isArray(row.user_profiles) ? row.user_profiles[0] : row.user_profiles;
-        return p ? { ...p, role: row.role } : null;
-      }).filter(Boolean) as UserProfile[];
-      setMembers(profiles);
+      const memberRows = (membersRes.data ?? []) as any[];
+      const userIds = memberRows.map((m) => m.user_id as string);
+
+      if (userIds.length > 0) {
+        const { data: profilesData } = await db
+          .from("user_profiles")
+          .select("*")
+          .in("id", userIds);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const profileMap = new Map<string, any>((profilesData ?? []).map((p: any) => [p.id, p]));
+        const profiles = memberRows
+          .map((row) => {
+            const p = profileMap.get(row.user_id);
+            return p ? { ...p, role: row.role } : null;
+          })
+          .filter(Boolean) as UserProfile[];
+        setMembers(profiles);
+      } else {
+        setMembers([]);
+      }
     }
     setPendingInvites((invitesRes.data as PendingInvite[]) ?? []);
     setLoading(false);

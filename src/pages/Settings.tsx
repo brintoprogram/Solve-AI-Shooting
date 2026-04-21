@@ -6,7 +6,7 @@ import {
   Mail, Trash2, Send, LogIn, Zap,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
-import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
+import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
 import { getPhoneNumberInfo }  from "@/services/metaApi";
 import { useToast }            from "@/hooks/use-toast";
@@ -545,6 +545,9 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
             </div>
           </DarkCard>
         </div>
+
+        {/* ── Sections visíveis apenas para admin ───────────── */}
+        {hasPermission(profile, "can_settings") ? (<>
 
         {/* ── Conexões ativas ─────────────────── */}
         {connections.length > 0 && (
@@ -1196,12 +1199,11 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
         </div>
 
         {/* ── Inteligência Artificial ──────────── */}
-        {profile?.role === "admin" && (
-          <div className="animate-fade-up-delay-1">
-            <DarkCard
-              title="Inteligência Artificial"
-              subtitle="Provedor de IA para classificar respostas dos clientes aos disparos"
-            >
+        <div className="animate-fade-up-delay-1">
+          <DarkCard
+            title="Inteligência Artificial"
+            subtitle="Provedor de IA para classificar respostas dos clientes aos disparos"
+          >
               <div className="space-y-5">
                 {/* Provider toggle */}
                 <div>
@@ -1304,7 +1306,6 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
               </div>
             </DarkCard>
           </div>
-        )}
 
         {/* ── Webhook Meta ─────────────────────── */}
         <div className="animate-fade-up-delay-1">
@@ -1363,6 +1364,21 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
             </div>
           </DarkCard>
         </div>
+
+        </>) : (
+          <div
+            className="animate-fade-up rounded-2xl p-6 flex items-start gap-4"
+            style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}
+          >
+            <Shield className="w-5 h-5 text-agro-muted-2 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-agro-text">Acesso restrito</p>
+              <p className="text-sm text-agro-muted mt-1">
+                As configurações de credenciais, integrações e infraestrutura são visíveis apenas para administradores.
+              </p>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
