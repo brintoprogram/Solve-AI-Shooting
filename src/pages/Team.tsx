@@ -348,12 +348,18 @@ function InviteModal({ onClose, onSuccess }: InviteModalProps) {
 
 // ── Team Page ───────────────────────────────────────────────────
 
+interface PendingInvite {
+  id: string; email: string; role: string; created_at: string; expires_at: string;
+}
+
 export function Team() {
-  const { profile: myProfile } = useAuth();
+  const { profile: myProfile, workspaceId } = useAuth();
   const { toast } = useToast();
   const [members,          setMembers]          = useState<UserProfile[]>([]);
+  const [pendingInvites,   setPendingInvites]   = useState<PendingInvite[]>([]);
   const [loading,          setLoading]          = useState(true);
   const [updating,         setUpdating]         = useState<string | null>(null);
+  const [revoking,         setRevoking]         = useState<string | null>(null);
   const [showInvite,       setShowInvite]       = useState(false);
   const [permTarget,       setPermTarget]       = useState<UserProfile | null>(null);
 
@@ -364,20 +370,53 @@ export function Team() {
   const isAdmin = myProfile.role === "admin";
 
   const load = useCallback(async () => {
-    const { data, error } = await db
-      .from("user_profiles")
-      .select("*")
-      .order("created_at", { ascending: true });
+    if (!workspaceId) return;
 
-    if (error) {
-      console.error("[Team] load error:", error.message);
+    const [membersRes, invitesRes] = await Promise.all([
+      db
+        .from("workspace_members")
+        .select("user_id, role, user_profiles(*)")
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: true }),
+      isAdmin
+        ? db
+            .from("workspace_invites")
+            .select("id, email, role, created_at, expires_at")
+            .eq("workspace_id", workspaceId)
+            .is("accepted_at", null)
+            .gte("expires_at", new Date().toISOString())
+            .order("created_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (membersRes.error) {
+      console.error("[Team] load error:", membersRes.error.message);
     } else {
-      setMembers((data as UserProfile[]) ?? []);
+      // Flatten nested user_profiles into UserProfile[]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const profiles = (membersRes.data ?? []).map((row: any) => {
+        const p = Array.isArray(row.user_profiles) ? row.user_profiles[0] : row.user_profiles;
+        return p ? { ...p, role: row.role } : null;
+      }).filter(Boolean) as UserProfile[];
+      setMembers(profiles);
     }
+    setPendingInvites((invitesRes.data as PendingInvite[]) ?? []);
     setLoading(false);
-  }, []);
+  }, [workspaceId, isAdmin]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleRevokeInvite(inviteId: string) {
+    setRevoking(inviteId);
+    const { error } = await db.from("workspace_invites").delete().eq("id", inviteId);
+    if (error) {
+      toast({ title: "Erro ao revogar convite", description: error.message, variant: "destructive" });
+    } else {
+      setPendingInvites((prev) => prev.filter((i) => i.id !== inviteId));
+      toast({ title: "Convite revogado", variant: "success" });
+    }
+    setRevoking(null);
+  }
 
   async function handleRoleChange(memberId: string, newRole: RoleOption) {
     if (!isAdmin) return;
@@ -532,6 +571,57 @@ export function Team() {
             })
           )}
         </div>
+
+        {/* ── Pending invites ────────────────── */}
+        {isAdmin && pendingInvites.length > 0 && (
+          <div
+            className="rounded-2xl overflow-hidden animate-fade-up-delay-1"
+            style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(20px)", border: "1px solid rgba(63,176,108,0.1)" }}
+          >
+            <div className="px-5 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+              <Mail className="w-4 h-4 text-agro-muted-2" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-agro-muted-2">
+                Convites pendentes ({pendingInvites.length})
+              </span>
+            </div>
+            {pendingInvites.map((inv) => (
+              <div
+                key={inv.id}
+                className="flex items-center justify-between px-5 py-3 hover:bg-white/[0.02] transition-colors"
+                style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.15)" }}>
+                    <Mail className="w-3.5 h-3.5 text-agro-muted" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-agro-text">{inv.email}</p>
+                    <p className="text-[11px] text-agro-muted-2">
+                      Expira em {format(new Date(inv.expires_at), "dd/MM/yyyy", { locale: ptBR })}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span
+                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: ROLE_STYLE[inv.role as RoleOption]?.bg ?? "rgba(255,255,255,0.05)", color: ROLE_STYLE[inv.role as RoleOption]?.color ?? "#9ca3af" }}
+                  >
+                    {ROLE_LABELS[inv.role as RoleOption] ?? inv.role}
+                  </span>
+                  <button
+                    onClick={() => handleRevokeInvite(inv.id)}
+                    disabled={revoking === inv.id}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-agro-muted hover:text-red-400 transition-colors disabled:opacity-50"
+                    style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    {revoking === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                    Revogar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Permission legend ───────────────── */}
         {!loading && members.length > 0 && isAdmin && (

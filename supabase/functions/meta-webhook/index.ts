@@ -15,6 +15,31 @@ const supabase = createClient(
 
 const ENV_VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN") ?? "";
 
+// ── Audit logging ────────────────────────────────────────────────
+// Fire-and-forget — never blocks the 20s webhook response window.
+
+function writeAuditLog(
+  workspaceId: string,
+  eventType:   string,
+  entityId:    string | null | undefined,
+  entityType:  string | null | undefined,
+  status:      "success" | "error" | "warning" | "info",
+  error?:      string | null,
+  metadata?:   Record<string, unknown>,
+): void {
+  supabase.from("audit_logs").insert({
+    workspace_id: workspaceId,
+    event_type:   eventType,
+    entity_id:    entityId   ?? null,
+    entity_type:  entityType ?? null,
+    status,
+    error:        error    ?? null,
+    metadata:     metadata ?? null,
+  }).then(({ error: dbErr }) => {
+    if (dbErr) console.error("[audit] write error:", dbErr.message);
+  });
+}
+
 // ── Signature validation ─────────────────────────────────────────
 
 async function verifySignature(secret: string, rawBody: string, sigHeader: string): Promise<boolean> {
@@ -146,8 +171,6 @@ Deno.serve(async (req: Request) => {
     const rawBody = await req.text();
 
     // Valida X-Hub-Signature-256 se META_APP_SECRET estiver configurado.
-    // Enquanto a env não estiver setada, o webhook continua funcionando
-    // normalmente (retrocompatível com conexão existente).
     const appSecret = Deno.env.get("META_APP_SECRET") ?? "";
     if (appSecret) {
       const sigHeader = req.headers.get("X-Hub-Signature-256") ?? "";
@@ -182,11 +205,14 @@ async function processWebhook(body: Record<string, unknown>) {
   const entries = (body.entry as unknown[]) ?? [];
 
   for (const entry of entries) {
+    // waba_id is the entry id — needed for WABA-level events
+    const wabaId  = (entry as Record<string, unknown>).id as string | undefined;
     const changes = ((entry as Record<string, unknown>).changes as unknown[]) ?? [];
 
     for (const change of changes) {
       const c     = change as Record<string, unknown>;
       const value = c.value as Record<string, unknown>;
+      const field = (c.field as string) ?? "unknown";
 
       // ── Identifica a conexão pelo phone_number_id do payload ───
       const metadata   = value?.metadata as Record<string, unknown> | undefined;
@@ -212,12 +238,31 @@ async function processWebhook(body: Record<string, unknown>) {
         console.log(`[webhook] phone_number_id=${phoneNumId} → connection=${connectionId} workspace=${workspaceId}`);
       }
 
+      // ── WABA-level events: no phone_number_id in metadata ─────
+      // Handle before the connection-required check below.
+      if (field === "message_template_status_update") {
+        // Look up workspace by waba_id when phone_number_id is absent
+        let wsId = workspaceId;
+        if (!wsId && wabaId) {
+          const { data: conn } = await supabase
+            .from("meta_connections")
+            .select("workspace_id")
+            .eq("waba_id", wabaId)
+            .maybeSingle();
+          wsId = conn?.workspace_id ?? null;
+        }
+        await handleTemplateStatusUpdate(value, wsId, wabaId).catch((e) =>
+          console.error("[template_status] handler error:", e?.message)
+        );
+        continue; // no messages/statuses to process in this event type
+      }
+
       if (!connectionId || !workspaceId) {
-        console.warn("[webhook] conexão não encontrada para phone_number_id:", phoneNumId);
+        console.warn("[webhook] conexão não encontrada para phone_number_id:", phoneNumId, "field:", field);
         await supabase.from("webhook_events").insert({
           workspace_id:       "unknown",
           meta_connection_id: "unknown",
-          event_type:         (c.field as string) ?? "unknown",
+          event_type:         field,
           payload:            value,
           processed:          false,
         });
@@ -228,12 +273,27 @@ async function processWebhook(body: Record<string, unknown>) {
       await supabase.from("webhook_events").insert({
         workspace_id:       workspaceId,
         meta_connection_id: connectionId,
-        event_type:         (c.field as string) ?? "unknown",
+        event_type:         field,
         payload:            value,
         processed:          false,
       }).then(({ error }) => {
         if (error) console.error("[webhook] erro ao salvar evento:", error.message);
       });
+
+      // ── Advanced event handlers (account + quality) ────────────
+      if (field === "account_update") {
+        await handleAccountUpdate(value, connectionId, workspaceId).catch((e) =>
+          console.error("[account_update] handler error:", e?.message)
+        );
+        continue;
+      }
+
+      if (field === "phone_number_quality_update") {
+        await handleQualityUpdate(value, connectionId, workspaceId).catch((e) =>
+          console.error("[quality_update] handler error:", e?.message)
+        );
+        continue;
+      }
 
       // ── 1. Mensagens inbound → inbox ────────────────────────────
       const rawMessages = (value?.messages as unknown[]) ?? [];
@@ -305,6 +365,13 @@ async function processWebhook(body: Record<string, unknown>) {
               fields.media_id, accessToken, workspaceId, savedMsg.id, fields.media_mime_type,
             ).catch((e) => console.error("[media] bg error:", e?.message));
           }
+
+          // Fire-and-forget: detect if this is a reply to a campaign and classify with AI
+          const replyText = fields.body ?? buildShortBody(type, msg);
+          if (replyText && type !== "reaction") {
+            detectCampaignReply(from, workspaceId, conversationId, replyText)
+              .catch((e) => console.error("[reply-detect] bg error:", e?.message));
+          }
         }
       }
 
@@ -324,8 +391,6 @@ async function processWebhook(body: Record<string, unknown>) {
         console.log(`[status] wamid=${wamid} status=${st}`);
 
         // ── 2a. Tenta atualizar inbox_messages ──────────────────────
-        // IMPORTANTE: SELECT sem colunas opcionais (sent_at, etc.) para não
-        // falhar caso a coluna ainda não exista no schema do usuário.
         const { data: inboxMsg, error: inboxLookupErr } = await supabase
           .from("inbox_messages")
           .select("id, status")
@@ -365,7 +430,6 @@ async function processWebhook(body: Record<string, unknown>) {
           } else {
             console.log(`[status] inbox_message ${wamid} já em status=${inboxMsg.status}, sem update necessário`);
           }
-
         }
 
         // ── 2b. Tenta atualizar shooting_messages ───────────────────
@@ -431,7 +495,241 @@ async function processWebhook(body: Record<string, unknown>) {
   }
 }
 
+// ── Advanced webhook event handlers ─────────────────────────────
+
+async function handleAccountUpdate(
+  value:        Record<string, unknown>,
+  connectionId: string,
+  workspaceId:  string,
+): Promise<void> {
+  const event   = String(value.event ?? "");
+  // deno-lint-ignore no-explicit-any
+  const banInfo = value.ban_info as any;
+
+  console.log(`[account_update] event=${event} connection=${connectionId}`);
+
+  const STATUS_MAP: Record<string, "active" | "disconnected" | "token_expired"> = {
+    DISABLED:              "disconnected",
+    ACCOUNT_RESTRICTION:   "disconnected",
+    ACCOUNT_REVIEW_UPDATE: "active",
+    FLAGGED:               "active",
+  };
+
+  const newStatus = STATUS_MAP[event];
+  if (newStatus) {
+    const { error } = await supabase
+      .from("meta_connections")
+      .update({ status: newStatus })
+      .eq("id", connectionId);
+    if (error) console.error("[account_update] status update error:", error.message);
+    else console.log(`[account_update] ✓ connection ${connectionId} → ${newStatus}`);
+  }
+
+  const auditStatus = ["DISABLED", "ACCOUNT_RESTRICTION"].includes(event) ? "warning" : "info";
+  writeAuditLog(
+    workspaceId,
+    "account_update",
+    connectionId,
+    "connection",
+    auditStatus,
+    event === "DISABLED" ? "Conta desabilitada pela Meta" : null,
+    { event, ban_info: banInfo ?? null },
+  );
+}
+
+async function handleTemplateStatusUpdate(
+  value:       Record<string, unknown>,
+  workspaceId: string | null,
+  wabaId?:     string,
+): Promise<void> {
+  const event      = String(value.event                ?? "");
+  const templateId = String(value.message_template_id  ?? "");
+  const name       = String(value.message_template_name ?? "");
+  const reason     = value.reason ? String(value.reason) : null;
+
+  console.log(`[template_status] event=${event} template_id=${templateId} name=${name}`);
+
+  const STATUS_MAP: Record<string, "APPROVED" | "PENDING" | "REJECTED"> = {
+    APPROVED:         "APPROVED",
+    REJECTED:         "REJECTED",
+    PENDING_DELETION: "PENDING",
+    PAUSED:           "PENDING",
+    DISABLED:         "REJECTED",
+    FLAGGED:          "PENDING",
+  };
+
+  const newStatus = STATUS_MAP[event];
+  if (newStatus && templateId) {
+    const { error } = await supabase
+      .from("meta_templates")
+      .update({ status: newStatus })
+      .eq("template_id", templateId);
+    if (error) console.error("[template_status] update error:", error.message);
+    else console.log(`[template_status] ✓ template ${templateId} (${name}) → ${newStatus}`);
+  }
+
+  if (workspaceId) {
+    const auditStatus = event === "APPROVED" ? "success" : event === "REJECTED" ? "error" : "warning";
+    writeAuditLog(
+      workspaceId,
+      "template_status_update",
+      templateId,
+      "template",
+      auditStatus,
+      reason,
+      { event, template_name: name, waba_id: wabaId ?? null },
+    );
+  }
+}
+
+async function handleQualityUpdate(
+  value:        Record<string, unknown>,
+  connectionId: string,
+  workspaceId:  string,
+): Promise<void> {
+  const event         = String(value.event          ?? "");
+  const currentLimit  = String(value.current_limit  ?? "");
+  const previousLimit = String(value.previous_limit ?? "");
+  const currentScore  = String(value.current_score  ?? ""); // "HIGH" | "MEDIUM" | "LOW" or already "GREEN" | "YELLOW" | "RED"
+
+  console.log(`[quality_update] event=${event} limit=${currentLimit} score=${currentScore} connection=${connectionId}`);
+
+  // Map quality score to our DB enum
+  const SCORE_MAP: Record<string, "GREEN" | "YELLOW" | "RED"> = {
+    HIGH:   "GREEN",  GREEN:  "GREEN",
+    MEDIUM: "YELLOW", YELLOW: "YELLOW",
+    LOW:    "RED",    RED:    "RED",
+  };
+
+  // Map messaging tier to our DB enum (Meta uses TIER_50 / TIER_250 / etc.)
+  const TIER_MAP: Record<string, string> = {
+    TIER_50:   "TIER_1K", TIER_250:  "TIER_1K", TIER_1K:    "TIER_1K",
+    TIER_10K:  "TIER_10K", TIER_100K: "TIER_100K", UNLIMITED: "UNLIMITED",
+  };
+
+  const updates: Record<string, unknown> = {};
+  const newRating = SCORE_MAP[currentScore] ?? SCORE_MAP[event];
+  if (newRating) updates.quality_rating = newRating;
+  const newTier = TIER_MAP[currentLimit];
+  if (newTier) updates.messaging_limit = newTier;
+
+  if (Object.keys(updates).length > 0) {
+    const { error } = await supabase
+      .from("meta_connections")
+      .update(updates)
+      .eq("id", connectionId);
+    if (error) console.error("[quality_update] update error:", error.message);
+    else console.log(`[quality_update] ✓ connection ${connectionId} rating=${newRating} tier=${newTier}`);
+  }
+
+  writeAuditLog(
+    workspaceId,
+    "quality_update",
+    connectionId,
+    "connection",
+    newRating === "RED" ? "warning" : "info",
+    null,
+    { event, current_limit: currentLimit, previous_limit: previousLimit, current_score: currentScore },
+  );
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
+
+async function detectCampaignReply(
+  phone:          string,
+  workspaceId:    string,
+  conversationId: string | null,
+  replyText:      string,
+): Promise<void> {
+  console.log(`[reply-detect] checking phone=${phone} workspace=${workspaceId}`);
+
+  // 90-day window prevents matching stale campaigns from months ago.
+  // "replied" included so re-analysis fires on every subsequent message in the same conversation.
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: shootingMsg, error: lookupErr } = await supabase
+    .from("shooting_messages")
+    .select("id, campaign_id, workspace_id, recipient_name")
+    .eq("recipient_phone", phone)
+    .eq("workspace_id", workspaceId)
+    .in("status", ["sent", "delivered", "read", "replied"])
+    .gte("created_at", ninetyDaysAgo)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (lookupErr) {
+    console.error(`[reply-detect] DB lookup error for phone=${phone}:`, lookupErr.message);
+    supabase.from("audit_logs").insert({
+      workspace_id: workspaceId,
+      event_type:   "reply_detect_error",
+      entity_type:  "shooting_message",
+      entity_id:    null,
+      status:       "error",
+      error:        lookupErr.message,
+      metadata:     { phone, conversation_id: conversationId },
+    }).then(({ error: e }) => { if (e) console.error("[reply-detect] audit log error:", e.message); });
+    return;
+  }
+
+  if (!shootingMsg) {
+    console.log(`[reply-detect] no active campaign message found for phone=${phone} — not a campaign reply`);
+    return;
+  }
+
+  console.log(`[reply-detect] ✓ campaign reply detected — message=${shootingMsg.id} campaign=${shootingMsg.campaign_id} phone=${phone}`);
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")             ?? "";
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  const analyzePayload = {
+    message_id:      shootingMsg.id,
+    workspace_id:    shootingMsg.workspace_id,
+    campaign_id:     shootingMsg.campaign_id,
+    conversation_id: conversationId,
+    reply_text:      replyText,
+    recipient_phone: phone,
+    recipient_name:  shootingMsg.recipient_name ?? null,
+  };
+
+  fetch(`${supabaseUrl}/functions/v1/analyze-reply`, {
+    method:  "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify(analyzePayload),
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "(no body)");
+        console.error(`[reply-detect] analyze-reply returned ${res.status}: ${errBody}`);
+        supabase.from("audit_logs").insert({
+          workspace_id: workspaceId,
+          event_type:   "reply_detect_dispatch_error",
+          entity_type:  "shooting_message",
+          entity_id:    shootingMsg.id,
+          status:       "error",
+          error:        `analyze-reply HTTP ${res.status}: ${errBody}`,
+          metadata:     analyzePayload,
+        }).then(() => {});
+      } else {
+        console.log(`[reply-detect] ✓ analyze-reply dispatched for message=${shootingMsg.id}`);
+      }
+    })
+    .catch((e) => {
+      console.error("[reply-detect] fetch to analyze-reply failed:", e?.message);
+      supabase.from("audit_logs").insert({
+        workspace_id: workspaceId,
+        event_type:   "reply_detect_dispatch_error",
+        entity_type:  "shooting_message",
+        entity_id:    shootingMsg.id,
+        status:       "error",
+        error:        e?.message ?? String(e),
+        metadata:     analyzePayload,
+      }).then(() => {});
+    });
+}
 
 async function upsertContact(
   workspaceId: string, phone: string,
@@ -537,12 +835,10 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
       const r = msg.reaction as Record<string, unknown>;
       return { message_type: "reaction", reaction_emoji: r?.emoji as string, reaction_wamid: r?.message_id as string };
     }
-    // Button click on a template (quick reply)
     case "button": {
       const b = msg.button as Record<string, unknown>;
       return { message_type: "button_reply", body: (b?.text as string) ?? "Botão clicado" };
     }
-    // Interactive response (button_reply or list_reply)
     case "interactive": {
       const interactive = msg.interactive as Record<string, unknown>;
       const iType = interactive?.type as string;

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { MessageSquare } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 import { useInboxConversations } from "@/hooks/useInbox";
 import { useTeamMembers } from "@/hooks/useTeamMembers";
 import { ConversationList } from "./inbox/ConversationList";
@@ -9,7 +9,7 @@ import { ConversationPanel } from "./inbox/ConversationPanel";
 import type { InboxConversation } from "@/types/inbox";
 
 export function Inbox() {
-  const workspaceId = getWorkspaceId();
+  const workspaceId = useAuth().workspaceId ?? "";
   const { conversations, loading, markAsRead } = useInboxConversations(workspaceId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);

@@ -10,9 +10,11 @@ import {
   UserCog,
   LogOut,
   LayoutTemplate,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
+import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
 
 interface NavItem {
   to: string;
@@ -27,6 +29,7 @@ const BASE_NAV: NavItem[] = [
   { to: "/shooting/history",  icon: History,         label: "Histórico",    subtitle: "Campanhas anteriores" },
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes"     },
   { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas"     },
+  { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
   { to: "/templates",          icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"   },
   { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"  },
   { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações"  },
@@ -41,6 +44,7 @@ const TEAM_NAV: NavItem = {
 
 export function Sidebar() {
   const { profile, signOut } = useAuth();
+  const { unreadCount } = useCampaignAlerts();
   const navigate = useNavigate();
 
   async function handleSignOut() {
@@ -160,8 +164,13 @@ export function Sidebar() {
                   </p>
                 </div>
 
-                {isActive && (
+                {isActive && item.to !== "/alerts" && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
+                )}
+                {item.to === "/alerts" && unreadCount > 0 && (
+                  <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
                 )}
               </>
             )}

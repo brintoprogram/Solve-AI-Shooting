@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, Loader2, Check, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 import type { Contact } from "./ContactPanel";
 import { tagColor } from "./ContactPanel";
 
@@ -34,7 +34,7 @@ const inputCls = [
 
 // ── Component ──────────────────────────────────────────
 export function ContactFormModal({ contact, onClose, onSaved }: Props) {
-  const workspaceId = getWorkspaceId();
+  const workspaceId = useAuth().workspaceId ?? "";
   const isNew = !contact;
 
   const [name,                setName]               = useState(contact?.name                ?? "");

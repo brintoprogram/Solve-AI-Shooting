@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useToast } from "@/hooks/use-toast";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import type { MetaTemplate } from "@/types/shooting";
 import type { Contact } from "@/pages/contacts/ContactPanel";
@@ -44,7 +44,6 @@ interface FieldGroup {
 // Constants
 // ─────────────────────────────────────────────────────────
 
-const WORKSPACE_ID = getWorkspaceId();
 const PAGE = 50;
 
 const CONTACT_FIELD_GROUP: FieldGroup = {
@@ -203,6 +202,8 @@ interface Props {
 
 export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const { toast }       = useToast();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const { connections } = useMetaConnections(WORKSPACE_ID);
   const [connId, setConnId] = useState("");
 

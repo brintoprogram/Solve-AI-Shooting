@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { startOfMonth } from "date-fns";
+import { startOfMonth, subDays, format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,6 +14,11 @@ export interface DashboardMetrics {
   campaignsThisMonth: number;
   messagesThisMonth:  number;
   contactsThisMonth:  number;
+  // new cards
+  timeSavedMinutes:   number;
+  valueDispatched:    number;
+  // 30-day area chart
+  dailyMessages:      { date: string; enviadas: number; lidas: number }[];
   loading: boolean;
 }
 
@@ -26,6 +31,9 @@ export function useDashboardMetrics(): DashboardMetrics {
     campaignsThisMonth: 0,
     messagesThisMonth:  0,
     contactsThisMonth:  0,
+    timeSavedMinutes:   0,
+    valueDispatched:    0,
+    dailyMessages:      [],
   });
   const [loading, setLoading] = useState(true);
 
@@ -35,6 +43,9 @@ export function useDashboardMetrics(): DashboardMetrics {
     async function load() {
       const monthStart = startOfMonth(new Date()).toISOString();
 
+      const SENT_STATUSES  = ["sent", "delivered", "read", "replied"];
+      const thirtyDaysAgo = subDays(new Date(), 30).toISOString();
+
       const [
         campaignsTotal,
         campaignsMth,
@@ -43,6 +54,8 @@ export function useDashboardMetrics(): DashboardMetrics {
         contactsTotal,
         contactsMth,
         campaignAgg,
+        valueMsgs,
+        dailyMsgs,
       ] = await Promise.all([
         // Total de campanhas
         db.from("shooting_campaigns")
@@ -56,12 +69,12 @@ export function useDashboardMetrics(): DashboardMetrics {
         // Total de mensagens efetivamente enviadas (não pending)
         db.from("shooting_messages")
           .select("*", { count: "exact", head: true })
-          .in("status", ["sent", "delivered", "read", "replied", "failed"]),
+          .in("status", [...SENT_STATUSES, "failed"]),
 
         // Mensagens enviadas este mês
         db.from("shooting_messages")
           .select("*", { count: "exact", head: true })
-          .in("status", ["sent", "delivered", "read", "replied", "failed"])
+          .in("status", [...SENT_STATUSES, "failed"])
           .gte("created_at", monthStart),
 
         // Total de contatos no Inbox
@@ -73,21 +86,72 @@ export function useDashboardMetrics(): DashboardMetrics {
           .select("*", { count: "exact", head: true })
           .gte("first_seen_at", monthStart),
 
-        // Contadores acumulados das campanhas para calcular taxa de entrega
-        // (mais performático que contar shooting_messages linha a linha)
+        // Contadores acumulados das campanhas (taxa de entrega + tempo de automação)
         db.from("shooting_campaigns")
-          .select("sent_count, delivered_count, read_count, replied_count"),
+          .select("sent_count, delivered_count, read_count, replied_count, started_at, completed_at")
+          .not("started_at", "is", null),
+
+        // Valor disparado — campo inv_valor no recipient_data (snapshot do contato)
+        db.from("shooting_messages")
+          .select("recipient_data")
+          .in("status", SENT_STATUSES),
+
+        // Últimos 30 dias — só sent_at e read_at para o gráfico de área
+        db.from("shooting_messages")
+          .select("sent_at, read_at")
+          .in("status", SENT_STATUSES)
+          .gte("sent_at", thirtyDaysAgo),
       ]);
 
-      // Taxa de entrega = (entregues + lidas + respondidas) / enviadas
-      let totalSent      = 0;
-      let totalDelivered = 0;
+      // Taxa de entrega + tempo de automação
+      let totalSent           = 0;
+      let totalDelivered      = 0;
+      let automationMinutes   = 0;
       for (const c of (campaignAgg.data ?? [])) {
         totalSent      += c.sent_count      ?? 0;
         totalDelivered += (c.delivered_count ?? 0) + (c.read_count ?? 0) + (c.replied_count ?? 0);
+        if (c.started_at && c.completed_at) {
+          automationMinutes +=
+            (new Date(c.completed_at).getTime() - new Date(c.started_at).getTime()) / 60_000;
+        }
       }
       const deliveryRate =
         totalSent > 0 ? Math.round((totalDelivered / totalSent) * 1000) / 10 : 0;
+
+      // Economia de tempo: assume 2 min/mensagem para envio humano (abrir WA, colar número, digitar, enviar)
+      const HUMAN_MIN_PER_MSG = 2;
+      const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
+      const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
+
+      // Valor disparado: soma inv_valor do recipient_data de cada mensagem enviada
+      // inv_valor é o campo monetário mapeado nos templates (ex: valor do boleto)
+      let valueDispatched = 0;
+      for (const msg of (valueMsgs.data ?? [])) {
+        const rd = msg.recipient_data as Record<string, unknown> | null;
+        if (!rd) continue;
+        // Tenta múltiplos nomes de campo monetário por ordem de prioridade
+        const raw = rd["inv_valor"] ?? rd["valor_total"] ?? rd["valor"] ?? rd["total"];
+        if (raw == null) continue;
+        const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,.]/g, "").replace(",", "."));
+        if (!isNaN(n)) valueDispatched += n;
+      }
+
+      // Últimos 30 dias: gerar array com todos os dias e contar por dia
+      const dayMap: Record<string, { enviadas: number; lidas: number }> = {};
+      for (let i = 29; i >= 0; i--) {
+        dayMap[format(subDays(new Date(), i), "dd/MM")] = { enviadas: 0, lidas: 0 };
+      }
+      for (const msg of (dailyMsgs.data ?? [])) {
+        if (msg.sent_at) {
+          const d = format(new Date(msg.sent_at), "dd/MM");
+          if (dayMap[d]) dayMap[d].enviadas += 1;
+        }
+        if (msg.read_at) {
+          const d = format(new Date(msg.read_at), "dd/MM");
+          if (dayMap[d]) dayMap[d].lidas += 1;
+        }
+      }
+      const dailyMessages = Object.entries(dayMap).map(([date, v]) => ({ date, ...v }));
 
       if (!cancelled) {
         setM({
@@ -98,6 +162,9 @@ export function useDashboardMetrics(): DashboardMetrics {
           campaignsThisMonth: campaignsMth.count    ?? 0,
           messagesThisMonth:  messagesMth.count     ?? 0,
           contactsThisMonth:  contactsMth.count     ?? 0,
+          timeSavedMinutes,
+          valueDispatched,
+          dailyMessages,
         });
         setLoading(false);
       }
@@ -115,4 +182,19 @@ export function fmtCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")}M`;
   if (n >= 1_000)     return `${(n / 1_000).toFixed(1).replace(".", ",")}k`;
   return n.toLocaleString("pt-BR");
+}
+
+/** Formata minutos → "2h 15min", "45min", "3 dias" */
+export function fmtTime(minutes: number): string {
+  if (minutes < 60)  return `${Math.round(minutes)}min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h < 24) return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  const d = Math.floor(h / 8); // jornada de 8h
+  return `${d} dia${d !== 1 ? "s" : ""}`;
+}
+
+/** Formata valor monetário → "R$ 127.540,00" */
+export function fmtBRL(n: number): string {
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }

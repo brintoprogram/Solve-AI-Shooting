@@ -7,9 +7,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { getWorkspaceId } from "@/lib/config";
-
-const WORKSPACE_ID = getWorkspaceId();
+import { useAuth } from "@/context/AuthContext";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -85,6 +83,8 @@ interface EmailCampaignWizardProps {
 
 export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardProps) {
   const { toast } = useToast();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const [state, setState]       = useState<WizardState>(INITIAL);
   const [emailConns, setEmailConns] = useState<EmailConn[]>([]);
   const [submitting, setSubmitting] = useState(false);

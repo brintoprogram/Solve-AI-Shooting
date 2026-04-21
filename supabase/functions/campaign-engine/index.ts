@@ -25,6 +25,31 @@ const corsHeaders = {
 // Service-role client for all DB operations
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+// ── Audit logging ─────────────────────────────────────────────────
+// fire-and-forget — never blocks the send loop
+
+function writeAuditLog(
+  workspaceId: string,
+  eventType:   string,
+  entityId:    string | null | undefined,
+  entityType:  string | null | undefined,
+  status:      "success" | "error" | "warning" | "info",
+  error?:      string | null,
+  metadata?:   Record<string, unknown>,
+): void {
+  db.from("audit_logs").insert({
+    workspace_id: workspaceId,
+    event_type:   eventType,
+    entity_id:    entityId   ?? null,
+    entity_type:  entityType ?? null,
+    status,
+    error:        error    ?? null,
+    metadata:     metadata ?? null,
+  }).then(({ error: dbErr }) => {
+    if (dbErr) console.error("[audit] write error:", dbErr.message);
+  });
+}
+
 // ── Helpers ───────────────────────────────────────────────
 
 function json(data: unknown, status = 200): Response {
@@ -299,6 +324,10 @@ async function processMessage(
       p_campaign_id: campaignId, p_counter_name: "sent_count",
     });
 
+    writeAuditLog(workspaceId, "message_sent", msg.id, "shooting_message", "success", null, {
+      phone: msg.recipient_phone, campaign_id: campaignId, wamid: result.wamid,
+    });
+
     // Save outbound template to inbox with full rendered preview
     const preview = buildTemplatePreview(tpl, mapping, msg.recipient_data ?? {});
     await saveTemplateToInbox(workspaceId, connectionId, msg.recipient_phone, result.wamid, preview, now);
@@ -313,6 +342,9 @@ async function processMessage(
       await db.from("shooting_messages")
         .update({ retry_count: retryCount, error_code: result.code, error_message: result.error })
         .eq("id", msg.id);
+      writeAuditLog(workspaceId, "message_retry", msg.id, "shooting_message", "warning", result.error, {
+        phone: msg.recipient_phone, campaign_id: campaignId, retry_count: retryCount, code: result.code,
+      });
     } else {
       await db.from("shooting_messages")
         .update({
@@ -325,6 +357,9 @@ async function processMessage(
         .eq("id", msg.id);
       await db.rpc("increment_campaign_counters", {
         p_campaign_id: campaignId, p_counter_name: "failed_count",
+      });
+      writeAuditLog(workspaceId, "message_failed", msg.id, "shooting_message", "error", result.error, {
+        phone: msg.recipient_phone, campaign_id: campaignId, code: result.code,
       });
     }
 
@@ -469,6 +504,7 @@ async function startSendLoop(
   const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
 
   console.log(`[engine] starting campaign ${campaignId} speed=${sendingSpeed}msg/min interval=${targetIntervalMs}ms/msg`);
+  writeAuditLog(workspaceId, "campaign_started", campaignId, "campaign", "info", null, { sending_speed: sendingSpeed });
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -522,5 +558,6 @@ async function startSendLoop(
       .update({ status: "completed", completed_at: new Date().toISOString() })
       .eq("id", campaignId);
     console.log(`[engine] campaign ${campaignId} completed`);
+    writeAuditLog(workspaceId, "campaign_completed", campaignId, "campaign", "success");
   }
 }

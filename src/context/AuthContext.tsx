@@ -21,10 +21,22 @@ export interface UserProfile {
   updated_at: string;
 }
 
+// Read hash once at module load, before Supabase clears it asynchronously
+const INITIAL_HASH = typeof window !== "undefined" ? window.location.hash : "";
+
+function detectSetupType(): "invite" | "recovery" | null {
+  if (INITIAL_HASH.includes("type=invite"))   return "invite";
+  if (INITIAL_HASH.includes("type=recovery")) return "recovery";
+  return null;
+}
+
 interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
+  workspaceId: string | null;
   loading: boolean;
+  setupType: "invite" | "recovery" | null;
+  clearSetupType: () => void;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
@@ -35,17 +47,56 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const db = supabase as any;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser]       = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]               = useState<User | null>(null);
+  const [profile, setProfile]         = useState<UserProfile | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [setupType, setSetupType]     = useState<"invite" | "recovery" | null>(detectSetupType);
+
+  function clearSetupType() {
+    setSetupType(null);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
 
   async function fetchProfile(userId: string): Promise<void> {
-    const { data } = await db
-      .from("user_profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-    if (data) setProfile(data as UserProfile);
+    const [profileRes, wsRes] = await Promise.all([
+      db.from("user_profiles").select("*").eq("id", userId).single(),
+      db.from("workspace_members").select("workspace_id").eq("user_id", userId).maybeSingle(),
+    ]);
+    if (profileRes.data) setProfile(profileRes.data as UserProfile);
+
+    if (wsRes.data?.workspace_id) {
+      setWorkspaceId(wsRes.data.workspace_id as string);
+    } else {
+      // First login — check for a pending workspace invite first
+      const userEmail = (await supabase.auth.getUser()).data.user?.email ?? "";
+      const { data: invite } = await db
+        .from("workspace_invites")
+        .select("workspace_id, role, token")
+        .eq("email", userEmail.toLowerCase())
+        .is("accepted_at", null)
+        .gte("expires_at", new Date().toISOString())
+        .maybeSingle();
+
+      if (invite?.workspace_id) {
+        // Accept invite — join existing workspace
+        await db.from("workspace_members").insert({
+          workspace_id: invite.workspace_id,
+          user_id:      userId,
+          role:         invite.role ?? "agent",
+        });
+        await db
+          .from("workspace_invites")
+          .update({ accepted_at: new Date().toISOString() })
+          .eq("token", invite.token);
+        setWorkspaceId(invite.workspace_id as string);
+      } else {
+        // No invite and no workspace — this account was not authorized by an admin.
+        // Sign out immediately to prevent unauthorized access.
+        console.warn("[auth] user has no workspace and no pending invite — access denied, signing out");
+        await supabase.auth.signOut();
+      }
+    }
   }
 
   useEffect(() => {
@@ -65,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fetchProfile(session.user.id);
         } else {
           setProfile(null);
+          setWorkspaceId(null);
         }
       }
     );
@@ -82,10 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    setWorkspaceId(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, workspaceId, loading, setupType, clearSetupType, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

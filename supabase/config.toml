@@ -24,3 +24,9 @@ verify_jwt = false
 
 [functions.ms-oauth-callback]
 verify_jwt = false
+
+[functions.embedded-signup]
+verify_jwt = false
+
+[functions.analyze-reply]
+verify_jwt = false

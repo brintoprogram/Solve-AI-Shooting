@@ -6,7 +6,6 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
-import { getWorkspaceId } from "./config";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 

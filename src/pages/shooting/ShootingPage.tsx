@@ -12,13 +12,13 @@ import { useMetaTemplates } from "@/hooks/useMetaTemplates";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { getWorkspaceId } from "@/lib/config";
-
-const WORKSPACE_ID = getWorkspaceId();
+import { useAuth } from "@/context/AuthContext";
 
 export function ShootingPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const [channel, setChannel]         = useState<"whatsapp" | "email">("whatsapp");
   const [showBuilder, setShowBuilder] = useState(false);
   const [showEmailWizard, setShowEmailWizard] = useState(false);

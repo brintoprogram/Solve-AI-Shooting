@@ -14,9 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { initialWizardState } from "@/types/shooting";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
 import { cn } from "@/lib/utils";
-import { getWorkspaceId } from "@/lib/config";
-
-const WORKSPACE_ID = getWorkspaceId();
+import { useAuth } from "@/context/AuthContext";
 
 const STEPS = [
   { id: 1, label: "Escopo",       subtitle: "Origem & configs",   icon: Target       },
@@ -28,6 +26,8 @@ const STEPS = [
 export function CampaignWizard() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const [state, setState]         = useState<WizardState>(initialWizardState);
   const [xlsxResult, setXlsxResult] = useState<XlsxValidationResult | null>(null);
   const [submitting, setSubmitting] = useState(false);

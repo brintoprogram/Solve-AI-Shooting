@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Bell, ChevronRight, Settings, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, initials } from "@/context/AuthContext";
+import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
 
 interface TopbarProps {
   breadcrumbs: Array<{ label: string; href?: string }>;
@@ -15,6 +16,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
 
   const avatarText = initials(profile?.full_name);
   const roleLabel  = profile ? ROLE_LABELS[profile.role] : null;
+  const { unreadCount } = useCampaignAlerts();
 
   useEffect(() => {
     function onOutsideClick(e: MouseEvent) {
@@ -77,11 +79,16 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
       <div className="flex items-center gap-2">
         {/* Bell */}
         <button
+          onClick={() => navigate("/alerts")}
           className="relative w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors duration-200"
           style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-agro-green glow-green-sm" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
 
         {/* Avatar + dropdown */}

@@ -17,12 +17,11 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? "";
 const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? "";
 
-const WORKSPACE_ID = getWorkspaceId();
 
 type EmailStatus = "draft" | "sending" | "paused" | "completed" | "cancelled" | "failed";
 
@@ -62,6 +61,8 @@ interface EmailCampaignListProps {
 
 export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   const { toast } = useToast();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const [campaigns, setCampaigns] = useState<EmailCampaign[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState("");

@@ -19,8 +19,7 @@ import { TemplateBuilder } from "./TemplateBuilder";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-import { getWorkspaceId } from "@/lib/config";
-const WORKSPACE_ID = getWorkspaceId();
+import { useAuth } from "@/context/AuthContext";
 
 // ── Config visual ────────────────────────────────────────────────
 
@@ -304,6 +303,8 @@ function EmptyState({ hasCon, onSync }: { hasCon: boolean; onSync: () => void })
 export function Templates() {
   const { toast }    = useToast();
   const navigate     = useNavigate();
+  const { workspaceId } = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const { connections, loading: conLoading } = useMetaConnections(WORKSPACE_ID);
 
   const [templates, setTemplates]     = useState<MetaTemplate[]>([]);

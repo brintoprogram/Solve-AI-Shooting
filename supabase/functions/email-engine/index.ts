@@ -24,6 +24,30 @@ const corsHeaders = {
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
+// ── Audit logging ─────────────────────────────────────────────────
+
+function writeAuditLog(
+  workspaceId: string,
+  eventType:   string,
+  entityId:    string | null | undefined,
+  entityType:  string | null | undefined,
+  status:      "success" | "error" | "warning" | "info",
+  error?:      string | null,
+  metadata?:   Record<string, unknown>,
+): void {
+  db.from("audit_logs").insert({
+    workspace_id: workspaceId,
+    event_type:   eventType,
+    entity_id:    entityId   ?? null,
+    entity_type:  entityType ?? null,
+    status,
+    error:        error    ?? null,
+    metadata:     metadata ?? null,
+  }).then(({ error: dbErr }) => {
+    if (dbErr) console.error("[audit] write error:", dbErr.message);
+  });
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 function json(data: unknown, status = 200): Response {
@@ -248,12 +272,13 @@ async function sendEmail(
 // ── Process one email_message row ────────────────────────────────
 
 async function processMessage(
-  msg:        EmailMessage,
-  conn:       EmailConnConfig,
-  campaignId: string,
-  subject:    string,
-  bodyHtml:   string,
-  graphToken: string | null,
+  msg:         EmailMessage,
+  conn:        EmailConnConfig,
+  campaignId:  string,
+  subject:     string,
+  bodyHtml:    string,
+  graphToken:  string | null,
+  workspaceId: string,
 ): Promise<void> {
   const now    = new Date().toISOString();
   const result = await sendEmail(conn, msg, subject, bodyHtml, graphToken);
@@ -269,6 +294,9 @@ async function processMessage(
       .eq("id", campaignId);
 
     console.log(`[email-engine] ✓ sent to ${msg.recipient_email}`);
+    writeAuditLog(workspaceId, "message_sent", msg.id, "email_message", "success", null, {
+      email: msg.recipient_email, campaign_id: campaignId,
+    });
   } else {
     const retryCount = (msg.retry_count ?? 0) + 1;
     const canRetry   = retryCount < (msg.max_retries ?? 2);
@@ -277,6 +305,9 @@ async function processMessage(
       await db.from("email_messages")
         .update({ retry_count: retryCount, error_message: result.error })
         .eq("id", msg.id);
+      writeAuditLog(workspaceId, "message_retry", msg.id, "email_message", "warning", result.error, {
+        email: msg.recipient_email, campaign_id: campaignId, retry_count: retryCount,
+      });
     } else {
       await db.from("email_messages")
         .update({ status: "failed", failed_at: now, error_message: result.error, retry_count: retryCount })
@@ -286,6 +317,9 @@ async function processMessage(
       if (camp) await db.from("email_campaigns")
         .update({ failed_count: ((camp as { failed_count: number }).failed_count ?? 0) + 1 })
         .eq("id", campaignId);
+      writeAuditLog(workspaceId, "message_failed", msg.id, "email_message", "error", result.error, {
+        email: msg.recipient_email, campaign_id: campaignId,
+      });
     }
 
     console.warn(`[email-engine] ✗ ${msg.recipient_email}: ${result.error}`);
@@ -332,6 +366,7 @@ async function startSendLoop(
   const subject      = String(campaign.subject      ?? "");
   const bodyHtml     = String(campaign.body_html    ?? "");
   const sendingSpeed = Number(campaign.sending_speed ?? 60);
+  const workspaceId  = String(campaign.workspace_id  ?? "");
   const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
 
   // Fetch Graph token once — valid ~1h, enough for a full campaign run
@@ -364,6 +399,7 @@ async function startSendLoop(
   }
 
   console.log(`[email-engine] starting campaign ${campaignId} provider=${conn.provider} speed=${sendingSpeed}/min interval=${targetIntervalMs}ms/msg`);
+  writeAuditLog(workspaceId, "campaign_started", campaignId, "email_campaign", "info", null, { provider: conn.provider, sending_speed: sendingSpeed });
 
   while (true) {
     if (!await isCampaignActive(campaignId)) {
@@ -387,7 +423,7 @@ async function startSendLoop(
       if (!await isCampaignActive(campaignId)) break;
 
       const t0 = Date.now();
-      await processMessage(msg, conn, campaignId, subject, bodyHtml, graphToken);
+      await processMessage(msg, conn, campaignId, subject, bodyHtml, graphToken, workspaceId);
       const remaining = targetIntervalMs - (Date.now() - t0);
       if (remaining > 50) await sleep(remaining);
     }
@@ -413,6 +449,7 @@ async function startSendLoop(
       .update({ status: "completed", completed_at: new Date().toISOString() })
       .eq("id", campaignId);
     console.log(`[email-engine] campaign ${campaignId} completed`);
+    writeAuditLog(workspaceId, "campaign_completed", campaignId, "email_campaign", "success");
   }
 }
 

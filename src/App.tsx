@@ -8,10 +8,13 @@ import { ShootingPage } from "@/pages/shooting/ShootingPage";
 import { CampaignWizard } from "@/pages/shooting/CampaignWizard";
 import { CampaignDetail } from "@/pages/shooting/CampaignDetail";
 import { Settings } from "@/pages/Settings";
+import { Onboarding } from "@/pages/Onboarding";
 import { Inbox } from "@/pages/Inbox";
 import { Team } from "@/pages/Team";
 import { Templates } from "@/pages/Templates";
 import { Contacts } from "@/pages/Contacts";
+import { Alerts }      from "@/pages/Alerts";
+import { SetPassword } from "@/pages/SetPassword";
 
 export function App() {
   return (
@@ -24,10 +27,11 @@ export function App() {
 }
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const { user, loading, setupType } = useAuth();
 
-  if (loading) return <FullScreenLoader />;
-  if (!user)   return <Login />;
+  if (loading)    return <FullScreenLoader />;
+  if (setupType)  return <SetPassword />;
+  if (!user)      return <Login />;
 
   return (
     <Routes>
@@ -43,8 +47,11 @@ function AppRoutes() {
         <Route path="/automations"              element={<PlaceholderPage title="Automações" />} />
         <Route path="/team"                     element={<Team />} />
         <Route path="/templates"               element={<Templates />} />
+        <Route path="/alerts"                   element={<Alerts />} />
         <Route path="*"                         element={<Navigate to="/" replace />} />
       </Route>
+      {/* Full-screen flow — no sidebar */}
+      <Route path="/onboarding" element={<Onboarding />} />
     </Routes>
   );
 }

@@ -3,6 +3,46 @@ export const SETUP_SQL = `-- ===================================================
 -- Cole este SQL no Editor SQL do Supabase e clique em Run
 -- =====================================================
 
+-- =====================================================
+-- Multi-tenant — Workspaces e membros
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS workspaces (
+  id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE workspaces DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL,
+  role         TEXT NOT NULL DEFAULT 'member',
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (workspace_id, user_id)
+);
+
+ALTER TABLE workspace_members DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS workspace_invites (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT        NOT NULL,
+  role         TEXT        NOT NULL DEFAULT 'agent',
+  token        TEXT        NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(32), 'hex'),
+  expires_at   TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+  invited_by   UUID        NOT NULL,
+  accepted_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE workspace_invites DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_workspace_invites_email
+  ON workspace_invites(email, accepted_at) WHERE accepted_at IS NULL;
+
+-- =====================================================
+
 -- Conexões WhatsApp (Meta)
 CREATE TABLE IF NOT EXISTS meta_connections (
   id                   UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -281,9 +321,68 @@ ALTER PUBLICATION supabase_realtime ADD TABLE shooting_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE shooting_campaigns;
 ALTER PUBLICATION supabase_realtime ADD TABLE inbox_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE inbox_conversations;
+
+-- =====================================================
+-- Alertas de resposta IA (campaign_alerts)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS campaign_alerts (
+  id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id     UUID NOT NULL,
+  campaign_id      UUID NOT NULL REFERENCES shooting_campaigns(id) ON DELETE CASCADE,
+  message_id       UUID NOT NULL REFERENCES shooting_messages(id) ON DELETE CASCADE,
+  conversation_id  UUID REFERENCES inbox_conversations(id),
+  recipient_phone  TEXT NOT NULL,
+  recipient_name   TEXT,
+  reply_text       TEXT NOT NULL,
+  severity         TEXT NOT NULL DEFAULT 'info' CHECK (severity IN ('info','warning','critical')),
+  category         TEXT NOT NULL,
+  summary          TEXT NOT NULL,
+  read_at          TIMESTAMPTZ,
+  analyzed_at      TIMESTAMPTZ DEFAULT NOW(),
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE campaign_alerts DISABLE ROW LEVEL SECURITY;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_alerts_message_id ON campaign_alerts(message_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_alerts_workspace ON campaign_alerts(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_campaign_alerts_severity  ON campaign_alerts(workspace_id, severity, read_at);
+ALTER PUBLICATION supabase_realtime ADD TABLE campaign_alerts;
+
+-- Colunas de IA por workspace (provedor + chaves)
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS ai_provider     TEXT NOT NULL DEFAULT 'anthropic'
+    CHECK (ai_provider IN ('anthropic', 'openai')),
+  ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT,
+  ADD COLUMN IF NOT EXISTS openai_api_key    TEXT;
+
+-- =====================================================
+-- Auditoria — Disparos, webhooks, erros e retries
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id TEXT        NOT NULL,
+  event_type   TEXT        NOT NULL,
+  entity_type  TEXT,
+  entity_id    TEXT,
+  status       TEXT        NOT NULL DEFAULT 'info',
+  error        TEXT,
+  metadata     JSONB,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace
+  ON audit_logs(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+  ON audit_logs(entity_id) WHERE entity_id IS NOT NULL;
 `;
 
 export const TABLES_TO_CHECK = [
+  "workspaces",
+  "workspace_members",
   "meta_connections",
   "meta_templates",
   "shooting_campaigns",
@@ -293,4 +392,5 @@ export const TABLES_TO_CHECK = [
   "inbox_contacts",
   "inbox_conversations",
   "inbox_messages",
+  "campaign_alerts",
 ] as const;

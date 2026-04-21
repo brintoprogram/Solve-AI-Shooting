@@ -1,19 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
-  Mail, Trash2, Send, LogIn,
+  Mail, Trash2, Send, LogIn, Zap,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
 import { getPhoneNumberInfo }  from "@/services/metaApi";
-import { getWorkspaceId }      from "@/lib/config";
 import { useToast }            from "@/hooks/use-toast";
 import { cn }                  from "@/lib/utils";
 import { supabase }            from "@/lib/supabase";
-
-const WORKSPACE_ID = getWorkspaceId();
 
 // Supabase ref via env var (set in Vercel → Settings → Environment Variables)
 const SUPABASE_URL  = (import.meta.env.VITE_SUPABASE_URL as string) ?? "";
@@ -98,7 +96,9 @@ function StepBadge({ n }: { n: number }) {
 // ── Settings page ─────────────────────────────────────────────────
 
 export function Settings() {
-  const { profile }                        = useAuth();
+  const navigate                           = useNavigate();
+  const { profile, workspaceId }           = useAuth();
+  const WORKSPACE_ID = workspaceId ?? "";
   const { connections, upsertConnection }  = useMetaConnections(WORKSPACE_ID);
   const { toast }                          = useToast();
 
@@ -127,6 +127,14 @@ export function Settings() {
   const [emailSaving,  setEmailSaving]    = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
 
+  // ── AI Provider state ─────────────────────────────────────────────
+  const [aiProvider,       setAiProvider]       = useState<"anthropic" | "openai">("anthropic");
+  const [anthropicKey,     setAnthropicKey]     = useState("");
+  const [openaiKey,        setOpenaiKey]        = useState("");
+  const [anthropicKeySet,  setAnthropicKeySet]  = useState(false);
+  const [openaiKeySet,     setOpenaiKeySet]     = useState(false);
+  const [aiSaving,         setAiSaving]         = useState(false);
+
   const loadEmailConns = useCallback(() => {
     supabase
       .from("email_connections")
@@ -150,6 +158,43 @@ export function Settings() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  // ── Load AI settings ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!WORKSPACE_ID) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("workspaces")
+      .select("ai_provider, anthropic_api_key, openai_api_key")
+      .eq("id", WORKSPACE_ID)
+      .maybeSingle()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }: any) => {
+        if (!data) return;
+        setAiProvider(data.ai_provider ?? "anthropic");
+        setAnthropicKeySet(!!data.anthropic_api_key);
+        setOpenaiKeySet(!!data.openai_api_key);
+      });
+  }, [WORKSPACE_ID]);
+
+  async function handleAiSave() {
+    if (!WORKSPACE_ID) return;
+    setAiSaving(true);
+    const updates: Record<string, unknown> = { ai_provider: aiProvider };
+    if (anthropicKey.trim()) updates.anthropic_api_key = anthropicKey.trim();
+    if (openaiKey.trim())    updates.openai_api_key    = openaiKey.trim();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).from("workspaces").update(updates).eq("id", WORKSPACE_ID);
+    if (error) {
+      toast({ title: "Erro ao salvar configurações de IA", description: error.message, variant: "destructive" });
+    } else {
+      if (anthropicKey.trim()) { setAnthropicKeySet(true); setAnthropicKey(""); }
+      if (openaiKey.trim())    { setOpenaiKeySet(true);    setOpenaiKey(""); }
+      toast({ title: "Configurações de IA salvas!", variant: "success" });
+    }
+    setAiSaving(false);
+  }
 
   const emailFormValid = emailForm.provider === "graph"
     ? !!(emailForm.name && emailForm.tenant_id && emailForm.client_id && emailForm.password && emailForm.from_email)
@@ -367,7 +412,70 @@ supabase link --project-ref ${SUPABASE_REF}
 
 # 3. Publique as Edge Functions
 supabase functions deploy meta-webhook
-supabase functions deploy send-inbox-message`;
+supabase functions deploy send-inbox-message
+supabase functions deploy campaign-engine
+supabase functions deploy email-engine
+supabase functions deploy test-email-connection
+supabase functions deploy ms-oauth-callback
+supabase functions deploy embedded-signup
+supabase functions deploy invite-user
+supabase functions deploy analyze-reply
+
+# 4. Configure a chave da IA (necessário para alertas de resposta)
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-COLOQUE_SUA_CHAVE_AQUI`;
+
+  const sql_workspaces = `-- Multi-tenant: workspaces, membros e convites
+CREATE TABLE IF NOT EXISTS workspaces (
+  id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE workspaces DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL,
+  role         TEXT NOT NULL DEFAULT 'agent',
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (workspace_id, user_id)
+);
+ALTER TABLE workspace_members DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS workspace_invites (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT        NOT NULL,
+  role         TEXT        NOT NULL DEFAULT 'agent',
+  token        TEXT        NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(32), 'hex'),
+  expires_at   TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+  invited_by   UUID        NOT NULL,
+  accepted_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE workspace_invites DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_workspace_invites_email
+  ON workspace_invites(email, accepted_at) WHERE accepted_at IS NULL;`;
+
+  const sql_audit_logs = `-- Tabela de auditoria estruturada (webhook, disparos, erros, retries)
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id TEXT        NOT NULL,
+  event_type   TEXT        NOT NULL,
+  entity_type  TEXT,
+  entity_id    TEXT,
+  status       TEXT        NOT NULL DEFAULT 'info',
+  error        TEXT,
+  metadata     JSONB,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace
+  ON audit_logs(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+  ON audit_logs(entity_id) WHERE entity_id IS NOT NULL;`;
 
   const sql_bucket = `-- Bucket para mídias do Inbox (50 MB por arquivo)
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
@@ -516,6 +624,34 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
             subtitle="Integre com a Cloud API da Meta (WhatsApp Business)"
           >
             <div className="space-y-4">
+              {/* ── Embedded Signup option ── */}
+              <div
+                className="rounded-xl p-4 space-y-3"
+                style={{ background: "rgba(24,119,242,0.06)", border: "1px solid rgba(24,119,242,0.2)" }}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-agro-text">Conectar com o Facebook</p>
+                  <p className="text-xs text-agro-muted mt-1 leading-relaxed">
+                    Opção recomendada. Faça login com sua conta Meta Business e selecione o número
+                    — credenciais configuradas automaticamente com suporte a coexistência.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate("/onboarding")}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+                  style={{ background: "linear-gradient(135deg, #1877F2, #0d65d9)" }}
+                >
+                  <LogIn className="w-4 h-4" />
+                  Iniciar conexão guiada
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px" style={{ background: "rgba(63,176,108,0.1)" }} />
+                <span className="text-xs text-agro-muted-2 uppercase tracking-widest">ou manual</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(63,176,108,0.1)" }} />
+              </div>
+
               <div>
                 <FieldLabel>WhatsApp Business Account ID (WABA ID) *</FieldLabel>
                 <input
@@ -681,6 +817,28 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
                     <ExternalLink className="w-3.5 h-3.5" />
                     Abrir SQL Editor do projeto
                   </a>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <StepBadge n={3} />
+                    <div>
+                      <p className="text-sm font-semibold text-agro-text">Crie as tabelas de multi-tenant</p>
+                      <p className="text-xs text-agro-muted">workspaces + workspace_members — necessário para autenticação</p>
+                    </div>
+                  </div>
+                  <CodeBlock code={sql_workspaces} onCopy={() => copy(sql_workspaces, "SQL copiado!")} />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <StepBadge n={4} />
+                    <div>
+                      <p className="text-sm font-semibold text-agro-text">Crie a tabela de auditoria</p>
+                      <p className="text-xs text-agro-muted">Registra disparos, erros, eventos de webhook e retries</p>
+                    </div>
+                  </div>
+                  <CodeBlock code={sql_audit_logs} onCopy={() => copy(sql_audit_logs, "SQL copiado!")} />
                 </div>
               </div>
             )}
@@ -1036,6 +1194,117 @@ CREATE POLICY "inbox_media_delete" ON storage.objects
             )}
           </DarkCard>
         </div>
+
+        {/* ── Inteligência Artificial ──────────── */}
+        {profile?.role === "admin" && (
+          <div className="animate-fade-up-delay-1">
+            <DarkCard
+              title="Inteligência Artificial"
+              subtitle="Provedor de IA para classificar respostas dos clientes aos disparos"
+            >
+              <div className="space-y-5">
+                {/* Provider toggle */}
+                <div>
+                  <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-3">Provedor ativo</p>
+                  <div className="flex gap-3">
+                    {(["anthropic", "openai"] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setAiProvider(p)}
+                        className="flex-1 flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left"
+                        style={aiProvider === p ? {
+                          background: "rgba(63,176,108,0.12)",
+                          border:     "1px solid rgba(63,176,108,0.35)",
+                        } : {
+                          background: "rgba(13,26,17,0.5)",
+                          border:     "1px solid rgba(63,176,108,0.08)",
+                        }}
+                      >
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          style={aiProvider === p
+                            ? { background: "rgba(63,176,108,0.2)", border: "1px solid rgba(63,176,108,0.4)" }
+                            : { background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.12)" }
+                          }
+                        >
+                          <Zap className="w-3.5 h-3.5" style={{ color: aiProvider === p ? "#3fb06c" : "#4a6b54" }} />
+                        </div>
+                        <div>
+                          <p className={cn("text-sm font-semibold", aiProvider === p ? "text-agro-text" : "text-agro-muted")}>
+                            {p === "anthropic" ? "Anthropic" : "OpenAI"}
+                          </p>
+                          <p className="text-[10px] text-agro-muted-2">
+                            {p === "anthropic" ? "Claude Haiku" : "GPT-4o mini"}
+                          </p>
+                        </div>
+                        {aiProvider === p && (
+                          <div className="ml-auto w-2 h-2 rounded-full bg-agro-green shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Anthropic key */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <FieldLabel>Chave Anthropic (Claude)</FieldLabel>
+                    {anthropicKeySet && (
+                      <span className="text-[10px] font-semibold text-agro-green flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Configurada
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    className="input-agro w-full font-mono text-xs"
+                    type="password"
+                    placeholder={anthropicKeySet ? "••••••••••• (deixe em branco para manter)" : "sk-ant-api03-..."}
+                    value={anthropicKey}
+                    onChange={(e) => setAnthropicKey(e.target.value)}
+                  />
+                </div>
+
+                {/* OpenAI key */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <FieldLabel>Chave OpenAI</FieldLabel>
+                    {openaiKeySet && (
+                      <span className="text-[10px] font-semibold text-agro-green flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Configurada
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    className="input-agro w-full font-mono text-xs"
+                    type="password"
+                    placeholder={openaiKeySet ? "••••••••••• (deixe em branco para manter)" : "sk-..."}
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                  />
+                </div>
+
+                <div
+                  className="flex items-start gap-2 p-3 rounded-xl text-xs text-agro-muted"
+                  style={{ background: "rgba(63,176,108,0.04)", border: "1px solid rgba(63,176,108,0.08)" }}
+                >
+                  <Zap className="w-3.5 h-3.5 text-agro-green shrink-0 mt-0.5" />
+                  <span>
+                    O provedor selecionado será usado para classificar automaticamente as respostas dos clientes aos disparos (severidade, categoria e resumo). Você pode trocar a qualquer momento — a mudança afeta apenas novas classificações.
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleAiSave}
+                  disabled={aiSaving}
+                  className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4" />
+                  {aiSaving ? "Salvando…" : "Salvar configurações de IA"}
+                </button>
+              </div>
+            </DarkCard>
+          </div>
+        )}
 
         {/* ── Webhook Meta ─────────────────────── */}
         <div className="animate-fade-up-delay-1">

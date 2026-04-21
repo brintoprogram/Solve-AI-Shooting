@@ -7,7 +7,7 @@ import {
   MAPPABLE_FIELDS, FieldKey, Mapping, ParsedFile,
   parseFile, autoDetect, applyMapping, runImport, ImportStats,
 } from "@/lib/importUtils";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -267,6 +267,7 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 // ── Main component ────────────────────────────────────────────────
 
 export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuccess?: () => void }) {
+  const { workspaceId: workspaceIdAuth } = useAuth();
   const [step,     setStep]     = useState<Step>("idle");
   const [parsing,  setParsing]  = useState(false);
   const [parsed,   setParsed]   = useState<ParsedFile | null>(null);
@@ -295,7 +296,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   async function handleImport() {
     if (!parsed) return;
     const mappedRows = applyMapping(parsed.headers, parsed.rows, mapping);
-    const workspaceId = getWorkspaceId();
+    const workspaceId = workspaceIdAuth ?? "";
 
     setStep("importing");
     setProgress({ phase: "Preparando…", done: 0, total: mappedRows.length });

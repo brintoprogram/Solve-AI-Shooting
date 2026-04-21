@@ -1,4 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ArrowLeft, Pause, Play, StopCircle, RefreshCw } from "lucide-react";
@@ -8,12 +9,12 @@ import { MessagesTable } from "./components/MessagesTable";
 import { useCampaignDetail } from "@/hooks/useCampaign";
 import { startCampaign, pauseCampaign, resumeCampaign, cancelCampaign } from "@/services/campaignEngine";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import type { CampaignStatus } from "@/types/shooting";
 import { STATUS_LABELS } from "@/types/shooting";
-import { cn } from "@/lib/utils";
 
 const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: string }> = {
   draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
@@ -25,12 +26,77 @@ const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: 
   failed:    { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)"    },
 };
 
-const mockChartData = Array.from({ length: 10 }, (_, i) => ({
-  time: `${14 + Math.floor(i / 2)}:${(i % 2) * 30 === 0 ? "00" : "30"}`,
-  enviadas:  Math.floor(Math.random() * 200 + 100 * i),
-  entregues: Math.floor(Math.random() * 180 + 90 * i),
-  lidas:     Math.floor(Math.random() * 150 + 70 * i),
-}));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
+
+interface TimelineBucket {
+  time: string;
+  enviadas: number;
+  entregues: number;
+  lidas: number;
+}
+
+interface MsgTimestamps {
+  sent_at:      string | null;
+  delivered_at: string | null;
+  read_at:      string | null;
+}
+
+const BUCKET_MS = 30 * 60 * 1000; // 30-minute buckets
+
+function buildTimeline(msgs: MsgTimestamps[]): TimelineBucket[] {
+  const sent      = msgs.map((m) => m.sent_at      ? new Date(m.sent_at).getTime()      : null).filter(Boolean) as number[];
+  const delivered = msgs.map((m) => m.delivered_at ? new Date(m.delivered_at).getTime() : null).filter(Boolean) as number[];
+  const read      = msgs.map((m) => m.read_at      ? new Date(m.read_at).getTime()      : null).filter(Boolean) as number[];
+
+  const allTimes = [...sent, ...delivered, ...read];
+  if (allTimes.length === 0) return [];
+
+  const minT = Math.floor(Math.min(...allTimes) / BUCKET_MS) * BUCKET_MS;
+  const maxT = Math.ceil(Math.max(...allTimes)  / BUCKET_MS) * BUCKET_MS;
+
+  const buckets: TimelineBucket[] = [];
+  for (let t = minT; t <= maxT; t += BUCKET_MS) {
+    buckets.push({
+      time:      format(new Date(t), "HH:mm"),
+      enviadas:  sent.filter((ts)      => ts <= t).length,
+      entregues: delivered.filter((ts) => ts <= t).length,
+      lidas:     read.filter((ts)      => ts <= t).length,
+    });
+  }
+  return buckets;
+}
+
+function useTimelineData(campaignId: string, isLive: boolean) {
+  const [chartData,    setChartData]    = useState<TimelineBucket[]>([]);
+  const [chartLoading, setChartLoading] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function fetchTimeline() {
+    const { data } = await db
+      .from("shooting_messages")
+      .select("sent_at, delivered_at, read_at")
+      .eq("campaign_id", campaignId)
+      .not("sent_at", "is", null);
+
+    setChartData(buildTimeline((data as MsgTimestamps[]) ?? []));
+    setChartLoading(false);
+  }
+
+  useEffect(() => {
+    if (!campaignId) return;
+    fetchTimeline();
+    if (isLive) {
+      intervalRef.current = setInterval(fetchTimeline, 30_000);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, isLive]);
+
+  return { chartData, chartLoading, refetchTimeline: fetchTimeline };
+}
 
 function DarkCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -52,6 +118,8 @@ export function CampaignDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { campaign, loading } = useCampaignDetail(id ?? "");
+  const isLive = campaign?.status === "sending";
+  const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
 
   async function handleAction(action: "pause" | "resume" | "cancel") {
     if (!id) return;
@@ -160,6 +228,7 @@ export function CampaignDetail() {
               </button>
             )}
             <button
+              onClick={refetchTimeline}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors hover:bg-white/10"
               style={{ border: "1px solid rgba(63,176,108,0.12)" }}
             >
@@ -179,8 +248,17 @@ export function CampaignDetail() {
         {campaign.status !== "draft" && (
           <div className="animate-fade-up-delay-1">
             <DarkCard title="Timeline de envios">
+              {chartLoading ? (
+                <div className="flex items-center justify-center h-60 text-sm text-agro-muted-2">
+                  Carregando timeline…
+                </div>
+              ) : chartData.length === 0 ? (
+                <div className="flex items-center justify-center h-60 text-sm text-agro-muted-2">
+                  Nenhum envio registrado ainda.
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={mockChartData}>
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,176,108,0.08)" />
                   <XAxis
                     dataKey="time"
@@ -209,6 +287,7 @@ export function CampaignDetail() {
                   <Line type="monotone" dataKey="lidas"     stroke="#34d399" name="Lidas"     strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
+              )}
             </DarkCard>
           </div>
         )}

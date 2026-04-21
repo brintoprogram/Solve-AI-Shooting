@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
-import { getWorkspaceId } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { ContactFormModal } from "./contacts/ContactFormModal";
@@ -21,7 +21,7 @@ function useContacts(search: string, page: number) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total,    setTotal]    = useState(0);
   const [loading,  setLoading]  = useState(false);
-  const workspaceId = getWorkspaceId();
+  const workspaceId = useAuth().workspaceId ?? "";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -252,7 +252,7 @@ export function Contacts() {
   const [showImport, setShowImport] = useState(false);
   const [showNewContact, setShowNewContact] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const workspaceId = getWorkspaceId();
+  const workspaceId = useAuth().workspaceId ?? "";
 
   useEffect(() => {
     const t = setTimeout(() => {
