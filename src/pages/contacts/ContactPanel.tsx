@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import {
   X, Mail, Phone, Building2, Hash, MapPin,
-  User, CreditCard, Loader2, Pencil, Plus, ClipboardList,
+  User, CreditCard, Loader2, Pencil, Plus, ClipboardList, FileText,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { ContactFormModal } from "./ContactFormModal";
@@ -197,6 +199,60 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
     onUpdated?.(updated);
   }
 
+  function exportExtratoPdf() {
+    const doc = new jsPDF();
+    let y = drawPdfHeader(doc, `Extrato Financeiro — ${contact.name ?? "Sem nome"}`, contact.empresa ?? "");
+
+    y = drawSection(doc, "Dados do Contato", y);
+    const infoRows: [string, string][] = [];
+    if (contact.phone)   infoRows.push(["Telefone",  contact.phone]);
+    if (contact.cpf_cnpj) infoRows.push(["CPF / CNPJ", contact.cpf_cnpj]);
+    if (contact.empresa) infoRows.push(["Empresa",   contact.empresa]);
+    if (contact.email)   infoRows.push(["E-mail",    contact.email]);
+    if (contact.cidade || contact.estado)
+      infoRows.push(["Cidade / UF", [contact.cidade, contact.estado].filter(Boolean).join(" / ")]);
+    if (infoRows.length === 0) infoRows.push(["", "Dados não preenchidos"]);
+    y = drawKVRows(doc, infoRows, y);
+
+    y = drawSection(doc, "Boletos", y);
+    if (invoices.length === 0) {
+      doc.setFontSize(9);
+      doc.setTextColor(150, 170, 155);
+      doc.text("Nenhum boleto cadastrado.", 14, y);
+      y += 8;
+    } else {
+      const STATUS_PT: Record<string, string> = {
+        pendente: "Pendente", pago: "Pago", vencido: "Vencido", cancelado: "Cancelado",
+      };
+      y = drawTable(doc,
+        ["Valor (R$)", "Vencimento", "NF / Ref.", "Status"],
+        invoices.map((inv) => [
+          new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(inv.valor),
+          formatDate(inv.vencimento),
+          inv.numero_nf ?? "—",
+          STATUS_PT[inv.status] ?? inv.status,
+        ]),
+        y,
+      );
+
+      // Totals
+      const totalPend = invoices.filter((i) => i.status === "pendente").reduce((s, i) => s + i.valor, 0);
+      const totalVenc = invoices.filter((i) => i.status === "vencido").reduce((s,  i) => s + i.valor, 0);
+      const totalPago = invoices.filter((i) => i.status === "pago").reduce((s,    i) => s + i.valor, 0);
+      const fmt = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+      y = drawSection(doc, "Resumo", y);
+      y = drawKVRows(doc, [
+        ["A receber",  fmt(totalPend)],
+        ["Em atraso",  fmt(totalVenc)],
+        ["Recebido",   fmt(totalPago)],
+      ], y);
+    }
+
+    drawFooter(doc);
+    const fileName = (contact.name ?? "extrato").replace(/\s+/g, "_");
+    doc.save(`${fileName}_extrato.pdf`);
+  }
+
   return (
     <>
       {/* Backdrop */}
@@ -229,6 +285,13 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
               {[contact.phone, contact.empresa].filter(Boolean).join(" · ") || "—"}
             </p>
           </div>
+          <button
+            onClick={exportExtratoPdf}
+            title="Exportar extrato PDF"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-[#6b7f6e] hover:text-[#3fb06c] hover:bg-[#1e2e22] transition-colors shrink-0"
+          >
+            <FileText className="w-4 h-4" />
+          </button>
           <button
             onClick={() => setShowEdit(true)}
             title="Editar contato"

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Search, Download, ChevronLeft, ChevronRight, Clock, Check, CheckCheck, AlertCircle, Eye } from "lucide-react";
+import { Search, Download, ChevronLeft, ChevronRight, Clock, Check, CheckCheck, AlertCircle, Eye, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,24 +33,36 @@ interface MessagesTableProps {
 export function MessagesTable({ campaignId }: MessagesTableProps) {
   const [statusFilter, setStatusFilter] = useState<MessageStatus | "all">("all");
   const [detail, setDetail] = useState<ShootingMessage | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const { messages, total, page, totalPages, loading, search, setSearch, setPage } =
     useCampaignMessages(campaignId, statusFilter === "all" ? undefined : statusFilter);
 
-  function exportToXlsx() {
-    const rows = messages.map((m) => ({
-      Nome: m.recipient_name ?? "",
-      Telefone: m.recipient_phone,
-      Status: MESSAGE_STATUS_LABELS[m.status],
-      Enviado: m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy HH:mm") : "",
-      Entregue: m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
-      Lido: m.read_at ? format(new Date(m.read_at), "dd/MM/yyyy HH:mm") : "",
-      Erro: m.error_message ?? "",
+  async function exportAllToXlsx() {
+    setExporting(true);
+    const { data } = await supabase
+      .from("shooting_messages")
+      .select("*")
+      .eq("campaign_id", campaignId)
+      .order("created_at");
+
+    const all: ShootingMessage[] = data ?? [];
+    const rows = all.map((m) => ({
+      "Nome":           m.recipient_name ?? "",
+      "Telefone":       m.recipient_phone,
+      "Status":         MESSAGE_STATUS_LABELS[m.status],
+      "Enviado":        m.sent_at      ? format(new Date(m.sent_at),      "dd/MM/yyyy HH:mm") : "",
+      "Entregue":       m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
+      "Lido":           m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
+      "Respondido":     m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
+      "Código de erro": m.error_code   ? `#${m.error_code}` : "",
+      "Mensagem de erro": m.error_message ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Mensagens");
     XLSX.writeFile(wb, `campanha_${campaignId}_mensagens.xlsx`);
+    setExporting(false);
   }
 
   function fmt(ts: string | null) {
@@ -83,12 +96,17 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
         </select>
 
         <button
-          onClick={exportToXlsx}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+          onClick={exportAllToXlsx}
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-40"
           style={{ border: "1px solid rgba(63,176,108,0.15)" }}
         >
-          <Download className="w-3.5 h-3.5" />
-          Exportar
+          {exporting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Download className="w-3.5 h-3.5" />
+          )}
+          {exporting ? "Exportando…" : "Exportar tudo"}
         </button>
       </div>
 

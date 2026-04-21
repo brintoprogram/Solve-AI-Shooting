@@ -2,7 +2,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pause, Play, StopCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText } from "lucide-react";
+import jsPDF from "jspdf";
+import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignMetrics } from "./components/CampaignMetrics";
 import { MessagesTable } from "./components/MessagesTable";
@@ -121,6 +123,50 @@ export function CampaignDetail() {
   const isLive = campaign?.status === "sending";
   const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
 
+  function exportPdf() {
+    if (!campaign) return;
+    const doc = new jsPDF();
+    let y = drawPdfHeader(doc, `Relatório: ${campaign.name}`, STATUS_LABELS[campaign.status]);
+
+    y = drawSection(doc, "Informações da Campanha", y);
+    const rows: [string, string][] = [
+      ["Template",      campaign.meta_templates?.template_name ?? "—"],
+      ["Status",        STATUS_LABELS[campaign.status]],
+      ["Destinatários", campaign.total_recipients.toLocaleString("pt-BR")],
+      ["Criada em",     format(new Date(campaign.created_at), "dd/MM/yyyy")],
+    ];
+    if (campaign.started_at)   rows.push(["Iniciada em",   format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm")]);
+    if (campaign.completed_at) rows.push(["Concluída em",  format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm")]);
+    y = drawKVRows(doc, rows, y);
+
+    y = drawSection(doc, "Métricas de Envio", y);
+    const total = campaign.sent_count || 1;
+    const pct   = (n: number) => `${n.toLocaleString("pt-BR")} (${Math.round((n / total) * 100)}%)`;
+    y = drawTable(doc,
+      ["Métrica", "Quantidade", "% de enviadas"],
+      [
+        ["Enviadas",    campaign.sent_count.toLocaleString("pt-BR"),      "100%"],
+        ["Entregues",   pct(campaign.delivered_count),                    ""],
+        ["Lidas",       pct(campaign.read_count),                         ""],
+        ["Respondidas", pct(campaign.replied_count),                      ""],
+        ["Falhas",      campaign.failed_count.toLocaleString("pt-BR"),    ""],
+      ],
+      y,
+    );
+
+    if (chartData.length > 0) {
+      y = drawSection(doc, "Timeline de Envios (30 min)", y);
+      y = drawTable(doc,
+        ["Horário", "Enviadas (acum.)", "Entregues (acum.)", "Lidas (acum.)"],
+        chartData.map((b) => [b.time, b.enviadas, b.entregues, b.lidas]),
+        y,
+      );
+    }
+
+    drawFooter(doc);
+    doc.save(`relatorio_${campaign.name.replace(/\s+/g, "_")}.pdf`);
+  }
+
   async function handleAction(action: "pause" | "resume" | "cancel") {
     if (!id) return;
     try {
@@ -227,6 +273,15 @@ export function CampaignDetail() {
                 Iniciar
               </button>
             )}
+            <button
+              onClick={exportPdf}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors hover:bg-white/5"
+              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+              title="Exportar relatório PDF"
+            >
+              <FileText className="w-4 h-4" />
+              PDF
+            </button>
             <button
               onClick={refetchTimeline}
               className="w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors hover:bg-white/10"

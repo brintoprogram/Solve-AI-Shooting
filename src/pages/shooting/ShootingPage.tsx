@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, RefreshCw, Send, AlertTriangle, Zap, Mail, MessageSquare } from "lucide-react";
+import { Plus, RefreshCw, Send, AlertTriangle, Zap, Mail, MessageSquare, Download } from "lucide-react";
+import { format } from "date-fns";
+import * as XLSX from "xlsx";
 import { Topbar } from "@/components/layout/Topbar";
 import { CampaignList } from "./components/CampaignList";
 import { CampaignBuilder } from "./CampaignBuilder";
@@ -30,6 +32,34 @@ export function ShootingPage() {
   const activeCampaigns  = campaigns.filter((c) => c.status === "sending" || c.status === "paused");
   const historyCampaigns = campaigns.filter((c) => c.status === "completed" || c.status === "cancelled" || c.status === "failed");
   const draftCampaigns   = campaigns.filter((c) => c.status === "draft" || c.status === "scheduled");
+
+  const STATUS_PT: Record<string, string> = {
+    draft: "Rascunho", scheduled: "Agendado", sending: "Enviando",
+    paused: "Pausado", completed: "Concluído", cancelled: "Cancelado", failed: "Falhou",
+  };
+
+  function exportCampaignsXlsx() {
+    const rows = campaigns.map((c) => {
+      const sent = c.sent_count ?? 0;
+      const delivered = c.delivered_count ?? 0;
+      return {
+        "Nome":                c.name,
+        "Template":            c.meta_templates?.template_name ?? "",
+        "Status":              STATUS_PT[c.status] ?? c.status,
+        "Destinatários":       c.total_recipients,
+        "Enviadas":            sent,
+        "Entregues":           delivered,
+        "Lidas":               c.read_count ?? 0,
+        "Respondidas":         c.replied_count ?? 0,
+        "Falhas":              c.failed_count ?? 0,
+        "Taxa de entrega (%)": sent > 0 ? Math.round((delivered / sent) * 100) : 0,
+        "Criada em":           format(new Date(c.created_at), "dd/MM/yyyy"),
+      };
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Campanhas");
+    XLSX.writeFile(wb, `campanhas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
 
   async function handleCampaignAction(id: string, action: "start" | "pause" | "resume" | "cancel") {
     const LABELS = { start: "Iniciando", pause: "Pausando", resume: "Retomando", cancel: "Cancelando" };
@@ -81,6 +111,15 @@ export function ShootingPage() {
           <div className="flex items-center gap-2">
             {channel === "whatsapp" ? (
               <>
+                <button
+                  onClick={exportCampaignsXlsx}
+                  disabled={campaigns.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-all hover:bg-white/5 disabled:opacity-40"
+                  style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Exportar XLSX
+                </button>
                 <button
                   onClick={refetch}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-all hover:bg-white/5"

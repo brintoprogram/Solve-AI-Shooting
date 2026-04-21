@@ -1,5 +1,6 @@
-import { Send, Users, MessageSquare, Zap, Clock, DollarSign } from "lucide-react";
+import { Send, Users, MessageSquare, Zap, Clock, DollarSign, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
 import { Topbar } from "@/components/layout/Topbar";
 import { useDashboardMetrics, fmtCount, fmtTime, fmtBRL } from "@/hooks/useDashboardMetrics";
 import {
@@ -57,6 +58,32 @@ function StatCard({
       )}
     </div>
   );
+}
+
+function exportDashboardXlsx(metrics: ReturnType<typeof useDashboardMetrics>) {
+  const wb = XLSX.utils.book_new();
+
+  const resumo = [
+    { "Métrica": "Campanhas totais",        "Valor": metrics.activeCampaigns,    "Unidade": "campanhas" },
+    { "Métrica": "Campanhas este mês",      "Valor": metrics.campaignsThisMonth, "Unidade": "campanhas" },
+    { "Métrica": "Mensagens enviadas",      "Valor": metrics.messagesSent,       "Unidade": "mensagens" },
+    { "Métrica": "Mensagens este mês",      "Valor": metrics.messagesThisMonth,  "Unidade": "mensagens" },
+    { "Métrica": "Contatos no Inbox",       "Valor": metrics.activeContacts,     "Unidade": "contatos"  },
+    { "Métrica": "Contatos este mês",       "Valor": metrics.contactsThisMonth,  "Unidade": "contatos"  },
+    { "Métrica": "Taxa de entrega",         "Valor": metrics.deliveryRate,       "Unidade": "%"         },
+    { "Métrica": "Economia de tempo",       "Valor": fmtTime(metrics.timeSavedMinutes), "Unidade": ""  },
+    { "Métrica": "Valor disparado (R$)",    "Valor": metrics.valueDispatched,    "Unidade": "BRL"       },
+  ];
+
+  const daily = metrics.dailyMessages.map((d) => ({
+    "Data":     d.date,
+    "Enviadas": d.enviadas,
+    "Lidas":    d.lidas,
+  }));
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), "Resumo");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(daily),  "Atividade 30 dias");
+  XLSX.writeFile(wb, `dashboard_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 export function Dashboard() {
@@ -229,14 +256,25 @@ export function Dashboard() {
               <h2 className="text-sm font-semibold text-agro-text">Mensagens nos últimos 30 dias</h2>
               <p className="text-xs text-agro-muted-2 mt-0.5">Enviadas e lidas por dia</p>
             </div>
-            <button
-              onClick={() => navigate("/shooting")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-green transition-colors hover:opacity-80"
-              style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.2)" }}
-            >
-              <Send className="w-3 h-3" />
-              Ver disparos
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportDashboardXlsx(metrics)}
+                disabled={metrics.loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-muted transition-colors hover:text-agro-text hover:bg-white/5 disabled:opacity-40"
+                style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+              >
+                <Download className="w-3 h-3" />
+                Exportar XLSX
+              </button>
+              <button
+                onClick={() => navigate("/shooting")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-green transition-colors hover:opacity-80"
+                style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.2)" }}
+              >
+                <Send className="w-3 h-3" />
+                Ver disparos
+              </button>
+            </div>
           </div>
 
           {metrics.loading ? (
