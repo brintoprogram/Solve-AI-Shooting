@@ -161,11 +161,11 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
       });
   };
 
+  // Always load invoices on mount so PDF export has data regardless of active tab
   useEffect(() => {
-    if (tab !== "financeiro") return;
     loadInvoices();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, contact.id]);
+  }, [contact.id]);
 
   useEffect(() => {
     if (tab !== "financeiro") return;
