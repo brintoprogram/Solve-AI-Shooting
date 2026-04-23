@@ -41,6 +41,55 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
   ON audit_logs(entity_id) WHERE entity_id IS NOT NULL;`,
   },
+  {
+    label: "wa_status + cleanup_sessions",
+    desc:  "Status WhatsApp nos contatos + histórico de higienização de planilhas",
+    sql: `-- Coluna wa_status nos contatos
+ALTER TABLE inbox_contacts
+  ADD COLUMN IF NOT EXISTS wa_status     TEXT DEFAULT 'unknown',
+  ADD COLUMN IF NOT EXISTS wa_checked_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_inbox_contacts_wa
+  ON inbox_contacts(workspace_id, wa_status);
+
+-- Sessões de higienização de planilhas avulsas
+CREATE TABLE IF NOT EXISTS cleanup_sessions (
+  id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  workspace_id  TEXT        NOT NULL,
+  filename      TEXT        NOT NULL,
+  total         INTEGER     DEFAULT 0,
+  valid         INTEGER     DEFAULT 0,
+  invalid_phone INTEGER     DEFAULT 0,
+  no_phone      INTEGER     DEFAULT 0,
+  landline      INTEGER     DEFAULT 0,
+  wa_valid      INTEGER     DEFAULT 0,
+  wa_invalid    INTEGER     DEFAULT 0,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE cleanup_sessions DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_cleanup_sessions_workspace
+  ON cleanup_sessions(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS cleanup_session_rows (
+  id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id    UUID        NOT NULL,
+  row_index     INTEGER,
+  row_data      JSONB       NOT NULL,
+  name          TEXT,
+  phone         TEXT,
+  phone_norm    TEXT,
+  phone_problem TEXT        DEFAULT 'ok',
+  wa_status     TEXT        DEFAULT 'unknown',
+  wa_checked_at TIMESTAMPTZ
+);
+
+ALTER TABLE cleanup_session_rows DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_cleanup_rows_session
+  ON cleanup_session_rows(session_id);`,
+  },
 ];
 
 export function Onboarding() {
