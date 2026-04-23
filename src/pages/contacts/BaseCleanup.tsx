@@ -69,8 +69,10 @@ function detectNameCol(headers: string[]): string | null {
 
 function normalizePhone(raw: unknown): string {
   if (!raw) return "";
-  const digits = String(raw).replace(/\D/g, "");
-  return digits.startsWith("55") ? digits : "55" + digits;
+  let digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  if (digits.startsWith("55") && digits.length >= 12) return digits;
+  return "55" + digits;
 }
 
 function classifyPhone(phone: string | null): ProblemType {

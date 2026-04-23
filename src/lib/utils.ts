@@ -40,10 +40,14 @@ export function estimateDuration(total: number, speed: number): string {
 }
 
 export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("0")) return digits.slice(1);
-  if (!digits.startsWith("55") && digits.length <= 11) return `55${digits}`;
-  return digits;
+  let digits = phone.replace(/\D/g, "");
+  // Strip trunk zero (e.g. 0xx area code or 0800 style)
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  // If already has Brazil country code and is long enough, return as-is.
+  // Threshold 12 prevents DDD=55 from being mistaken for a country-code prefix
+  // (e.g. "55 983710106" = 11 digits → NOT yet normalized → needs "55" prepended).
+  if (digits.startsWith("55") && digits.length >= 12) return digits;
+  return `55${digits}`;
 }
 
 export function isValidPhone(phone: string): boolean {
