@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2, Plus, Download,
+  Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2, Plus, Download, Sparkles,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { ContactFormModal } from "./contacts/ContactFormModal";
+import { BaseCleanup } from "./contacts/BaseCleanup";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -278,6 +279,7 @@ export function Contacts() {
   const [showImport, setShowImport] = useState(false);
   const [showNewContact, setShowNewContact] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [mainTab, setMainTab]   = useState<"lista" | "limpeza">("lista");
   const workspaceId = useAuth().workspaceId ?? "";
 
   useEffect(() => {
@@ -338,7 +340,36 @@ export function Contacts() {
         </div>
       </div>
 
-      {/* ── Search ───────────────────────────────────── */}
+      {/* ── Main tabs ────────────────────────────────── */}
+      <div className="px-6 shrink-0 flex gap-1 pt-3" style={{ borderBottom: "1px solid #1e2e22" }}>
+        {[
+          { id: "lista"  as const, label: "Contatos", icon: Users     },
+          { id: "limpeza"as const, label: "Limpeza de Base", icon: Sparkles },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setMainTab(id)}
+            className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px"
+            style={mainTab === id
+              ? { color: "#3fb06c", borderColor: "#3fb06c", background: "rgba(63,176,108,0.04)" }
+              : { color: "#6b7f6e", borderColor: "transparent" }
+            }
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Limpeza tab ──────────────────────────────── */}
+      {mainTab === "limpeza" && (
+        <div className="flex-1 overflow-auto">
+          <BaseCleanup workspaceId={workspaceId} />
+        </div>
+      )}
+
+      {/* ── Search (only on lista tab) ────────────────── */}
+      {mainTab === "lista" && (
       <div className="px-6 py-3 shrink-0" style={{ borderBottom: "1px solid #1e2e22" }}>
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b7f6e]" />
@@ -351,8 +382,10 @@ export function Contacts() {
           />
         </div>
       </div>
+      )}
 
-      {/* ── Table ────────────────────────────────────── */}
+      {/* ── Table (only on lista tab) ─────────────────── */}
+      {mainTab === "lista" && (
       <div className="flex-1 overflow-auto">
         {loading && contacts.length === 0 ? (
           <div className="flex items-center justify-center py-20">
@@ -466,6 +499,7 @@ export function Contacts() {
         onPrev={() => setPage((p) => Math.max(1, p - 1))}
         onNext={() => setPage((p) => Math.min(pages, p + 1))}
       />
+      )}
 
       {/* ── Modals ───────────────────────────────────── */}
       {selected && (

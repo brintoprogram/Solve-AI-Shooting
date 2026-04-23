@@ -33,6 +33,7 @@ export interface Contact {
   estado:              string | null;
   tags:                string[];
   created_at:          string;
+  wa_status?:          "unknown" | "valid" | "invalid" | "checking" | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -281,9 +282,21 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-base font-semibold text-white truncate">{contact.name ?? "Sem nome"}</p>
-            <p className="text-xs text-[#6b7f6e] truncate">
-              {[contact.phone, contact.empresa].filter(Boolean).join(" · ") || "—"}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs text-[#6b7f6e] truncate">
+                {[contact.phone, contact.empresa].filter(Boolean).join(" · ") || "—"}
+              </p>
+              {contact.wa_status === "valid" && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.2)" }}>
+                  ✓ WhatsApp
+                </span>
+              )}
+              {contact.wa_status === "invalid" && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "rgba(239,68,68,0.1)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  ✗ Fora do WA
+                </span>
+              )}
+            </div>
           </div>
           <button
             onClick={exportExtratoPdf}
