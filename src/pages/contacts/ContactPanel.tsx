@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   X, Mail, Phone, Building2, Hash, MapPin,
   User, CreditCard, Loader2, Pencil, Plus, ClipboardList, FileText,
-  Shield, ChevronDown, Download, UserX, Trash2,
+  Shield, ChevronDown, Download, UserX, Trash2, Zap, StickyNote,
+  CheckCheck, Clock, AlertCircle,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
@@ -80,6 +81,16 @@ const INVOICE_STATUS: Record<string, { label: string; bg: string; text: string; 
   cancelado: { label: "Cancelado", bg: "rgba(107,127,110,0.12)",text: "#6b7f6e", border: "rgba(107,127,110,0.3)" },
 };
 
+interface ShootingMsg {
+  id:           string;
+  status:       string;
+  sent_at:      string | null;
+  delivered_at: string | null;
+  read_at:      string | null;
+  error_message: string | null;
+  shooting_campaigns: { name: string } | null;
+}
+
 // ── Sub-components ─────────────────────────────────────────────────
 
 export function StatusBadge({ status }: { status: string }) {
@@ -137,6 +148,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
   const { workspaceId, profile } = useAuth();
   const [contact,    setContact]    = useState<Contact>(initialContact);
   const [tab,        setTab]        = useState<"cadastro" | "financeiro" | "historico">("cadastro");
+  const [histTab,    setHistTab]    = useState<"disparos" | "notas">("disparos");
   const [invoices,   setInvoices]   = useState<Invoice[]>([]);
   const [invLoading, setInvLoading] = useState(false);
   const [visible,    setVisible]    = useState(false);
@@ -153,6 +165,10 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
   const [lgpdConfirmInput, setLgpdConfirmInput]  = useState("");
   const lgpdRef = useRef<HTMLDivElement>(null);
   const canLgpd = profile?.role === "admin" || profile?.role === "manager";
+
+  // Shooting history
+  const [shootingMsgs,     setShootingMsgs]     = useState<ShootingMsg[]>([]);
+  const [shootingLoading,  setShootingLoading]  = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 10);
@@ -189,6 +205,23 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
     return () => { supabase.removeChannel(ch); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, contact.id]);
+
+  // Load shooting history when historico tab + disparos sub-tab is active
+  useEffect(() => {
+    if (tab !== "historico" || histTab !== "disparos" || !contact.phone) return;
+    setShootingLoading(true);
+    db.from("shooting_messages")
+      .select("id, status, sent_at, delivered_at, read_at, error_message, shooting_campaigns(name)")
+      .eq("phone", contact.phone)
+      .eq("workspace_id", workspaceId)
+      .order("sent_at", { ascending: false })
+      .limit(100)
+      .then(({ data }: { data: ShootingMsg[] | null }) => {
+        setShootingMsgs(data ?? []);
+        setShootingLoading(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, histTab, contact.phone]);
 
   // Close LGPD dropdown on outside click
   useEffect(() => {
@@ -532,12 +565,88 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
           )}
 
           {/* ── Histórico ─────────────────────────────── */}
-          {tab === "historico" && contact.phone && (
-            <ContactHistory
-              phone={contact.phone}
-              contactName={contact.name ?? undefined}
-              workspaceId={workspaceId ?? ""}
-            />
+          {tab === "historico" && (
+            <div className="flex flex-col gap-3 h-full">
+              {/* Sub-tabs */}
+              <div className="flex gap-1 shrink-0">
+                {([
+                  { id: "disparos", label: "Disparos", Icon: Zap },
+                  { id: "notas",    label: "Notas",    Icon: StickyNote },
+                ] as const).map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    onClick={() => setHistTab(id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={histTab === id
+                      ? { background: "rgba(63,176,108,0.12)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                      : { background: "transparent", color: "#6b7f6e", border: "1px solid transparent" }
+                    }
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Disparos sub-tab */}
+              {histTab === "disparos" && (
+                shootingLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-5 h-5 text-[#3fb06c] animate-spin" />
+                  </div>
+                ) : shootingMsgs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+                    <Zap className="w-8 h-8 text-[#3a4d3e]" />
+                    <p className="text-xs text-[#6b7f6e]">Nenhum disparo encontrado</p>
+                    <p className="text-[11px] text-[#4a5c4e]">Mensagens enviadas via campanhas aparecerão aqui</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 overflow-y-auto flex-1">
+                    {shootingMsgs.map((m) => {
+                      const statusCfg = {
+                        sent:      { icon: Clock,      color: "#6b7f6e", label: "Enviado"    },
+                        delivered: { icon: CheckCheck, color: "#60a5fa", label: "Entregue"   },
+                        read:      { icon: CheckCheck, color: "#3fb06c", label: "Lido"       },
+                        failed:    { icon: AlertCircle,color: "#f87171", label: "Falhou"     },
+                        pending:   { icon: Clock,      color: "#fbbf24", label: "Pendente"   },
+                      }[m.status] ?? { icon: Clock, color: "#6b7f6e", label: m.status };
+                      const StatusIcon = statusCfg.icon;
+                      const date = m.read_at ?? m.delivered_at ?? m.sent_at;
+                      return (
+                        <div
+                          key={m.id}
+                          className="flex items-start gap-3 rounded-xl p-3"
+                          style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(63,176,108,0.08)" }}
+                        >
+                          <StatusIcon className="w-4 h-4 mt-0.5 shrink-0" style={{ color: statusCfg.color }} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-white truncate">
+                              {m.shooting_campaigns?.name ?? "Campanha removida"}
+                            </p>
+                            <p className="text-[10px] mt-0.5" style={{ color: statusCfg.color }}>
+                              {statusCfg.label}
+                              {date && ` · ${new Date(date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}`}
+                            </p>
+                            {m.error_message && (
+                              <p className="text-[10px] text-[#f87171] mt-0.5 truncate" title={m.error_message}>{m.error_message}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {/* Notas sub-tab */}
+              {histTab === "notas" && contact.phone && (
+                <ContactHistory
+                  phone={contact.phone}
+                  contactName={contact.name ?? undefined}
+                  workspaceId={workspaceId ?? ""}
+                />
+              )}
+            </div>
           )}
 
           {/* ── Financeiro ────────────────────────────── */}

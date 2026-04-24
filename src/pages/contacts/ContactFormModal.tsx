@@ -146,10 +146,40 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="João da Silva" />
               </Field>
               <Field label="Telefone / WhatsApp" required>
-                <input className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5511999999999" />
+                <input
+                  className={inputCls}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 13))}
+                  placeholder="5511999999999"
+                  inputMode="numeric"
+                  maxLength={13}
+                />
               </Field>
               <Field label="CPF / CNPJ">
-                <input className={inputCls} value={cpf_cnpj} onChange={(e) => setCpfCnpj(e.target.value)} placeholder="000.000.000-00" />
+                <input
+                  className={inputCls}
+                  value={cpf_cnpj}
+                  onChange={(e) => {
+                    const d = e.target.value.replace(/\D/g, "").slice(0, 14);
+                    if (d.length <= 11) {
+                      setCpfCnpj(
+                        d.replace(/(\d{3})(\d)/, "$1.$2")
+                         .replace(/(\d{3})(\d)/, "$1.$2")
+                         .replace(/(\d{3})(\d{1,2})$/, "$1-$2")
+                      );
+                    } else {
+                      setCpfCnpj(
+                        d.replace(/(\d{2})(\d)/, "$1.$2")
+                         .replace(/(\d{3})(\d)/, "$1.$2")
+                         .replace(/(\d{3})(\d)/, "$1/$2")
+                         .replace(/(\d{4})(\d{1,2})$/, "$1-$2")
+                      );
+                    }
+                  }}
+                  placeholder="000.000.000-00"
+                  inputMode="numeric"
+                  maxLength={18}
+                />
               </Field>
               <Field label="Empresa / Nome Fantasia">
                 <input className={inputCls} value={empresa} onChange={(e) => setEmpresa(e.target.value)} placeholder="Empresa Ltda." />
