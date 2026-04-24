@@ -15,6 +15,7 @@ import { Team } from "@/pages/Team";
 import { Templates } from "@/pages/Templates";
 import { Contacts } from "@/pages/Contacts";
 import { Alerts }      from "@/pages/Alerts";
+import { Reports }     from "@/pages/Reports";
 import { SetPassword } from "@/pages/SetPassword";
 
 // ── Error boundary — shows error message instead of blank screen ──
@@ -94,6 +95,7 @@ function AppRoutes() {
         <Route path="/team"                     element={<Team />} />
         <Route path="/templates"               element={<Templates />} />
         <Route path="/alerts"                   element={<Alerts />} />
+        <Route path="/reports"                  element={<Reports />} />
         <Route path="*"                         element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}

@@ -188,8 +188,10 @@ function BaseCadastrada({ workspaceId }: Props) {
   }
 
   async function startWaCheck() {
-    const eligible = contacts.filter((c) => c.problem === "ok" || c.problem === "landline");
-    if (!eligible.length) { toast({ title: "Nenhum número para verificar" }); return; }
+    const eligible = selected.size > 0
+      ? contacts.filter((c) => selected.has(c.id) && (c.problem === "ok" || c.problem === "landline"))
+      : contacts.filter((c) => c.problem === "ok" || c.problem === "landline");
+    if (!eligible.length) { toast({ title: "Nenhum número elegível para verificar" }); return; }
 
     setChecking(true);
     setCheckProg({ done: 0, total: eligible.length });
@@ -335,7 +337,12 @@ function BaseCadastrada({ workspaceId }: Props) {
           style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
         >
           {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-          {checking ? "Verificando…" : `Verificar ${contacts.filter((c) => c.problem === "ok" || c.problem === "landline").length} números`}
+          {checking
+            ? "Verificando…"
+            : selected.size > 0
+              ? `Verificar ${contacts.filter((c) => selected.has(c.id) && (c.problem === "ok" || c.problem === "landline")).length} selecionados`
+              : `Verificar todos (${contacts.filter((c) => c.problem === "ok" || c.problem === "landline").length})`
+          }
         </button>
       </div>
 

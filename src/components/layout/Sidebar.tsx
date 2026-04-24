@@ -11,6 +11,7 @@ import {
   LogOut,
   LayoutTemplate,
   Bell,
+  BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -30,6 +31,7 @@ const BASE_NAV: NavItem[] = [
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes"     },
   { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas"     },
   { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
+  { to: "/reports",           icon: BarChart2,        label: "Relatórios",   subtitle: "Campanhas & auditoria" },
   { to: "/templates",          icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"   },
   { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"  },
   { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações"  },
