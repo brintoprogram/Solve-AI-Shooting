@@ -385,7 +385,7 @@ export function Contacts() {
       )}
 
       {/* ── Table (only on lista tab) ─────────────────── */}
-      {mainTab === "lista" && (
+      {mainTab === "lista" && (<>
       <div className="flex-1 overflow-auto">
         {loading && contacts.length === 0 ? (
           <div className="flex items-center justify-center py-20">
@@ -499,7 +499,7 @@ export function Contacts() {
         onPrev={() => setPage((p) => Math.max(1, p - 1))}
         onNext={() => setPage((p) => Math.min(pages, p + 1))}
       />
-      )}
+      </>)}
 
       {/* ── Modals ───────────────────────────────────── */}
       {selected && (

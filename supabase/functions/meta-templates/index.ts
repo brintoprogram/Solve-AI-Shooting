@@ -15,6 +15,7 @@
 // Secrets needed: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
 
 const META_BASE = "https://graph.facebook.com/v25.0";
 
@@ -194,7 +195,12 @@ async function getConnection(connectionId: string, workspaceId: string) {
     .maybeSingle();
 
   if (error) console.error("[meta-templates] getConnection:", error.message);
-  return data as { id: string; waba_id: string; access_token: string } | null;
+  if (!data) return null;
+  return {
+    id:           data.id           as string,
+    waba_id:      data.waba_id      as string,
+    access_token: await decrypt(data.access_token as string),
+  };
 }
 
 // ── Meta API types ───────────────────────────────────────────────

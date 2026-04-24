@@ -6,6 +6,7 @@
 //   mode "return":            phones[]      → returns results without writing DB
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
 
 const META_API = "https://graph.facebook.com/v21.0";
 const BATCH    = 50;
@@ -34,7 +35,10 @@ async function getConnection(workspace_id: string) {
     .eq("workspace_id", workspace_id)
     .single();
   if (error || !data) return null;
-  return data as { phone_number_id: string; access_token: string };
+  return {
+    phone_number_id: data.phone_number_id as string,
+    access_token:    await decrypt(data.access_token as string),
+  };
 }
 
 async function checkPhones(

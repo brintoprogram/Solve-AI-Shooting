@@ -384,26 +384,25 @@ export function Settings() {
   async function handleEmailSave() {
     setEmailSaving(true);
     try {
-      const { data, error } = await supabase
-        .from("email_connections")
-        .insert({
+      const { data: fnData, error: fnError } = await supabase.functions.invoke("save-email-connection", {
+        body: {
           workspace_id: WORKSPACE_ID,
           name:         emailForm.name,
           provider:     emailForm.provider,
-          host:         emailForm.provider === "smtp" ? emailForm.host      : "",
+          host:         emailForm.provider === "smtp" ? emailForm.host         : "",
           port:         emailForm.provider === "smtp" ? Number(emailForm.port) : 0,
-          secure:       emailForm.provider === "smtp" ? emailForm.secure    : false,
-          username:     emailForm.provider === "smtp" ? emailForm.username  : emailForm.from_email,
+          secure:       emailForm.provider === "smtp" ? emailForm.secure       : false,
+          username:     emailForm.provider === "smtp" ? emailForm.username     : emailForm.from_email,
           password:     emailForm.password,
-          tenant_id:    emailForm.provider === "graph" ? emailForm.tenant_id : null,
-          client_id:    emailForm.provider === "graph" ? emailForm.client_id : null,
+          tenant_id:    emailForm.provider === "graph" ? emailForm.tenant_id  : null,
+          client_id:    emailForm.provider === "graph" ? emailForm.client_id  : null,
           from_name:    emailForm.from_name,
           from_email:   emailForm.from_email,
-        })
-        .select("id,name,provider,host,port,secure,username,from_name,from_email,tenant_id,client_id")
-        .single();
+        },
+      });
 
-      if (error) throw new Error(error.message);
+      if (fnError || !fnData?.ok) throw new Error(fnData?.error ?? fnError?.message ?? "Erro ao salvar");
+      const data = fnData.data;
       setEmailConns((prev) => [...prev, data as EmailConn]);
       setEmailForm({ name: "", provider: "smtp" as "smtp" | "graph" | "oauth2", host: "", port: "587", secure: false, username: "", password: "", tenant_id: "", client_id: "", from_name: "", from_email: "" });
       setEmailTestResult(null);

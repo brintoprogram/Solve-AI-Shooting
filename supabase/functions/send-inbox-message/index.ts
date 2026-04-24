@@ -10,6 +10,7 @@
 //   media_filename   string? — nome do arquivo (para documents)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -109,6 +110,8 @@ async function handleRequest(req: Request): Promise<Response> {
     console.error("[send] conexão Meta não encontrada:", connErr?.message);
     return json({ error: "Conexão Meta não encontrada" }, 404);
   }
+
+  conn.access_token = await decrypt(conn.access_token);
 
   // 4. Build payload
   const msgType     = media_url ? (type as string) : "text";

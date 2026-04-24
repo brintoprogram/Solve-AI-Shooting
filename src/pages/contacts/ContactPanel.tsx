@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X, Mail, Phone, Building2, Hash, MapPin,
   User, CreditCard, Loader2, Pencil, Plus, ClipboardList, FileText,
+  Shield, ChevronDown, Download, UserX, Trash2,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
@@ -133,7 +134,7 @@ interface ContactPanelProps {
 }
 
 export function ContactPanel({ contact: initialContact, onClose, onUpdated }: ContactPanelProps) {
-  const { workspaceId } = useAuth();
+  const { workspaceId, profile } = useAuth();
   const [contact,    setContact]    = useState<Contact>(initialContact);
   const [tab,        setTab]        = useState<"cadastro" | "financeiro" | "historico">("cadastro");
   const [invoices,   setInvoices]   = useState<Invoice[]>([]);
@@ -144,6 +145,14 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
   const [showEdit,        setShowEdit]        = useState(false);
   const [editingInvoice,  setEditingInvoice]  = useState<Invoice | null | undefined>(undefined); // undefined = closed
   const isInvoiceModalOpen = editingInvoice !== undefined;
+
+  // LGPD menu
+  const [lgpdOpen,         setLgpdOpen]         = useState(false);
+  const [lgpdLoading,      setLgpdLoading]       = useState(false);
+  const [lgpdConfirm,      setLgpdConfirm]       = useState<"anonymize" | "hard_delete" | null>(null);
+  const [lgpdConfirmInput, setLgpdConfirmInput]  = useState("");
+  const lgpdRef = useRef<HTMLDivElement>(null);
+  const canLgpd = profile?.role === "admin" || profile?.role === "manager";
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 10);
@@ -180,6 +189,70 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
     return () => { supabase.removeChannel(ch); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, contact.id]);
+
+  // Close LGPD dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (lgpdRef.current && !lgpdRef.current.contains(e.target as Node)) setLgpdOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  async function handleLgpdExport() {
+    setLgpdOpen(false);
+    setLgpdLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gdpr-export`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, contact_id: contact.id }),
+      });
+      const payload = await res.json();
+      if (!payload.ok) throw new Error(payload.error ?? "Export failed");
+      const blob = new Blob([JSON.stringify(payload.data, null, 2)], { type: "application/json" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `lgpd_${contact.name?.replace(/\s+/g, "_") ?? contact.id}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Erro ao exportar dados: ${(e as Error).message}`);
+    } finally {
+      setLgpdLoading(false);
+    }
+  }
+
+  async function handleLgpdForget(mode: "anonymize" | "hard_delete") {
+    setLgpdLoading(true);
+    setLgpdConfirm(null);
+    setLgpdConfirmInput("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gdpr-forget`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, contact_id: contact.id, mode }),
+      });
+      const payload = await res.json();
+      if (!payload.ok) throw new Error(payload.error ?? "Operation failed");
+      onClose();
+    } catch (e) {
+      alert(`Erro: ${(e as Error).message}`);
+    } finally {
+      setLgpdLoading(false);
+    }
+  }
 
   const address = [
     contact.logradouro,
@@ -305,6 +378,53 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
           >
             <FileText className="w-4 h-4" />
           </button>
+
+          {/* LGPD menu — admin / manager only */}
+          {canLgpd && (
+            <div className="relative shrink-0" ref={lgpdRef}>
+              <button
+                onClick={() => setLgpdOpen((o) => !o)}
+                title="Opções LGPD"
+                disabled={lgpdLoading}
+                className="h-8 flex items-center gap-1 px-2 rounded-lg text-[#6b7f6e] hover:text-[#60a5fa] hover:bg-[#1e2e22] transition-colors disabled:opacity-50"
+              >
+                {lgpdLoading
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Shield className="w-4 h-4" />}
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {lgpdOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 w-52 rounded-xl shadow-xl z-50 overflow-hidden"
+                  style={{ background: "#111a14", border: "1px solid #2a3d30" }}
+                >
+                  <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider px-3 pt-2.5 pb-1">LGPD</p>
+                  <button
+                    onClick={handleLgpdExport}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-[#c084fc] hover:bg-[#1e2e22] transition-colors"
+                  >
+                    <Download className="w-4 h-4 shrink-0" />
+                    Exportar dados
+                  </button>
+                  <button
+                    onClick={() => { setLgpdOpen(false); setLgpdConfirm("anonymize"); setLgpdConfirmInput(""); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-[#fbbf24] hover:bg-[#1e2e22] transition-colors"
+                  >
+                    <UserX className="w-4 h-4 shrink-0" />
+                    Anonimizar titular
+                  </button>
+                  <button
+                    onClick={() => { setLgpdOpen(false); setLgpdConfirm("hard_delete"); setLgpdConfirmInput(""); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-[#f87171] hover:bg-[#1e2e22] transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                    Excluir titular
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             onClick={() => setShowEdit(true)}
             title="Editar contato"
@@ -524,6 +644,68 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
           onSaved={loadInvoices}
           onDeleted={loadInvoices}
         />
+      )}
+
+      {/* ── LGPD confirmation modal ────────────────────── */}
+      {lgpdConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div
+            className="w-full max-w-sm rounded-2xl p-6 space-y-4"
+            style={{ background: "#0d1710", border: "1px solid #2a3d30" }}
+          >
+            <div className="flex items-center gap-3">
+              {lgpdConfirm === "anonymize"
+                ? <UserX className="w-5 h-5 text-[#fbbf24] shrink-0" />
+                : <Trash2 className="w-5 h-5 text-[#f87171] shrink-0" />}
+              <h3 className="text-base font-semibold text-white">
+                {lgpdConfirm === "anonymize" ? "Anonimizar titular" : "Excluir titular"}
+              </h3>
+            </div>
+
+            <p className="text-sm text-[#6b7f6e]">
+              {lgpdConfirm === "anonymize"
+                ? "Os dados pessoais do contato serão substituídos por valores anônimos. O histórico de campanhas é mantido para fins estatísticos. Esta ação é irreversível."
+                : "O contato e todos os seus dados relacionados serão excluídos permanentemente. Esta ação não pode ser desfeita."}
+            </p>
+
+            <div>
+              <p className="text-xs text-[#6b7f6e] mb-1.5">
+                Digite <span className="font-mono text-white">CONFIRMAR</span> para prosseguir
+              </p>
+              <input
+                autoFocus
+                value={lgpdConfirmInput}
+                onChange={(e) => setLgpdConfirmInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && lgpdConfirmInput === "CONFIRMAR") handleLgpdForget(lgpdConfirm); }}
+                className="w-full px-3 py-2 rounded-lg text-sm text-white bg-[#111a14] outline-none focus:ring-1 ring-[#3fb06c]"
+                style={{ border: "1px solid #2a3d30" }}
+                placeholder="CONFIRMAR"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => { setLgpdConfirm(null); setLgpdConfirmInput(""); }}
+                className="flex-1 py-2 rounded-xl text-sm text-[#6b7f6e] hover:bg-[#1e2e22] transition-colors"
+                style={{ border: "1px solid #2a3d30" }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleLgpdForget(lgpdConfirm)}
+                disabled={lgpdConfirmInput !== "CONFIRMAR"}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{
+                  background: lgpdConfirm === "anonymize" ? "rgba(245,158,11,0.15)" : "rgba(239,68,68,0.15)",
+                  color:      lgpdConfirm === "anonymize" ? "#fbbf24" : "#f87171",
+                  border:     `1px solid ${lgpdConfirm === "anonymize" ? "rgba(245,158,11,0.3)" : "rgba(239,68,68,0.3)"}`,
+                }}
+              >
+                {lgpdConfirm === "anonymize" ? "Anonimizar" : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

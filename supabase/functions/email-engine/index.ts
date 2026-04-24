@@ -11,6 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import nodemailer from "npm:nodemailer@6";
+import { decrypt } from "../_shared/crypto.ts";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -150,9 +151,10 @@ async function refreshOAuthToken(
     throw new Error(data.error_description ?? data.error ?? "Falha ao renovar token OAuth2");
   }
   const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000).toISOString();
+  const { encrypt: encryptFn } = await import("../_shared/crypto.ts");
   await db.from("email_connections").update({
-    oauth_access_token:     data.access_token,
-    oauth_refresh_token:    data.refresh_token ?? refreshToken,
+    oauth_access_token:     await encryptFn(data.access_token),
+    oauth_refresh_token:    await encryptFn(data.refresh_token ?? refreshToken),
     oauth_token_expires_at: expiresAt,
   }).eq("id", connId);
   return data.access_token;
@@ -211,6 +213,15 @@ interface EmailConnConfig {
   oauth_access_token:     string | null;
   oauth_refresh_token:    string | null;
   oauth_token_expires_at: string | null;
+}
+
+async function decryptEmailConn(conn: EmailConnConfig): Promise<EmailConnConfig> {
+  return {
+    ...conn,
+    password:            await decrypt(conn.password),
+    oauth_access_token:  conn.oauth_access_token  ? await decrypt(conn.oauth_access_token)  : null,
+    oauth_refresh_token: conn.oauth_refresh_token ? await decrypt(conn.oauth_refresh_token) : null,
+  };
 }
 
 interface EmailMessage {
@@ -355,7 +366,7 @@ async function startSendLoop(
       .single();
     if (!data) throw new Error("Campanha não encontrada no banco de dados");
     campaign = data as Record<string, unknown>;
-    conn     = data.email_connections as EmailConnConfig;
+    conn     = await decryptEmailConn(data.email_connections as EmailConnConfig);
   }
 
   if (!conn) {
@@ -506,8 +517,9 @@ Deno.serve(async (req: Request) => {
       return json({ error: `Campanha não pode ser iniciada no status "${campaign.status}"` }, 409);
     }
 
-    const conn = campaign.email_connections as EmailConnConfig | null;
-    if (!conn) return json({ error: "Conexão de email não encontrada" }, 400);
+    const connRaw = campaign.email_connections as EmailConnConfig | null;
+    if (!connRaw) return json({ error: "Conexão de email não encontrada" }, 400);
+    const conn = await decryptEmailConn(connRaw);
 
     const { count: pendingCount } = await db
       .from("email_messages")

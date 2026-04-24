@@ -5,6 +5,7 @@
 //   WEBHOOK_VERIFY_TOKEN  – token cadastrado na Meta
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -233,7 +234,7 @@ async function processWebhook(body: Record<string, unknown>) {
 
         connectionId = conn?.id           ?? null;
         workspaceId  = conn?.workspace_id ?? null;
-        accessToken  = conn?.access_token ?? null;
+        accessToken  = conn?.access_token ? await decrypt(conn.access_token) : null;
 
         console.log(`[webhook] phone_number_id=${phoneNumId} → connection=${connectionId} workspace=${workspaceId}`);
       }

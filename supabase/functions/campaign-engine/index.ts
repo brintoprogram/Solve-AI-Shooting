@@ -10,6 +10,7 @@
 // calculated delay between batches based on campaign.sending_speed (msg/min).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY          = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -438,11 +439,16 @@ Deno.serve(async (req: Request) => {
       return json({ error: `Campanha não pode ser iniciada no status "${campaign.status}"` }, 409);
     }
 
-    const connection = campaign.meta_connections as Connection | null;
+    const rawConn    = campaign.meta_connections as Connection | null;
     const template   = campaign.meta_templates   as Template   | null;
 
-    if (!connection) return json({ error: "Conexão WhatsApp não encontrada" }, 400);
-    if (!template)   return json({ error: "Template não encontrado" }, 400);
+    if (!rawConn) return json({ error: "Conexão WhatsApp não encontrada" }, 400);
+    if (!template) return json({ error: "Template não encontrado" }, 400);
+
+    const connection: Connection = {
+      ...rawConn,
+      access_token: await decrypt(rawConn.access_token),
+    };
 
     // Mark as sending immediately so the UI updates
     await db.from("shooting_campaigns")
@@ -491,8 +497,9 @@ async function startSendLoop(
       .eq("id", campaignId)
       .single();
     if (!data) return;
-    conn     = data.meta_connections as Connection;
-    tpl      = data.meta_templates   as Template;
+    const rawConn2 = data.meta_connections as Connection;
+    conn     = { ...rawConn2, access_token: await decrypt(rawConn2.access_token) };
+    tpl      = data.meta_templates as Template;
     campaign = data;
   }
 
