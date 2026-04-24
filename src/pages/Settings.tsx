@@ -8,6 +8,7 @@ import {
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
+import type { MetaConnection }  from "@/types/shooting";
 import { getPhoneNumberInfo }  from "@/services/metaApi";
 import { useToast }            from "@/hooks/use-toast";
 import { cn }                  from "@/lib/utils";
@@ -93,13 +94,160 @@ function StepBadge({ n }: { n: number }) {
   );
 }
 
+// ── Reconnect Modal ───────────────────────────────────────────────
+
+function ReconnectModal({ conn, onClose, onSaved }: {
+  conn:    MetaConnection;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast }                         = useToast();
+  const [wabaId,      setWabaId]          = useState(conn.waba_id      ?? "");
+  const [phoneNumId,  setPhoneNumId]      = useState(conn.phone_number_id ?? "");
+  const [accessToken, setAccessToken]     = useState("");
+  const [testing,     setTesting]         = useState(false);
+  const [saving,      setSaving]          = useState(false);
+  const [testResult,  setTestResult]      = useState<{ ok: boolean; info?: string } | null>(null);
+
+  async function handleTest() {
+    if (!phoneNumId || !accessToken) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const info = await getPhoneNumberInfo(phoneNumId, accessToken);
+      setTestResult({ ok: true, info: `${info.verified_name} · ${info.display_phone_number} · ${info.quality_rating}` });
+    } catch (err) {
+      setTestResult({ ok: false, info: err instanceof Error ? err.message : "Erro desconhecido" });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!wabaId || !phoneNumId || !accessToken) return;
+    setSaving(true);
+    try {
+      const phoneInfo = await getPhoneNumberInfo(phoneNumId, accessToken);
+      const { error: err } = await supabase
+        .from("meta_connections")
+        .update({
+          waba_id:         wabaId,
+          phone_number_id: phoneNumId,
+          access_token:    accessToken,
+          display_phone:   phoneInfo.display_phone_number,
+          business_name:   phoneInfo.verified_name,
+          quality_rating:  (phoneInfo.quality_rating as "GREEN" | "YELLOW" | "RED") ?? null,
+          messaging_limit: (phoneInfo.messaging_limit_tier as "TIER_1K" | "TIER_10K" | "TIER_100K" | "UNLIMITED") ?? null,
+          status:          "active",
+          updated_at:      new Date().toISOString(),
+        })
+        .eq("id", conn.id);
+      if (err) throw err;
+      toast({ title: "Conexão atualizada com sucesso!", variant: "success" });
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast({ title: "Erro ao salvar", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
+        style={{ background: "#0d1710", border: "1px solid rgba(63,176,108,0.2)", boxShadow: "0 32px 80px rgba(0,0,0,0.7)" }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.2)" }}>
+              <RefreshCw className="w-4 h-4 text-agro-green" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-agro-text">Reconectar WhatsApp</h2>
+              <p className="text-[11px] text-agro-muted-2">{conn.display_phone ?? conn.phone_number_id}</p>
+            </div>
+          </div>
+          <button onClick={onClose}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-text hover:bg-white/5 transition-colors">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Fields */}
+        <div className="space-y-3">
+          <div>
+            <FieldLabel>WABA ID</FieldLabel>
+            <input className="input-agro w-full" placeholder="123456789012345"
+              value={wabaId} onChange={(e) => setWabaId(e.target.value)} />
+          </div>
+          <div>
+            <FieldLabel>Phone Number ID</FieldLabel>
+            <input className="input-agro w-full" placeholder="100123456789012"
+              value={phoneNumId} onChange={(e) => setPhoneNumId(e.target.value)} />
+          </div>
+          <div>
+            <FieldLabel>Access Token *</FieldLabel>
+            <input className="input-agro w-full" type="password" placeholder="EAAxxxxxxxxx…"
+              value={accessToken} onChange={(e) => setAccessToken(e.target.value)} />
+            <p className="text-xs text-agro-muted mt-1.5">Use um System User Token permanente, não um token temporário.</p>
+          </div>
+        </div>
+
+        {/* Test result */}
+        {testResult && (
+          <div className="flex items-start gap-3 p-3 rounded-xl"
+            style={testResult.ok
+              ? { background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.25)" }
+              : { background: "rgba(239,68,68,0.08)",  border: "1px solid rgba(239,68,68,0.25)"  }}
+          >
+            {testResult.ok
+              ? <CheckCircle className="w-4 h-4 text-agro-green shrink-0 mt-0.5" />
+              : <XCircle    className="w-4 h-4 text-red-400 shrink-0 mt-0.5"    />
+            }
+            <div>
+              <p className={cn("text-sm font-semibold", testResult.ok ? "text-agro-green" : "text-red-400")}>
+                {testResult.ok ? "Conexão validada!" : "Falha na conexão"}
+              </p>
+              <p className="text-xs text-agro-muted mt-0.5">{testResult.info}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3 pt-1">
+          <button onClick={handleTest} disabled={!phoneNumId || !accessToken || testing}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
+            style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", testing && "animate-spin")} />
+            {testing ? "Testando…" : "Testar"}
+          </button>
+          <button onClick={handleSave} disabled={!wabaId || !phoneNumId || !accessToken || saving}
+            className="flex-1 btn-agro flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving ? "Salvando…" : "Salvar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Settings page ─────────────────────────────────────────────────
 
 export function Settings() {
   const navigate                           = useNavigate();
   const { profile, workspaceId, updateProfile } = useAuth();
   const WORKSPACE_ID = workspaceId ?? "";
-  const { connections, upsertConnection }  = useMetaConnections(WORKSPACE_ID);
+  const { connections, upsertConnection, refetch: refetchConnections } = useMetaConnections(WORKSPACE_ID);
+  const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
   const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
@@ -760,10 +908,10 @@ CREATE POLICY "avatars_delete" ON storage.objects
                             </span>
                           )}
                           <button
-                            onClick={() => navigate("/onboarding")}
+                            onClick={() => setReconnectTarget(conn)}
                             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[#60a5fa] hover:bg-[#1a2a3a] transition-colors"
                             style={{ border: "1px solid rgba(59,130,246,0.3)" }}
-                            title="Reconectar para atualizar credenciais da Meta"
+                            title="Atualizar IDs e token da conexão Meta"
                           >
                             <RefreshCw className="w-3 h-3" />
                             Reconectar
@@ -1566,6 +1714,14 @@ CREATE POLICY "avatars_delete" ON storage.objects
         )}
 
       </div>
+
+      {reconnectTarget && (
+        <ReconnectModal
+          conn={reconnectTarget}
+          onClose={() => setReconnectTarget(null)}
+          onSaved={() => refetchConnections()}
+        />
+      )}
     </div>
   );
 }

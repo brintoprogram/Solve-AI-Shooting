@@ -52,5 +52,15 @@ export function useMetaConnections(workspaceId: string) {
     setConnections((prev) => prev.filter((c) => c.id !== id));
   }
 
-  return { connections, loading, error, upsertConnection, deleteConnection };
+  async function refetch() {
+    if (!workspaceId) return;
+    const { data, error: err } = await supabase
+      .from("meta_connections")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false });
+    if (!err) setConnections(data ?? []);
+  }
+
+  return { connections, loading, error, upsertConnection, deleteConnection, refetch };
 }
