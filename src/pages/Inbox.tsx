@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MessageSquare } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/context/AuthContext";
 import { useInboxConversations } from "@/hooks/useInbox";
@@ -16,6 +17,9 @@ export function Inbox() {
   } = useInboxConversations(workspaceId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
+  const [searchParams] = useSearchParams();
+  const targetConvId = searchParams.get("conversation");
+  const autoSelectedRef = useRef(false);
 
   // Keep selected conversation in sync when Realtime refreshes the list
   useEffect(() => {
@@ -25,6 +29,17 @@ export function Inbox() {
     else setSelectedConv(null); // deleted
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations]);
+
+  // Auto-select conversation when navigated from Alerts with ?conversation=
+  useEffect(() => {
+    if (!targetConvId || loading || autoSelectedRef.current) return;
+    const conv = conversations.find((c) => c.id === targetConvId);
+    if (conv) {
+      handleSelect(conv);
+      autoSelectedRef.current = true;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, conversations]);
 
   function handleSelect(conv: InboxConversation) {
     setSelectedConv(conv);

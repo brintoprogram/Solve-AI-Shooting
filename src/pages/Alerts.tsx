@@ -95,12 +95,6 @@ function HistoryRow({ alert }: { alert: CampaignAlert }) {
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-xs text-agro-muted leading-relaxed">{alert.summary}</p>
-        <p
-          className="text-[11px] text-agro-muted-2 mt-1 italic rounded px-2 py-1 truncate"
-          style={{ background: "rgba(63,176,108,0.03)", border: "1px solid rgba(63,176,108,0.05)" }}
-        >
-          "{alert.reply_text.length > 120 ? alert.reply_text.slice(0, 120) + "…" : alert.reply_text}"
-        </p>
       </div>
       <span className="text-[10px] text-agro-muted-2 shrink-0 mt-0.5">
         {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true, locale: ptBR })}
@@ -188,16 +182,6 @@ function ContactGroupCard({
 
             {/* Latest summary */}
             <p className="text-sm text-agro-muted mt-2 leading-relaxed">{latest.summary}</p>
-
-            {/* Latest reply text */}
-            <p
-              className="text-xs text-agro-muted-2 mt-2 rounded-lg p-2 italic line-clamp-2"
-              style={{ background: "rgba(63,176,108,0.04)", border: "1px solid rgba(63,176,108,0.06)" }}
-            >
-              "{latest.reply_text.length > 200
-                ? latest.reply_text.slice(0, 200) + "…"
-                : latest.reply_text}"
-            </p>
           </div>
         </div>
 
