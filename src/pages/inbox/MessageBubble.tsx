@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle, Image, FileVideo, RefreshCw } from "lucide-react";
+import {
+  Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle,
+  Image, FileVideo, RefreshCw, Trash2, StickyNote,
+} from "lucide-react";
 import type { InboxMessage } from "@/types/inbox";
 
 // ── Template preview types ────────────────────────────────
@@ -26,7 +29,6 @@ function TemplateCard({ preview }: { preview: TemplatePreview }) {
 
   return (
     <div className="space-y-0 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(63,176,108,0.2)", minWidth: 220, maxWidth: 300 }}>
-      {/* Header */}
       {preview.header && (
         headerIsMedia ? (
           <div
@@ -44,32 +46,23 @@ function TemplateCard({ preview }: { preview: TemplatePreview }) {
           </div>
         ) : null
       )}
-
-      {/* Body */}
       {preview.body && (
         <div className="px-3 py-2">
           <p className="text-sm text-agro-text whitespace-pre-wrap leading-relaxed">{preview.body}</p>
         </div>
       )}
-
-      {/* Footer */}
       {preview.footer && (
         <div className="px-3 pb-2">
           <p className="text-[11px] text-agro-muted-2 leading-snug">{preview.footer}</p>
         </div>
       )}
-
-      {/* Buttons */}
       {preview.buttons && preview.buttons.length > 0 && (
         <div style={{ borderTop: "1px solid rgba(63,176,108,0.12)" }}>
           {preview.buttons.map((btn, i) => (
             <div
               key={i}
               className="flex items-center justify-center px-3 py-2 text-xs font-semibold"
-              style={{
-                color: "#3fb06c",
-                borderTop: i > 0 ? "1px solid rgba(63,176,108,0.1)" : undefined,
-              }}
+              style={{ color: "#3fb06c", borderTop: i > 0 ? "1px solid rgba(63,176,108,0.1)" : undefined }}
             >
               {btn}
             </div>
@@ -81,13 +74,16 @@ function TemplateCard({ preview }: { preview: TemplatePreview }) {
 }
 
 interface Props {
-  message:       InboxMessage;
-  teamMembers?:  { id: string; full_name: string | null; avatar_url?: string | null }[];
+  message:        InboxMessage;
+  teamMembers?:   { id: string; full_name: string | null; avatar_url?: string | null }[];
   currentUserId?: string;
+  onDelete?:      (id: string) => void;
 }
 
-export function MessageBubble({ message, teamMembers, currentUserId }: Props) {
+export function MessageBubble({ message, teamMembers, currentUserId, onDelete }: Props) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const isInbound  = message.direction === "inbound";
+  const isInternal = message.is_internal === true;
   const isTemplate = message.message_type === "template";
   const time       = format(new Date(message.created_at), "HH:mm");
 
@@ -97,27 +93,129 @@ export function MessageBubble({ message, teamMembers, currentUserId }: Props) {
       : (teamMembers?.find((m) => m.id === message.sent_by)?.full_name?.split(" ")[0] ?? "Agente")
     : null;
 
+  // ── Internal note ─────────────────────────────────────────
+  if (isInternal) {
+    return (
+      <div className="flex flex-col items-end mb-1 group">
+        {senderLabel && (
+          <span className="text-[10px] text-agro-muted-2 mb-0.5 px-1 select-none">
+            {senderLabel}
+          </span>
+        )}
+        <div className="relative max-w-[72%]">
+          {/* Delete button */}
+          {onDelete && (
+            <DeleteButton
+              confirmDelete={confirmDelete}
+              setConfirmDelete={setConfirmDelete}
+              onDelete={() => onDelete(message.id)}
+              side="left"
+            />
+          )}
+          <div
+            className="rounded-2xl rounded-tr-sm px-3 py-2"
+            style={{
+              background: "rgba(30, 20, 0, 0.85)",
+              border: "1px solid rgba(245,158,11,0.3)",
+            }}
+          >
+            {/* Note badge */}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <StickyNote className="w-3 h-3" style={{ color: "#f59e0b" }} />
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#f59e0b" }}>
+                Nota interna
+              </span>
+            </div>
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ color: "#fde68a" }}>
+              {message.body}
+            </p>
+            <div className="flex items-center justify-end gap-1 mt-1 select-none">
+              <span className="text-[10px] leading-none" style={{ color: "rgba(253,230,138,0.5)" }}>{time}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal message ────────────────────────────────────────
   return (
-    <div className={`flex flex-col ${isInbound ? "items-start" : "items-end"} mb-1`}>
+    <div className={`flex flex-col ${isInbound ? "items-start" : "items-end"} mb-1 group`}>
       {senderLabel && (
         <span className="text-[10px] text-agro-muted-2 mb-0.5 px-1 select-none">
           {senderLabel}
         </span>
       )}
-      <div
-        className={`max-w-[72%] rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
-        style={isTemplate ? { background: "transparent" } : (
-          isInbound
-            ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)" }
-            : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)" }
+      <div className={`relative max-w-[72%]`}>
+        {/* Delete button — outbound only */}
+        {!isInbound && onDelete && (
+          <DeleteButton
+            confirmDelete={confirmDelete}
+            setConfirmDelete={setConfirmDelete}
+            onDelete={() => onDelete(message.id)}
+            side="left"
+          />
         )}
-      >
-        <MessageContent message={message} />
-        <div className={`flex items-center justify-end gap-1 mt-1 select-none ${isTemplate ? "px-1" : ""}`}>
-          <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
-          {!isInbound && <StatusTicks message={message} />}
+        <div
+          className={`rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
+          style={isTemplate ? { background: "transparent" } : (
+            isInbound
+              ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)" }
+              : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)" }
+          )}
+        >
+          <MessageContent message={message} />
+          <div className={`flex items-center justify-end gap-1 mt-1 select-none ${isTemplate ? "px-1" : ""}`}>
+            <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
+            {!isInbound && <StatusTicks message={message} />}
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Delete button (inline confirmation) ───────────────────
+
+interface DeleteButtonProps {
+  confirmDelete:    boolean;
+  setConfirmDelete: (v: boolean) => void;
+  onDelete:         () => void;
+  side:             "left" | "right";
+}
+
+function DeleteButton({ confirmDelete, setConfirmDelete, onDelete, side }: DeleteButtonProps) {
+  const pos = side === "left" ? "right-full mr-1.5" : "left-full ml-1.5";
+  return (
+    <div
+      className={`absolute top-1/2 -translate-y-1/2 ${pos} flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity`}
+    >
+      {confirmDelete ? (
+        <>
+          <button
+            onClick={() => { onDelete(); setConfirmDelete(false); }}
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-md text-white transition-colors"
+            style={{ background: "#ef4444" }}
+          >
+            Sim
+          </button>
+          <button
+            onClick={() => setConfirmDelete(false)}
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-md text-agro-muted transition-colors hover:text-agro-text"
+            style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+          >
+            Não
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          title="Apagar mensagem"
+          className="w-6 h-6 flex items-center justify-center rounded-lg text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-all"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -144,7 +242,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return (
         <div className="space-y-1">
           {message.media_url ? (
-            <div className="relative group">
+            <div className="relative group/img">
               <img
                 src={message.media_url}
                 alt="Imagem"
@@ -157,7 +255,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
                 download
                 target="_blank"
                 rel="noopener noreferrer"
-                className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
                 style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
                 title="Baixar imagem"
               >
@@ -184,12 +282,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return (
         <div className="space-y-1">
           {message.media_url ? (
-            <video
-              controls
-              src={message.media_url}
-              className="rounded-xl"
-              style={{ maxWidth: 240, maxHeight: 200 }}
-            />
+            <video controls src={message.media_url} className="rounded-xl" style={{ maxWidth: 240, maxHeight: 200 }} />
           ) : (
             <MediaPlaceholder icon="🎬" label="Vídeo" mediaId={message.media_id} messageId={message.id} />
           )}
@@ -203,34 +296,19 @@ function MessageContent({ message }: { message: InboxMessage }) {
       return (
         <div
           className="flex items-center gap-3 p-3 rounded-xl"
-          style={{
-            background: "rgba(0,0,0,0.2)",
-            border: "1px solid rgba(63,176,108,0.1)",
-            minWidth: 180,
-          }}
+          style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.1)", minWidth: 180 }}
         >
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "rgba(63,176,108,0.15)" }}
-          >
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(63,176,108,0.15)" }}>
             <FileText className="w-5 h-5 text-agro-green" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-agro-text truncate">
-              {message.media_filename ?? "Documento"}
-            </p>
+            <p className="text-sm font-medium text-agro-text truncate">{message.media_filename ?? "Documento"}</p>
             {message.media_size && (
               <p className="text-xs text-agro-muted">{formatBytes(message.media_size)}</p>
             )}
           </div>
           {message.media_url ? (
-            <a
-              href={message.media_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-agro-green hover:text-agro-text transition-colors shrink-0"
-              title="Baixar documento"
-            >
+            <a href={message.media_url} target="_blank" rel="noopener noreferrer" className="text-agro-green hover:text-agro-text transition-colors shrink-0" title="Baixar documento">
               <Download className="w-4 h-4" />
             </a>
           ) : (
@@ -249,12 +327,8 @@ function MessageContent({ message }: { message: InboxMessage }) {
         >
           <MapPin className="w-4 h-4 text-agro-green mt-0.5 shrink-0" />
           <div>
-            {message.location_name && (
-              <p className="text-sm font-medium text-agro-text">{message.location_name}</p>
-            )}
-            {message.location_address && (
-              <p className="text-xs text-agro-muted">{message.location_address}</p>
-            )}
+            {message.location_name    && <p className="text-sm font-medium text-agro-text">{message.location_name}</p>}
+            {message.location_address && <p className="text-xs text-agro-muted">{message.location_address}</p>}
             <p className="text-xs text-agro-muted font-mono mt-0.5">
               {message.location_lat?.toFixed(5)}, {message.location_lng?.toFixed(5)}
             </p>
@@ -271,14 +345,9 @@ function MessageContent({ message }: { message: InboxMessage }) {
 
     case "button_reply":
       return (
-        <div
-          className="flex items-center gap-2 px-3 py-2 rounded-xl"
-          style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.25)" }}
-        >
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.25)" }}>
           <span className="text-base leading-none">🔘</span>
-          <p className="text-sm font-medium" style={{ color: "#3fb06c" }}>
-            {message.body ?? "Botão clicado"}
-          </p>
+          <p className="text-sm font-medium" style={{ color: "#3fb06c" }}>{message.body ?? "Botão clicado"}</p>
         </div>
       );
 
@@ -294,11 +363,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
     }
 
     default:
-      return (
-        <p className="text-xs text-agro-muted italic">
-          Tipo de mensagem não suportado
-        </p>
-      );
+      return <p className="text-xs text-agro-muted italic">Tipo de mensagem não suportado</p>;
   }
 }
 
@@ -318,17 +383,12 @@ function MediaPlaceholder({
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-media`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
+          headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
           body: JSON.stringify({ message_id: messageId }),
         },
       );
-      setDone(true); // realtime will update the message; show "aguardando"
-    } catch {
-      // silent — user can retry
-    }
+      setDone(true);
+    } catch { /* silent */ }
     setLoading(false);
   }
 
@@ -340,9 +400,7 @@ function MediaPlaceholder({
       <span className="text-lg leading-none">{icon}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-agro-muted">{label}</p>
-        <p className="text-[10px] text-agro-muted-2">
-          {done ? "Carregando…" : "Mídia pendente"}
-        </p>
+        <p className="text-[10px] text-agro-muted-2">{done ? "Carregando…" : "Mídia pendente"}</p>
       </div>
       {messageId && !done && (
         <button

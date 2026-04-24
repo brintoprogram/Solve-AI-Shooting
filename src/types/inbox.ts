@@ -62,6 +62,7 @@ export interface InboxMessage {
   reaction_emoji: string | null;
   reaction_wamid: string | null;
   sent_by: string | null;
+  is_internal: boolean;
   status: "sending" | "sent" | "delivered" | "read" | "failed";
   sent_at: string | null;
   delivered_at: string | null;

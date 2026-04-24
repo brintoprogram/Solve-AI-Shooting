@@ -89,7 +89,7 @@ export function useInboxMessages(conversationId: string | null) {
         setLoading(false);
       });
 
-    // Realtime: append new messages and update existing (status changes)
+    // Realtime: append new messages, update existing, remove deleted
     const channel = db
       .channel(`inbox-msgs-${conversationId}`)
       .on(
@@ -121,10 +121,27 @@ export function useInboxMessages(conversationId: string | null) {
           );
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "inbox_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: { old: { id: string } }) => {
+          setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
+        }
+      )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [conversationId]);
 
-  return { messages, loading };
+  async function deleteMessage(id: string) {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    await db.from("inbox_messages").delete().eq("id", id);
+  }
+
+  return { messages, loading, deleteMessage };
 }

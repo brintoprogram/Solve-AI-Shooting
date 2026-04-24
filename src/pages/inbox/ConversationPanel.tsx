@@ -52,7 +52,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
   const { profile, workspaceId } = useAuth();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
-  const { messages, loading } = useInboxMessages(conversation.id);
+  const { messages, loading, deleteMessage } = useInboxMessages(conversation.id);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const resolvedRef = useRef<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
@@ -185,6 +185,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
                 message={msg}
                 teamMembers={teamMembers}
                 currentUserId={profile?.id}
+                onDelete={deleteMessage}
               />
             </div>
           );
@@ -197,7 +198,9 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
       <MessageInput
         conversationId={conversation.id}
         workspaceId={conversation.workspace_id}
+        contactId={conversation.contact_id}
         sentBy={profile?.id ?? ""}
+        senderName={profile?.full_name ?? ""}
       />
 
       </div>{/* end main column */}
