@@ -226,11 +226,13 @@ function PermissionsModal({ member, onClose, onSaved }: PermissionsModalProps) {
 // ── Invite Modal ────────────────────────────────────────────────
 
 interface InviteModalProps {
-  onClose:   () => void;
-  onSuccess: () => void;
+  onClose:     () => void;
+  onSuccess:   () => void;
+  workspaceId: string;
+  invitedBy:   string;
 }
 
-function InviteModal({ onClose, onSuccess }: InviteModalProps) {
+function InviteModal({ onClose, onSuccess, workspaceId, invitedBy }: InviteModalProps) {
   const [email,    setEmail]    = useState("");
   const [fullName, setFullName] = useState("");
   const [role,     setRole]     = useState<RoleOption>("agent");
@@ -264,6 +266,14 @@ function InviteModal({ onClose, onSuccess }: InviteModalProps) {
         setError(json.error ?? "Erro ao enviar convite.");
       } else {
         toast({ title: "Convite enviado!", description: `${email} receberá um e-mail de acesso.`, variant: "success" });
+        db.from("audit_logs").insert({
+          workspace_id: workspaceId,
+          event_type:   "member_invited",
+          entity_type:  "workspace_invite",
+          entity_id:    email.trim(),
+          status:       "ok",
+          metadata:     { email: email.trim(), role, invited_by: invitedBy },
+        });
         onSuccess();
         onClose();
       }
@@ -444,8 +454,17 @@ export function Team() {
     if (error) {
       toast({ title: "Erro ao atualizar cargo", description: error.message, variant: "destructive" });
     } else {
+      const oldRole = members.find((m) => m.id === memberId)?.role ?? "";
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
       toast({ title: "Cargo atualizado", variant: "success" });
+      db.from("audit_logs").insert({
+        workspace_id: workspaceId,
+        event_type:   "member_role_changed",
+        entity_type:  "user",
+        entity_id:    memberId,
+        status:       "ok",
+        metadata:     { old_role: oldRole, new_role: newRole, changed_by: myProfile.id },
+      });
     }
     setUpdating(null);
   }
@@ -690,7 +709,12 @@ export function Team() {
 
       {/* ── Modals ──────────────────────────────────── */}
       {showInvite && (
-        <InviteModal onClose={() => setShowInvite(false)} onSuccess={load} />
+        <InviteModal
+          onClose={() => setShowInvite(false)}
+          onSuccess={load}
+          workspaceId={workspaceId ?? ""}
+          invitedBy={myProfile.id}
+        />
       )}
 
       {permTarget && (

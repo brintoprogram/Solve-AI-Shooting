@@ -759,6 +759,15 @@ CREATE POLICY "avatars_delete" ON storage.objects
                               {conn.messaging_limit}
                             </span>
                           )}
+                          <button
+                            onClick={() => navigate("/onboarding")}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[#60a5fa] hover:bg-[#1a2a3a] transition-colors"
+                            style={{ border: "1px solid rgba(59,130,246,0.3)" }}
+                            title="Reconectar para atualizar credenciais da Meta"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Reconectar
+                          </button>
                         </div>
                       </div>
                       {conn.webhook_verify_token && (

@@ -405,13 +405,23 @@ Deno.serve(async (req: Request) => {
 
   try {
     // ── Quick actions ──────────────────────────────────────────
+    // Fetch workspace_id upfront so all actions can emit audit logs
+    const { data: campMeta } = await db
+      .from("shooting_campaigns")
+      .select("workspace_id")
+      .eq("id", campaign_id)
+      .maybeSingle();
+    const auditWid = (campMeta?.workspace_id as string) ?? "";
+
     if (action === "pause") {
       await db.from("shooting_campaigns").update({ status: "paused" }).eq("id", campaign_id);
+      writeAuditLog(auditWid, "campaign_paused", campaign_id, "campaign", "info");
       return json({ ok: true });
     }
 
     if (action === "resume") {
       await db.from("shooting_campaigns").update({ status: "sending" }).eq("id", campaign_id);
+      writeAuditLog(auditWid, "campaign_resumed", campaign_id, "campaign", "info");
       // Fire-and-forget: re-kick the engine by starting the send loop
       startSendLoop(campaign_id); // intentionally not awaited
       return json({ ok: true, info: "resumed" });
@@ -421,6 +431,7 @@ Deno.serve(async (req: Request) => {
       await db.from("shooting_campaigns")
         .update({ status: "cancelled", completed_at: new Date().toISOString() })
         .eq("id", campaign_id);
+      writeAuditLog(auditWid, "campaign_cancelled", campaign_id, "campaign", "info");
       return json({ ok: true });
     }
 
