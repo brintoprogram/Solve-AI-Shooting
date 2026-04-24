@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { format } from "date-fns";
 import {
   Download, MapPin, FileText, Check, CheckCheck, Clock, AlertCircle,
@@ -126,8 +126,8 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
                 Nota interna
               </span>
             </div>
-            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed" style={{ color: "#fde68a" }}>
-              {message.body}
+            <p className="text-sm break-words leading-relaxed" style={{ color: "#fde68a" }}>
+              {renderWhatsApp(message.body ?? "")}
             </p>
             <div className="flex items-center justify-end gap-1 mt-1 select-none">
               <span className="text-[10px] leading-none" style={{ color: "rgba(253,230,138,0.5)" }}>{time}</span>
@@ -228,12 +228,43 @@ function StatusTicks({ message }: { message: InboxMessage }) {
   return <Clock className="w-3 h-3 text-agro-muted-2 shrink-0 opacity-60" />;
 }
 
+// ── WhatsApp markdown renderer ────────────────────────────
+// Supports: *bold*, _italic_, ~strikethrough~, ```mono```
+function parseInline(text: string): React.ReactNode[] {
+  const pattern = /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|```[^`\n]+```)/g;
+  const result: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) result.push(text.slice(last, match.index));
+    const m = match[0];
+    const inner = m.startsWith("```") ? m.slice(3, -3) : m.slice(1, -1);
+    const key = match.index;
+    if (m.startsWith("*"))   result.push(<strong key={key} className="font-semibold">{inner}</strong>);
+    else if (m.startsWith("_"))   result.push(<em key={key}>{inner}</em>);
+    else if (m.startsWith("~"))   result.push(<s key={key}>{inner}</s>);
+    else if (m.startsWith("```")) result.push(<code key={key} className="font-mono text-xs rounded px-1" style={{ background: "rgba(0,0,0,0.25)" }}>{inner}</code>);
+    last = match.index + m.length;
+  }
+  if (last < text.length) result.push(text.slice(last));
+  return result;
+}
+
+function renderWhatsApp(raw: string): React.ReactNode {
+  return raw.split("\n").map((line, i) => (
+    <Fragment key={i}>
+      {i > 0 && <br />}
+      {parseInline(line)}
+    </Fragment>
+  ));
+}
+
 function MessageContent({ message }: { message: InboxMessage }) {
   switch (message.message_type) {
     case "text":
       return (
-        <p className="text-sm text-agro-text whitespace-pre-wrap break-words leading-relaxed">
-          {message.body}
+        <p className="text-sm text-agro-text break-words leading-relaxed">
+          {renderWhatsApp(message.body ?? "")}
         </p>
       );
 
