@@ -190,26 +190,76 @@ function BaseCadastrada({ workspaceId }: Props) {
   async function startWaCheck() {
     const eligible = contacts.filter((c) => c.problem === "ok" || c.problem === "landline");
     if (!eligible.length) { toast({ title: "Nenhum número para verificar" }); return; }
+
     setChecking(true);
     setCheckProg({ done: 0, total: eligible.length });
     const ids = eligible.map((c) => c.id);
+
     await db.from("inbox_contacts").update({ wa_status: "checking" }).in("id", ids);
-    await fetch(`${SUPABASE_URL}/functions/v1/check-wa-contacts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON },
-      body: JSON.stringify({ workspace_id: workspaceId, contact_ids: ids }),
-    }).catch(() => {});
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/check-wa-contacts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON,
+          "Authorization": `Bearer ${session?.access_token ?? SUPABASE_ANON}`,
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, contact_ids: ids }),
+      });
+
+      if (!res.ok) {
+        // Try to parse the error body for a human-readable message
+        let errMsg = `Erro HTTP ${res.status}`;
+        try {
+          const errBody = await res.json() as { error?: string };
+          if (errBody.error) errMsg = errBody.error;
+        } catch { /* ignore parse failure */ }
+        throw new Error(errMsg);
+      }
+    } catch (err) {
+      // Reset contacts so they don't stay stuck as "checking"
+      await db.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
+      setChecking(false);
+      load();
+      toast({
+        title: "Erro na verificação WhatsApp",
+        description: (err as Error).message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Poll until all contacts are updated, with a 5-minute safety timeout
+    let elapsedMs = 0;
+    const POLL_INTERVAL = 2000;
+    const MAX_WAIT_MS   = 5 * 60 * 1000;
+
     pollRef.current = setInterval(async () => {
+      elapsedMs += POLL_INTERVAL;
       const { data } = await db.from("inbox_contacts").select("id, wa_status").in("id", ids);
       const done = (data ?? []).filter((r: { wa_status: string }) => r.wa_status !== "checking").length;
       setCheckProg({ done, total: eligible.length });
-      if (done >= eligible.length) {
+
+      const timedOut = elapsedMs >= MAX_WAIT_MS;
+      if (done >= eligible.length || timedOut) {
         clearInterval(pollRef.current!);
         setChecking(false);
         load();
-        toast({ title: `Verificação concluída — ${done} números verificados` });
+        if (timedOut && done < eligible.length) {
+          // Reset stuck "checking" rows
+          await db.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
+          toast({
+            title: "Verificação demorou demais",
+            description: "A API da Meta não respondeu a tempo. Tente novamente com menos contatos.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: `Verificação concluída — ${done} números verificados` });
+        }
       }
-    }, 2000);
+    }, POLL_INTERVAL);
   }
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -453,19 +503,41 @@ function PlanilhaAvulsa({ workspaceId }: Props) {
       const phones = batch.map((r) => r.phoneNorm);
 
       try {
+        const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch(`${SUPABASE_URL}/functions/v1/check-wa-contacts`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON },
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON,
+            "Authorization": `Bearer ${session?.access_token ?? SUPABASE_ANON}`,
+          },
           body: JSON.stringify({ workspace_id: workspaceId, mode: "return", phones }),
         });
-        const data = await res.json() as { results?: Array<{ phone: string; status: string }> };
+
+        if (!res.ok) {
+          let errMsg = `Erro HTTP ${res.status}`;
+          try { const b = await res.json() as { error?: string }; if (b.error) errMsg = b.error; } catch { /* ignore */ }
+          throw new Error(errMsg);
+        }
+
+        const data = await res.json() as { ok?: boolean; results?: Array<{ phone: string; status: string }>; error?: string };
+        if (!data.ok) throw new Error(data.error ?? "Resposta inválida da API");
+
         const resultMap = new Map((data.results ?? []).map((r) => [r.phone.replace(/\D/g, ""), r.status]));
         batch.forEach((r) => {
           const status = resultMap.get(r.phoneNorm) ?? "unknown";
           updated[r.rowIndex] = { ...updated[r.rowIndex], waStatus: status as WaStatus };
         });
-      } catch {
+      } catch (err) {
         batch.forEach((r) => { updated[r.rowIndex] = { ...updated[r.rowIndex], waStatus: "unknown" }; });
+        setChecking(false);
+        setRows([...updated]);
+        toast({
+          title: "Erro na verificação WhatsApp",
+          description: (err as Error).message,
+          variant: "destructive",
+        });
+        return;
       }
 
       done += batch.length;
