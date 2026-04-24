@@ -53,6 +53,11 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
   const [signatureEnabled, setSignatureEnabled] = useState(
     () => localStorage.getItem(`inbox_sig_${sentBy}`) === "1"
   );
+  const [signatureText, setSignatureText] = useState(
+    () => localStorage.getItem(`inbox_sig_text_${sentBy}`) ?? `— ${senderName}`
+  );
+  const [editingSignature, setEditingSignature] = useState(false);
+  const sigEditorRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Grammar correction ──────────────────────────────────────
   const [correcting, setCorrecting] = useState(false);
@@ -103,17 +108,44 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
     const trimmed = text.trim();
     if (!trimmed || correcting) return;
     setCorrecting(true);
+    setError(null);
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("fix-grammar", {
         body: { text: trimmed },
       });
-      if (fnErr) throw fnErr;
+      if (fnErr) {
+        let msg = fnErr.message ?? "Erro ao corrigir";
+        try { msg = ((fnErr as any).context && await (fnErr as any).context.json?.())?.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
       if (data?.corrected) {
         setText(data.corrected);
         setTimeout(() => autoResize(), 0);
       }
-    } catch { /* silent — user's text stays unchanged */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao corrigir gramática");
+    }
     setCorrecting(false);
+  }
+
+  // ── Signature helpers ──────────────────────────────────────
+  function saveSignatureText(val: string) {
+    setSignatureText(val);
+    localStorage.setItem(`inbox_sig_text_${sentBy}`, val);
+  }
+
+  function wrapSignatureSelection(marker: string) {
+    const ta = sigEditorRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const selected = signatureText.slice(start, end);
+    const next = signatureText.slice(0, start) + marker + selected + marker + signatureText.slice(end);
+    saveSignatureText(next);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + marker.length, end + marker.length);
+    }, 0);
   }
 
   // ── Quick reply insert ─────────────────────────────────────
@@ -148,8 +180,8 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
     try {
       // Build final text (append signature if enabled, for outbound messages only)
       let finalText = trimmed;
-      if (!isNote && signatureEnabled && senderName && trimmed) {
-        finalText = `${trimmed}\n— ${senderName}`;
+      if (!isNote && signatureEnabled && signatureText.trim() && trimmed) {
+        finalText = `${trimmed}\n${signatureText.trim()}`;
       }
 
       if (isNote) {
@@ -250,6 +282,7 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
     const next = !signatureEnabled;
     setSignatureEnabled(next);
     localStorage.setItem(`inbox_sig_${sentBy}`, next ? "1" : "0");
+    if (!next) setEditingSignature(false);
   }
 
   const canSend      = !sending && (text.trim().length > 0 || attachment !== null);
@@ -502,10 +535,10 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         }}
       />
 
-      {/* ── Signature preview ──────────────────────────────── */}
-      {signatureEnabled && !isNote && senderName && text.trim() && (
-        <p className="text-[11px] text-agro-muted-2 ml-3 mt-0.5 italic select-none">
-          — {senderName}
+      {/* ── Signature preview (when enabled and has message text) ── */}
+      {signatureEnabled && !isNote && signatureText.trim() && text.trim() && !editingSignature && (
+        <p className="text-[11px] text-agro-muted-2 ml-3 mt-0.5 italic select-none whitespace-pre-wrap">
+          {signatureText}
         </p>
       )}
 
@@ -556,25 +589,43 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
 
         <div className="flex-1" />
 
-        {/* Signature toggle (message mode only) */}
+        {/* Signature toggle + edit (message mode only) */}
         {!isNote && (
-          <button
-            onClick={toggleSignature}
-            title={signatureEnabled ? "Desativar assinatura" : "Ativar assinatura"}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all"
-            style={signatureEnabled ? {
-              background: "rgba(63,176,108,0.12)",
-              color:      "#3fb06c",
-              border:     "1px solid rgba(63,176,108,0.25)",
-            } : {
-              background: "transparent",
-              color:      "#6b8a75",
-              border:     "1px solid rgba(63,176,108,0.08)",
-            }}
-          >
-            <PenLine className="w-3 h-3" />
-            Assinatura
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleSignature}
+              title={signatureEnabled ? "Desativar assinatura" : "Ativar assinatura"}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all"
+              style={signatureEnabled ? {
+                background: "rgba(63,176,108,0.12)",
+                color:      "#3fb06c",
+                border:     "1px solid rgba(63,176,108,0.25)",
+              } : {
+                background: "transparent",
+                color:      "#6b8a75",
+                border:     "1px solid rgba(63,176,108,0.08)",
+              }}
+            >
+              <PenLine className="w-3 h-3" />
+              Assinatura
+            </button>
+            {signatureEnabled && (
+              <button
+                onClick={() => setEditingSignature((v) => !v)}
+                className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all"
+                style={editingSignature ? {
+                  background: "rgba(63,176,108,0.15)",
+                  color:      "#3fb06c",
+                  border:     "1px solid rgba(63,176,108,0.3)",
+                } : {
+                  color:  "#6b8a75",
+                  border: "1px solid rgba(63,176,108,0.08)",
+                }}
+              >
+                {editingSignature ? "Fechar" : "Editar"}
+              </button>
+            )}
+          </div>
         )}
 
         {/* Send */}
@@ -604,6 +655,53 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
           }
         </button>
       </div>
+
+      {/* ── Signature editor ───────────────────────────────── */}
+      {editingSignature && signatureEnabled && !isNote && (
+        <div
+          className="mt-2 rounded-xl overflow-hidden"
+          style={{ border: "1px solid rgba(63,176,108,0.2)", background: "rgba(13,26,17,0.7)" }}
+        >
+          {/* Format toolbar */}
+          <div
+            className="flex items-center gap-1 px-2.5 py-1.5"
+            style={{ borderBottom: "1px solid rgba(63,176,108,0.1)" }}
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-agro-muted-2 mr-1">
+              Assinatura
+            </span>
+            {[
+              { label: "B",  marker: "*",  style: { fontWeight: 700 } },
+              { label: "I",  marker: "_",  style: { fontStyle: "italic" } },
+              { label: "S",  marker: "~",  style: { textDecoration: "line-through" } },
+            ].map(({ label, marker, style }) => (
+              <button
+                key={marker}
+                onMouseDown={(e) => { e.preventDefault(); wrapSignatureSelection(marker); }}
+                className="w-6 h-6 rounded flex items-center justify-center text-xs text-agro-muted hover:text-agro-text hover:bg-white/10 transition-colors"
+                title={`Formatar como ${label === "B" ? "negrito (*texto*)" : label === "I" ? "itálico (_texto_)" : "tachado (~texto~)"}`}
+              >
+                <span style={style}>{label}</span>
+              </button>
+            ))}
+            <span
+              className="text-[9px] text-agro-muted-2 ml-1"
+              title="Selecione o texto e clique para formatar"
+            >
+              Selecione e clique · WhatsApp aceita *negrito* _itálico_ ~tachado~
+            </span>
+          </div>
+          {/* Signature textarea */}
+          <textarea
+            ref={sigEditorRef}
+            value={signatureText}
+            onChange={(e) => saveSignatureText(e.target.value)}
+            rows={2}
+            placeholder={`— ${senderName}`}
+            className="w-full resize-none text-xs text-agro-muted-2 placeholder:text-agro-muted-2/50 focus:outline-none bg-transparent px-3 py-2"
+          />
+        </div>
+      )}
 
       <p className="text-[10px] text-agro-muted-2 mt-1.5 ml-1 select-none">
         {isNote
