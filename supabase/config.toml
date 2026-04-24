@@ -30,3 +30,6 @@ verify_jwt = false
 
 [functions.analyze-reply]
 verify_jwt = false
+
+[functions.fix-grammar]
+verify_jwt = false
