@@ -141,18 +141,27 @@ export function useDashboardMetrics(): DashboardMetrics {
       // Valor disparado: busca o primeiro campo numérico cujo nome contenha
       // palavras relacionadas a valor monetário (case-insensitive).
       // Cobre nomes como "valor", "inv_valor", "valor_boleto", "Valor Cobrado", "total", etc.
-      const MONETARY_TERMS = ["valor", "value", "total", "amount", "preco", "preço", "boleto", "cobrado"];
+      // Prefer the canonical field written by the new dispatch system;
+      // fall back to heuristic scan for legacy campaigns.
       let valueDispatched = 0;
+      const MONETARY_TERMS = ["valor_total_pendente", "valor", "value", "total", "amount", "boleto"];
       for (const msg of (valueMsgs.data ?? [])) {
         const rd = msg.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
         const key = Object.keys(rd).find((k) =>
-          MONETARY_TERMS.some((t) => k.toLowerCase().includes(t))
+          MONETARY_TERMS.some((t) => k.toLowerCase() === t || k.toLowerCase().includes(t))
         );
         if (!key) continue;
         const raw = rd[key];
         if (raw == null) continue;
-        const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,.]/g, "").replace(",", "."));
+        let n: number;
+        if (typeof raw === "number") {
+          n = raw;
+        } else {
+          // pt-BR currency: "R$ 12.312,00" — dot is thousands separator, comma is decimal
+          const s = String(raw).replace(/[^\d,]/g, ""); // keep digits + comma only
+          n = parseFloat(s.replace(",", "."));
+        }
         if (!isNaN(n) && n > 0) valueDispatched += n;
       }
 

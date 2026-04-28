@@ -155,16 +155,20 @@ export function CampaignDetail() {
         .order("sent_at", { ascending: true, nullsFirst: false });
       const messages: ShootingMessage[] = rawMsgs ?? [];
 
-      // Compute total value from recipient_data
-      const MONETARY = ["valor", "value", "total", "amount", "preco", "preço", "boleto", "cobrado"];
+      // Compute total value from recipient_data (pt-BR currency parsing)
+      const MONETARY = ["valor_total_pendente", "valor", "value", "total", "amount", "boleto"];
+      function parseBRL(raw: unknown): number {
+        if (typeof raw === "number") return raw;
+        const s = String(raw).replace(/[^\d,]/g, ""); // strip everything except digits + comma
+        return parseFloat(s.replace(",", "."));
+      }
       let totalValue = 0;
       for (const m of messages) {
         const rd = m.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
-        const key = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t)));
+        const key = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase() === t || k.toLowerCase().includes(t)));
         if (!key) continue;
-        const raw = rd[key];
-        const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,.]/g, "").replace(",", "."));
+        const n = parseBRL(rd[key]);
         if (!isNaN(n) && n > 0) totalValue += n;
       }
 
@@ -293,17 +297,25 @@ export function CampaignDetail() {
       // ── LISTA DE DESTINATÁRIOS ─────────────────────
       y = sectionBar("LISTA DE DESTINATÁRIOS", y);
 
-      // Auto-detect extra columns from recipient_data
+      // Detect whether any message has financial data from the new dispatch system
+      const hasFinancialRd = messages.some((m) => {
+        const rd = m.recipient_data as Record<string, unknown> | null;
+        return rd && rd._vencimento_filtro != null;
+      });
+
+      // For legacy campaigns: auto-detect columns from recipient_data keys
       let valorKey: string | null = null;
       let nfKey:    string | null = null;
       let vencKey:  string | null = null;
-      for (const m of messages) {
-        const rd = m.recipient_data as Record<string, unknown> | null;
-        if (!rd) continue;
-        if (!valorKey) valorKey = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t))) ?? null;
-        if (!nfKey)    nfKey    = Object.keys(rd).find((k) => ["nf", "nota", "numero", "duplicata"].some((t) => k.toLowerCase().includes(t))) ?? null;
-        if (!vencKey)  vencKey  = Object.keys(rd).find((k) => ["venc", "vencimento", "prazo"].some((t) => k.toLowerCase().includes(t))) ?? null;
-        if (valorKey && nfKey && vencKey) break;
+      if (!hasFinancialRd) {
+        for (const m of messages) {
+          const rd = m.recipient_data as Record<string, unknown> | null;
+          if (!rd) continue;
+          if (!valorKey) valorKey = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t))) ?? null;
+          if (!nfKey)    nfKey    = Object.keys(rd).find((k) => ["nf", "nota", "numero", "duplicata"].some((t) => k.toLowerCase().includes(t))) ?? null;
+          if (!vencKey)  vencKey  = Object.keys(rd).find((k) => ["venc", "vencimento", "prazo"].some((t) => k.toLowerCase().includes(t))) ?? null;
+          if (valorKey && nfKey && vencKey) break;
+        }
       }
 
       const STATUS_PT: Record<string, string> = {
@@ -312,9 +324,13 @@ export function CampaignDetail() {
       };
 
       const head: string[] = ["#", "Nome", "Telefone"];
-      if (nfKey)    head.push("Nº NF");
-      if (valorKey) head.push("Valor");
-      if (vencKey)  head.push("Vencimento");
+      if (hasFinancialRd) {
+        head.push("Nº NF(s)", "Qtd", "Valor", "Vencimento");
+      } else {
+        if (nfKey)    head.push("Nº NF");
+        if (valorKey) head.push("Valor");
+        if (vencKey)  head.push("Vencimento");
+      }
       head.push("Status", "Enviado em");
 
       const statusColIdx = head.indexOf("Status");
@@ -323,16 +339,32 @@ export function CampaignDetail() {
         const rd = m.recipient_data as Record<string, unknown> | null ?? {};
         const row: string[] = [`${idx + 1}`, m.recipient_name ?? "—", m.recipient_phone];
 
-        if (nfKey)    row.push(String(rd[nfKey!]    ?? "—"));
-        if (valorKey) {
-          const v = rd[valorKey!];
-          const n = typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^\d,.]/g, "").replace(",", "."));
-          row.push(isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
-        }
-        if (vencKey) {
-          const v  = String(rd[vencKey!] ?? "");
-          const d  = v ? new Date(v) : null;
-          row.push(d && !isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : (v || "—"));
+        if (hasFinancialRd) {
+          // New system: extract NF numbers from contact_invoices filtered by _invoice_ids
+          const invIds = rd._invoice_ids as string[] | null;
+          const allInvs = rd.contact_invoices as Array<{ id: string; numero_nf: string | null }> | null;
+          const nfs = invIds && allInvs
+            ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "—").join(", ")
+            : (rd.boleto_nf as string | null) ?? "—";
+          row.push(nfs || "—");
+          row.push(String(rd._invoice_count ?? (invIds?.length ?? "—")));
+          row.push(typeof rd.valor_total_pendente === "string" ? rd.valor_total_pendente : "—");
+          row.push(typeof rd.proximo_vencimento   === "string" ? rd.proximo_vencimento   : "—");
+        } else {
+          if (nfKey) row.push(String(rd[nfKey!] ?? "—"));
+          if (valorKey) {
+            const n = parseBRL(rd[valorKey!] ?? "");
+            const raw2 = rd[valorKey!];
+            const formatted = typeof raw2 === "string" && raw2.includes("R$")
+              ? raw2
+              : isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+            row.push(formatted);
+          }
+          if (vencKey) {
+            const v = String(rd[vencKey!] ?? "");
+            const d = v ? new Date(v) : null;
+            row.push(d && !isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : (v || "—"));
+          }
         }
 
         row.push(STATUS_PT[m.status] ?? m.status);

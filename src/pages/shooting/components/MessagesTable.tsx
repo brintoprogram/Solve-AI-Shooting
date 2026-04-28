@@ -73,6 +73,12 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
       if (anyFinancial) {
         base["Valor (boleto)"]      = d?.valor_total_pendente as string ?? "";
         base["Vencimento (filtro)"] = d?.proximo_vencimento   as string ?? "";
+        base["Qtd Boletos"]         = d?._invoice_count != null ? String(d._invoice_count) : "";
+        const invIds = d?._invoice_ids as string[] | undefined;
+        const allInvs = d?.contact_invoices as Array<{ id: string; numero_nf: string | null }> | undefined;
+        base["Nº NF(s)"] = invIds && allInvs
+          ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "sem NF").join(", ") || "—"
+          : (d?.boleto_nf as string | undefined) ?? "";
       }
       return base;
     });

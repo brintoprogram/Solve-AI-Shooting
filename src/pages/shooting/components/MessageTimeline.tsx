@@ -144,17 +144,62 @@ export function MessageTimeline({ message, onRetry }: MessageTimelineProps) {
         </button>
       )}
 
-      {/* Raw data */}
-      {message.recipient_data && Object.keys(message.recipient_data as object).length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Dados do destinatário</p>
-          <pre className="text-xs font-mono p-3 rounded-xl overflow-x-auto text-agro-muted scrollbar-thin"
-            style={{ background: "rgba(8,16,10,0.9)", border: "1px solid rgba(63,176,108,0.08)" }}
-          >
-            {JSON.stringify(message.recipient_data, null, 2)}
-          </pre>
-        </div>
-      )}
+      {/* Boletos enviados (campaigns with financial data) */}
+      {(() => {
+        const rd = message.recipient_data as Record<string, unknown> | null;
+        if (!rd?._invoice_ids) return null;
+        const invIds   = rd._invoice_ids as string[];
+        const allInvs  = (rd.contact_invoices as Array<{
+          id: string; valor: number; vencimento: string | null; numero_nf: string | null;
+        }> | null) ?? [];
+        const usedInvs = allInvs.filter((inv) => invIds.includes(inv.id));
+        if (usedInvs.length === 0) return null;
+        return (
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
+              Boletos enviados ({usedInvs.length})
+            </p>
+            <div className="rounded-xl overflow-hidden"
+              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+            >
+              {/* Column headers */}
+              <div className="flex items-center gap-2 px-3 py-1.5"
+                style={{ background: "rgba(13,26,17,0.7)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
+              >
+                <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider flex-1">NF / Boleto</span>
+                <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider w-20 text-center">Vencimento</span>
+                <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider w-20 text-right">Valor</span>
+              </div>
+              {usedInvs.map((inv, i) => {
+                const dueStr = inv.vencimento
+                  ? (() => { const [y,m,d] = inv.vencimento!.split("-"); return `${d}/${m}/${y}`; })()
+                  : "—";
+                const valor = Number(inv.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                return (
+                  <div key={i}
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={i < usedInvs.length - 1 ? { borderBottom: "1px solid rgba(63,176,108,0.05)" } : undefined}
+                  >
+                    <span className="text-xs text-agro-muted flex-1 truncate">
+                      {inv.numero_nf ? `NF ${inv.numero_nf}` : `Boleto ${i + 1}`}
+                    </span>
+                    <span className="text-xs text-agro-muted-2 w-20 text-center">{dueStr}</span>
+                    <span className="text-xs font-semibold text-amber-400 w-20 text-right">{valor}</span>
+                  </div>
+                );
+              })}
+              <div className="px-3 py-1.5 flex items-center justify-between"
+                style={{ background: "rgba(63,176,108,0.05)", borderTop: "1px solid rgba(63,176,108,0.08)" }}
+              >
+                <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider">Total enviado</span>
+                <span className="text-sm font-bold text-agro-green">
+                  {rd.valor_total_pendente as string ?? "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
