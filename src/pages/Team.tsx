@@ -3,8 +3,8 @@ import { Navigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
-  UserCog, UserPlus, Check, Loader2, X, Mail, User,
-  Send, LayoutGrid, Users, Upload, MessageSquare, Settings, Shield,
+  UserCog, UserPlus, UserMinus, Check, Loader2, X, Mail, User,
+  Send, LayoutGrid, Users, Upload, MessageSquare, Settings, Shield, AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
@@ -381,6 +381,8 @@ export function Team() {
   const [revoking,         setRevoking]         = useState<string | null>(null);
   const [showInvite,       setShowInvite]       = useState(false);
   const [permTarget,       setPermTarget]       = useState<UserProfile | null>(null);
+  const [confirmRemove,    setConfirmRemove]    = useState<UserProfile | null>(null);
+  const [removing,         setRemoving]         = useState(false);
 
   if (!myProfile || !["admin", "manager"].includes(myProfile.role)) {
     return <Navigate to="/" replace />;
@@ -454,6 +456,32 @@ export function Team() {
     setRevoking(null);
   }
 
+  async function handleRemoveMember() {
+    if (!confirmRemove || !workspaceId) return;
+    setRemoving(true);
+    const { error } = await db
+      .from("workspace_members")
+      .delete()
+      .eq("user_id", confirmRemove.id)
+      .eq("workspace_id", workspaceId);
+    if (error) {
+      toast({ title: "Erro ao remover membro", description: error.message, variant: "destructive" });
+    } else {
+      setMembers((prev) => prev.filter((m) => m.id !== confirmRemove.id));
+      toast({ title: "Membro removido", description: `${confirmRemove.full_name ?? confirmRemove.id} foi removido do workspace.`, variant: "success" });
+      db.from("audit_logs").insert({
+        workspace_id: workspaceId,
+        event_type:   "member_removed",
+        entity_type:  "user",
+        entity_id:    confirmRemove.id,
+        status:       "ok",
+        metadata:     { removed_by: myProfile.id, name: confirmRemove.full_name, role: confirmRemove.role },
+      });
+    }
+    setRemoving(false);
+    setConfirmRemove(null);
+  }
+
   async function handleRoleChange(memberId: string, newRole: RoleOption) {
     if (!isAdmin) return;
     setUpdating(memberId);
@@ -513,13 +541,14 @@ export function Team() {
           {/* Table header */}
           <div
             className="grid items-center gap-4 px-5 py-3 text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2"
-            style={{ gridTemplateColumns: "36px 1fr 110px 150px 120px", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
+            style={{ gridTemplateColumns: "36px 1fr 110px 150px 120px 36px", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
           >
             <span />
             <span>Membro</span>
             <span>Cargo</span>
             <span>{isAdmin ? "Alterar cargo" : ""}</span>
             <span>{isAdmin ? "Permissões" : ""}</span>
+            <span />
           </div>
 
           {/* Rows */}
@@ -541,7 +570,7 @@ export function Team() {
                   key={member.id}
                   className="grid items-center gap-4 px-5 py-4 transition-colors hover:bg-white/[0.02]"
                   style={{
-                    gridTemplateColumns: "36px 1fr 110px 150px 120px",
+                    gridTemplateColumns: "36px 1fr 110px 150px 120px 36px",
                     borderBottom: i < members.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none",
                   }}
                 >
@@ -618,6 +647,17 @@ export function Team() {
                     >
                       <Shield className="w-3.5 h-3.5" />
                       {customCount > 0 ? `${customCount} custom` : "Configurar"}
+                    </button>
+                  ) : <div />}
+
+                  {/* Remove button (admin only, not yourself) */}
+                  {isAdmin && !isMe ? (
+                    <button
+                      onClick={() => setConfirmRemove(member)}
+                      title="Remover membro"
+                      className="w-8 h-8 flex items-center justify-center rounded-lg text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200"
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
                     </button>
                   ) : <div />}
                 </div>
@@ -737,6 +777,63 @@ export function Team() {
             setPermTarget(null);
           }}
         />
+      )}
+
+      {/* ── Remove member confirm ────────────────────── */}
+      {confirmRemove && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget && !removing) setConfirmRemove(null); }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-6"
+            style={{ background: "#0d1a11", border: "1px solid rgba(239,68,68,0.25)", boxShadow: "0 32px 80px rgba(0,0,0,0.6)" }}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Remover membro</p>
+                <p className="text-xs text-agro-muted-2 mt-0.5">Esta ação remove o acesso ao workspace</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl px-4 py-3 mb-5" style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.08)" }}>
+              <p className="text-sm font-semibold text-white">{confirmRemove.full_name ?? "—"}</p>
+              <p className="text-xs text-agro-muted-2 mt-0.5">{ROLE_LABELS[confirmRemove.role]}</p>
+            </div>
+
+            <p className="text-xs text-agro-muted mb-5 leading-relaxed">
+              O usuário perderá acesso imediatamente. Ele pode ser convidado novamente a qualquer momento.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmRemove(null)}
+                disabled={removing}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-agro-muted-2 hover:text-agro-text transition-colors disabled:opacity-50"
+                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRemoveMember}
+                disabled={removing}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-colors disabled:opacity-60"
+                style={{ background: removing ? "rgba(239,68,68,0.5)" : "#ef4444" }}
+              >
+                {removing ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Removendo...
+                  </span>
+                ) : "Remover"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
