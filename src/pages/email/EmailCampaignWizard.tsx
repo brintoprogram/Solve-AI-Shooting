@@ -714,35 +714,38 @@ function Step2({ state, onChange }: {
       });
   }, [workspaceId]);
 
-  // Load invoices when N8N + both dates set
+  // Load invoices for N8N — always loads when contacts are available.
+  // Date filter is optional: when set it narrows which invoices are included.
   useEffect(() => {
-    if (!isN8N || !state.invoiceVencFrom || !state.invoiceVencTo || allContacts.length === 0) {
-      if (!state.invoiceVencFrom || !state.invoiceVencTo) onChange({ contactInvoices: {} });
+    if (!isN8N || allContacts.length === 0) {
+      onChange({ contactInvoices: {} });
       return;
     }
     let cancelled = false;
     setLoadingInvoices(true);
-    supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db2 = supabase as any;
+    let q = db2
       .from("contact_invoices")
       .select("id,contact_id,valor,vencimento,status,numero_nf,codigo_barras")
-      .eq("workspace_id", workspaceId ?? "")
-      .gte("vencimento", state.invoiceVencFrom)
-      .lte("vencimento", state.invoiceVencTo)
-      .then(({ data }) => {
-        if (cancelled) return;
-        const map: Record<string, ContactInvoice[]> = {};
-        for (const inv of (data ?? []) as ContactInvoice[]) {
-          if (!map[inv.contact_id]) map[inv.contact_id] = [];
-          map[inv.contact_id].push(inv);
-        }
-        onChange({ contactInvoices: map });
-        setLoadingInvoices(false);
-      });
+      .eq("workspace_id", workspaceId ?? "");
+    if (state.invoiceVencFrom) q = q.gte("vencimento", state.invoiceVencFrom);
+    if (state.invoiceVencTo)   q = q.lte("vencimento", state.invoiceVencTo);
+    q.then(({ data }: { data: ContactInvoice[] | null }) => {
+      if (cancelled) return;
+      const map: Record<string, ContactInvoice[]> = {};
+      for (const inv of (data ?? [])) {
+        if (!map[inv.contact_id]) map[inv.contact_id] = [];
+        map[inv.contact_id].push(inv);
+      }
+      onChange({ contactInvoices: map });
+      setLoadingInvoices(false);
+    });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isN8N, state.invoiceVencFrom, state.invoiceVencTo, allContacts.length, workspaceId]);
 
-  const hasInvoiceFilter = isN8N && !!state.invoiceVencFrom && !!state.invoiceVencTo;
+  const hasInvoiceFilter = isN8N && (!!state.invoiceVencFrom || !!state.invoiceVencTo);
 
   const filtered = allContacts.filter((c) => {
     const matchSearch =
@@ -802,7 +805,7 @@ function Step2({ state, onChange }: {
           style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.18)" }}
         >
           <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest">
-            Filtro de vencimento dos boletos
+            Filtro de vencimento dos boletos <span className="text-agro-muted-2 normal-case font-normal">(opcional)</span>
           </p>
           <div className="flex items-center gap-3">
             <div className="flex-1">
@@ -840,13 +843,16 @@ function Step2({ state, onChange }: {
               <Loader2 className="w-3 h-3 animate-spin" /> Carregando boletos...
             </p>
           )}
-          {hasInvoiceFilter && !loadingInvoices && (
+          {!loadingInvoices && Object.keys(state.contactInvoices).length > 0 && (
             <p className="text-xs text-agro-muted">
-              <span className="text-amber-400 font-semibold">{filtered.length}</span> contatos com boletos no período
+              <span className="text-amber-400 font-semibold">
+                {allContacts.filter((c) => !!state.contactInvoices[c.id]).length}
+              </span> contatos com boletos
+              {hasInvoiceFilter ? " no período" : ""}
               {" · "}
               <span className="text-amber-400 font-semibold">
                 {formatBRL(
-                  filtered.reduce((sum, c) => {
+                  allContacts.reduce((sum, c) => {
                     const invs = state.contactInvoices[c.id] ?? [];
                     return sum + invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
                   }, 0)
@@ -936,7 +942,7 @@ function Step2({ state, onChange }: {
                   </th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email</th>
-                  {hasInvoiceFilter && (
+                  {isN8N && (
                     <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">Valor</th>
                   )}
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Representante</th>
@@ -969,7 +975,7 @@ function Step2({ state, onChange }: {
                         {c.name}
                       </td>
                       <td className="px-4 py-3 text-agro-muted text-xs font-mono">{c.email}</td>
-                      {hasInvoiceFilter && (() => {
+                      {isN8N && (() => {
                         const invs  = state.contactInvoices[c.id] ?? [];
                         const valor = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
                         return (
