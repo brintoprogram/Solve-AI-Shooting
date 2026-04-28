@@ -55,24 +55,17 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Apenas admins e gerentes podem convidar membros" }, 403);
   }
 
-  // ── 3. Resolver workspace do chamador ─────────────────────────
-  const { data: callerMember } = await admin
-    .from("workspace_members")
-    .select("workspace_id")
-    .eq("user_id", caller.id)
-    .maybeSingle();
-
-  if (!callerMember?.workspace_id) {
-    return json({ error: "Workspace não encontrado para o seu usuário" }, 404);
-  }
-  const workspaceId = callerMember.workspace_id as string;
+  // ── 3. Validar que o chamador é membro do workspace solicitado ──
+  // workspace_id vem do body — validamos a membership no banco para
+  // garantir que o chamador não pode convidar para workspaces alheios.
+  // (workspace_id é resolvido após a leitura do body — ver bloco 4)
 
   // ── 4. Validar body ───────────────────────────────────────────
-  let body: { email?: string; full_name?: string; role?: string };
+  let body: { email?: string; full_name?: string; role?: string; workspace_id?: string };
   try { body = await req.json(); }
   catch { return json({ error: "JSON inválido" }, 400); }
 
-  const { email, full_name, role = "agent" } = body;
+  const { email, full_name, role = "agent", workspace_id: reqWorkspaceId } = body;
 
   if (!email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
     return json({ error: "Email inválido" }, 400);
@@ -83,6 +76,22 @@ Deno.serve(async (req: Request) => {
   if (callerRole === "manager" && role === "admin") {
     return json({ error: "Gerentes não podem convidar admins" }, 403);
   }
+  if (!reqWorkspaceId) {
+    return json({ error: "workspace_id é obrigatório" }, 400);
+  }
+
+  // Verificar que o chamador é membro do workspace solicitado
+  const { data: callerMember } = await admin
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", caller.id)
+    .eq("workspace_id", reqWorkspaceId)
+    .maybeSingle();
+
+  if (!callerMember) {
+    return json({ error: "Você não tem permissão para convidar neste workspace" }, 403);
+  }
+  const workspaceId = reqWorkspaceId;
 
   const normalizedEmail = email.trim().toLowerCase();
 

@@ -256,7 +256,7 @@ function InviteModal({ onClose, onSuccess, workspaceId, invitedBy }: InviteModal
             "Authorization": `Bearer ${session?.access_token ?? ""}`,
             "apikey":        import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ email: email.trim(), full_name: fullName.trim(), role }),
+          body: JSON.stringify({ email: email.trim(), full_name: fullName.trim(), role, workspace_id: workspaceId }),
         },
       );
 
