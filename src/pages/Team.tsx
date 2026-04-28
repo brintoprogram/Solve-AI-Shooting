@@ -433,7 +433,9 @@ export function Team() {
 
   async function handleRevokeInvite(inviteId: string) {
     setRevoking(inviteId);
-    const { error } = await db.from("workspace_invites").delete().eq("id", inviteId);
+    const { error } = await db.from("workspace_invites").delete()
+      .eq("id", inviteId)
+      .eq("workspace_id", workspaceId);
     if (error) {
       toast({ title: "Erro ao revogar convite", description: error.message, variant: "destructive" });
     } else {

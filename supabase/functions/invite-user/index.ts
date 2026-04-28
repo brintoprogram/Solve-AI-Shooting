@@ -96,10 +96,9 @@ Deno.serve(async (req: Request) => {
   const normalizedEmail = email.trim().toLowerCase();
 
   // ── 5. Verificar se o email já tem conta ──────────────────────
-  const { data: existingUsers } = await admin.auth.admin.listUsers();
-  const existingUser = existingUsers?.users.find(
-    (u) => u.email?.toLowerCase() === normalizedEmail,
-  );
+  // getUserByEmail is O(1) — listUsers() would load all users into memory
+  // and only return the first page, silently missing users beyond 50 k.
+  const { data: { user: existingUser } } = await admin.auth.admin.getUserByEmail(normalizedEmail);
 
   if (existingUser) {
     // Usuário já existe → adicionar direto ao workspace
@@ -112,13 +111,18 @@ Deno.serve(async (req: Request) => {
 
     if (memberErr) return json({ error: memberErr.message }, 500);
 
-    // Garantir que o perfil tem o cargo certo
-    await admin
+    // Ensure profile exists, but do NOT wipe permissions — use insert+fallback-update
+    // so granular permission overrides set by admins are preserved.
+    const { error: profileInsertErr } = await admin
       .from("user_profiles")
-      .upsert(
-        { id: existingUser.id, full_name: full_name?.trim() ?? existingUser.user_metadata?.full_name ?? null, role, permissions: {} },
-        { onConflict: "id" },
-      );
+      .insert({ id: existingUser.id, full_name: full_name?.trim() ?? existingUser.user_metadata?.full_name ?? null, role, permissions: {} });
+    if (profileInsertErr) {
+      // Profile already exists — only update role and name, leave permissions intact
+      await admin
+        .from("user_profiles")
+        .update({ role, full_name: full_name?.trim() ?? existingUser.user_metadata?.full_name ?? null })
+        .eq("id", existingUser.id);
+    }
 
     console.log(`[invite-user] ✓ usuário existente ${normalizedEmail} adicionado ao workspace ${workspaceId}`);
     return json({ ok: true, type: "added", email: normalizedEmail });
