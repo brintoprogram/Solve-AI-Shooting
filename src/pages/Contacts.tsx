@@ -558,6 +558,10 @@ export function Contacts() {
   const [filteredTotal,        setFilteredTotal]        = useState<number | null>(null);
   const [filteredTotalLoading, setFilteredTotalLoading] = useState(false);
 
+  // Grand total: soma de TODOS os boletos do workspace (ignora filtros)
+  const [globalTotal,        setGlobalTotal]        = useState<number | null>(null);
+  const [globalTotalLoading, setGlobalTotalLoading] = useState(false);
+
   const workspaceId = useAuth().workspaceId ?? "";
 
   // contacts must be declared before the selection helpers that reference it.
@@ -728,6 +732,25 @@ export function Contacts() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, contactIds, filters.vencFrom, filters.vencTo, workspaceId]);
 
+  // Grand total: soma de TODOS os boletos do workspace, sem filtro
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    setGlobalTotalLoading(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db as any)
+      .from("contact_invoices")
+      .select("valor")
+      .eq("workspace_id", workspaceId)
+      .then(({ data }: { data: { valor: number | null }[] | null }) => {
+        if (cancelled) return;
+        const sum = (data ?? []).reduce((s, r) => s + (r.valor ?? 0), 0);
+        setGlobalTotal(sum);
+        setGlobalTotalLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
   // Fetch invoice totals for current page of contacts
   useEffect(() => {
     if (contacts.length === 0) { setInvoiceTotals({}); return; }
@@ -880,15 +903,31 @@ export function Contacts() {
             {(activeFilterCount > 0 || debouncedSearch) ? " (filtrado)" : ""}
           </span>
 
-          <span className="flex items-center gap-2">
-            <span className="text-[#6b7f6e]">Saldo total em aberto:</span>
-            {filteredTotalLoading ? (
-              <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
-            ) : filteredTotal !== null && filteredTotal > 0 ? (
-              <span className="font-bold text-amber-400 text-sm">{formatBRL(filteredTotal)}</span>
-            ) : (
-              <span className="text-[#3a4d3e]">—</span>
+          <span className="flex items-center gap-4">
+            {/* Total filtrado — só aparece quando há filtro/busca ativo */}
+            {(activeFilterCount > 0 || debouncedSearch) && (
+              <span className="flex items-center gap-2">
+                <span className="text-[#6b7f6e]">Saldo filtrado:</span>
+                {filteredTotalLoading ? (
+                  <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
+                ) : filteredTotal !== null && filteredTotal > 0 ? (
+                  <span className="font-bold text-amber-400 text-sm">{formatBRL(filteredTotal)}</span>
+                ) : (
+                  <span className="text-[#3a4d3e]">—</span>
+                )}
+              </span>
             )}
+            {/* Total geral — sempre visível */}
+            <span className="flex items-center gap-2">
+              <span className="text-[#6b7f6e]">Total geral em aberto:</span>
+              {globalTotalLoading ? (
+                <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
+              ) : globalTotal !== null && globalTotal > 0 ? (
+                <span className="font-bold text-[#3fb06c] text-sm">{formatBRL(globalTotal)}</span>
+              ) : (
+                <span className="text-[#3a4d3e]">—</span>
+              )}
+            </span>
           </span>
         </div>
       )}
