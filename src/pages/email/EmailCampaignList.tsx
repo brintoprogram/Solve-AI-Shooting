@@ -35,6 +35,7 @@ interface EmailCampaign {
   failed_count: number;
   created_at: string;
   email_connections?: { name: string } | null;
+  _source?: "smtp" | "n8n";
 }
 
 const STATUS_STYLE: Record<EmailStatus, { bg: string; color: string; border: string }> = {
@@ -74,12 +75,42 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase
-      .from("email_campaigns")
-      .select("id,name,subject,status,total_recipients,sent_count,failed_count,created_at,email_connections(name)")
-      .eq("workspace_id", WORKSPACE_ID)
-      .order("created_at", { ascending: false });
-    if (data) setCampaigns(data as unknown as EmailCampaign[]);
+    const [smtpRes, n8nRes] = await Promise.all([
+      supabase
+        .from("email_campaigns")
+        .select("id,name,subject,status,total_recipients,sent_count,failed_count,created_at,email_connections(name)")
+        .eq("workspace_id", WORKSPACE_ID)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("shooting_campaigns")
+        .select("id,name,status,total_recipients,sent_count,failed_count,created_at,dispatch_channel")
+        .eq("workspace_id", WORKSPACE_ID)
+        .eq("dispatch_channel", "n8n_email")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const smtpCampaigns: EmailCampaign[] = (smtpRes.data ?? []).map((c) => ({
+      ...(c as unknown as EmailCampaign),
+      _source: "smtp" as const,
+    }));
+
+    const n8nCampaigns: EmailCampaign[] = (n8nRes.data ?? []).map((c) => ({
+      id:               c.id,
+      name:             c.name,
+      subject:          "—",
+      status:           c.status as EmailStatus,
+      total_recipients: c.total_recipients ?? 0,
+      sent_count:       c.sent_count ?? 0,
+      failed_count:     c.failed_count ?? 0,
+      created_at:       c.created_at,
+      email_connections: null,
+      _source:          "n8n" as const,
+    }));
+
+    const merged = [...smtpCampaigns, ...n8nCampaigns].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    setCampaigns(merged);
     setLoading(false);
   }
 
@@ -127,7 +158,12 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   }
 
   async function handleDelete(id: string) {
-    await supabase.from("email_campaigns").delete().eq("id", id);
+    const campaign = campaigns.find((c) => c.id === id);
+    if (campaign?._source === "n8n") {
+      await supabase.from("shooting_campaigns").delete().eq("id", id);
+    } else {
+      await supabase.from("email_campaigns").delete().eq("id", id);
+    }
     setCampaigns((prev) => prev.filter((c) => c.id !== id));
     toast({ title: "Campanha excluída" });
   }
@@ -141,7 +177,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   const filtered = (tabData[tab] ?? []).filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.subject.toLowerCase().includes(search.toLowerCase())
+      (c._source !== "n8n" && c.subject.toLowerCase().includes(search.toLowerCase()))
   );
 
   const TABS = [
@@ -238,21 +274,34 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
               </thead>
               <tbody>
                 {filtered.map((c, i) => {
-                  const st = STATUS_STYLE[c.status];
+                  const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.draft;
+                  const isN8N = c._source === "n8n";
                   return (
                     <tr key={c.id}
-                      className="transition-all duration-200 hover:bg-white/5 group"
+                      className="transition-all duration-200 hover:bg-white/5 group cursor-pointer"
                       style={{ borderBottom: i < filtered.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                      onClick={() => isN8N ? (window.location.href = `/shooting/campaigns/${c.id}`) : undefined}
                     >
                       <td className="px-4 py-3.5">
-                        <p className="font-semibold text-agro-text text-sm group-hover:text-white transition-colors">{c.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-agro-text text-sm group-hover:text-white transition-colors">{c.name}</p>
+                          {isN8N && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                              style={{ background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}
+                            >
+                              N8N
+                            </span>
+                          )}
+                        </div>
                         {c.email_connections?.name && (
                           <p className="text-[11px] text-agro-muted-2 mt-0.5 flex items-center gap-1">
                             <Mail className="w-3 h-3" />{c.email_connections.name}
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 text-agro-muted text-xs max-w-[180px] truncate">{c.subject}</td>
+                      <td className="px-4 py-3.5 text-agro-muted text-xs max-w-[180px] truncate">
+                        {isN8N ? <span className="text-agro-muted-2 italic">via N8N</span> : c.subject}
+                      </td>
                       <td className="px-4 py-3.5 text-agro-muted text-xs">
                         {format(new Date(c.created_at), "dd/MM/yyyy", { locale: ptBR })}
                       </td>
@@ -275,7 +324,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                         )}
                       </td>
                       <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                        {c.status === "draft" && (
+                        {!isN8N && c.status === "draft" && (
                           <button disabled={actionId === c.id}
                             onClick={() => handleAction(c.id, "start")}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-50"
@@ -285,7 +334,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                             Iniciar
                           </button>
                         )}
-                        {c.status === "sending" && (
+                        {!isN8N && c.status === "sending" && (
                           <button disabled={actionId === c.id}
                             onClick={() => handleAction(c.id, "pause")}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
@@ -295,7 +344,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                             Pausar
                           </button>
                         )}
-                        {c.status === "paused" && (
+                        {!isN8N && c.status === "paused" && (
                           <button disabled={actionId === c.id}
                             onClick={() => handleAction(c.id, "resume")}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-50"
@@ -304,6 +353,15 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                             {actionId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                             Retomar
                           </button>
+                        )}
+                        {isN8N && (
+                          <a href={`/shooting/campaigns/${c.id}`}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-muted hover:text-agro-text transition-all"
+                            style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Ver detalhes
+                          </a>
                         )}
                       </td>
                       <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>

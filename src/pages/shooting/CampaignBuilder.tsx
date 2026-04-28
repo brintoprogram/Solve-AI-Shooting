@@ -3,7 +3,7 @@ import {
   X, Target, Users, Sliders, ChevronLeft, ChevronRight,
   Search, Check, Tag, Loader2, Eye, ArrowRight,
   Upload, FileSpreadsheet, Database, Gauge, AlertCircle,
-  ChevronDown, AlertTriangle, Mail, Zap,
+  ChevronDown, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
@@ -45,35 +45,6 @@ interface FieldGroup {
 // ─────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────
-
-const N8N_WEBHOOK = "https://n8n.solveai.consulting/webhook/f03bd652-7164-483f-80cf-b871ff671ae6";
-
-async function dispatchToN8N(
-  campaignId: string,
-  workspaceId: string,
-  campaignName: string,
-  messages: { id: string; recipient_name: string | null; recipient_phone: string; recipient_data: unknown }[],
-) {
-  const callbackUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-campaign-status`;
-  await fetch(N8N_WEBHOOK, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      campaign_id:     campaignId,
-      workspace_id:    workspaceId,
-      campaign_name:   campaignName,
-      dispatched_at:   new Date().toISOString(),
-      callback_url:    callbackUrl,
-      callback_apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      recipients: messages.map((m) => ({
-        message_id:     m.id,
-        name:           m.recipient_name,
-        phone:          m.recipient_phone,
-        recipient_data: m.recipient_data,
-      })),
-    }),
-  });
-}
 
 const PAGE = 50;
 
@@ -272,10 +243,9 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const { approvedTemplates } = useMetaTemplates(WORKSPACE_ID, effectiveConnId || undefined);
 
   // ── Wizard state ──────────────────────────────────────
-  const [step,            setStep]            = useState<1 | 2 | 3>(1);
-  const [name,            setName]            = useState("");
-  const [templateId,      setTemplateId]      = useState("");
-  const [dispatchChannel, setDispatchChannel] = useState<"whatsapp" | "n8n_email">("whatsapp");
+  const [step,       setStep]       = useState<1 | 2 | 3>(1);
+  const [name,       setName]       = useState("");
+  const [templateId, setTemplateId] = useState("");
 
   // Audience
   const [source,    setSource]   = useState<"contacts" | "csv">("contacts");
@@ -334,7 +304,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   // ── Reset on open ─────────────────────────────────────
   useEffect(() => {
     if (!open) return;
-    setStep(1); setName(""); setTemplateId(""); setConnId(""); setDispatchChannel("whatsapp");
+    setStep(1); setName(""); setTemplateId(""); setConnId("");
     setSource("contacts");
     setSelTags([]); setSearch(""); setSelected(new Set());
     setContacts([]); setAllTags([]); setVarMap({}); setSendingSpeed(80);
@@ -488,24 +458,18 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
 
   // ── canNext ───────────────────────────────────────────
   function canNext(): boolean {
-    if (step === 1) {
-      if (dispatchChannel === "n8n_email") return name.trim().length > 0;
-      return name.trim().length > 0 && !!templateId;
-    }
+    if (step === 1) return name.trim().length > 0 && !!templateId;
     if (step === 2) {
       if (source === "contacts") return selected.size > 0;
       return csvRows.length > 0 && !!csvPhone;
     }
-    if (step === 3) {
-      if (dispatchChannel === "n8n_email") return true;
-      return vars.every((v) => !!varMap[v]);
-    }
+    if (step === 3) return vars.every((v) => !!varMap[v]);
     return false;
   }
 
   // ── Submit ────────────────────────────────────────────
   async function handleSubmit() {
-    if (dispatchChannel === "whatsapp" && (!selectedTpl || !effectiveConnId)) return;
+    if (!selectedTpl || !effectiveConnId) return;
     setSubmitting(true);
     try {
       let messages: {
@@ -541,10 +505,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
               ? pendingOnDate.filter((inv) => selIds.has(inv.id)).map((inv) => inv.id)
               : pendingOnDate.map((inv) => inv.id);
 
-          const isFinancialCampaign =
-            dispatchChannel === "n8n_email"
-              ? usedIds.length > 0
-              : Object.values(varMap).some((v) => FINANCIAL_FIELDS.has(v));
+          const isFinancialCampaign = Object.values(varMap).some((v) => FINANCIAL_FIELDS.has(v));
 
           const recipientData: Record<string, unknown> = {
             ...(enriched as unknown as Record<string, unknown>),
@@ -580,14 +541,14 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
         .from("shooting_campaigns")
         .insert({
           workspace_id:       WORKSPACE_ID,
-          meta_connection_id: dispatchChannel === "n8n_email" ? null : effectiveConnId,
+          meta_connection_id: effectiveConnId,
           name:               name.trim(),
-          template_id:        dispatchChannel === "n8n_email" ? null : templateId,
-          dispatch_channel:   dispatchChannel,
+          template_id:        templateId,
+          dispatch_channel:   "whatsapp",
           data_source:        source,
           column_mapping:     {
-            phone_column:    source === "contacts" ? "phone" : csvPhone,
-            ...(dispatchChannel === "whatsapp" ? { body_variables: varMap } : {}),
+            phone_column:  source === "contacts" ? "phone" : csvPhone,
+            body_variables: varMap,
           },
           filters:            source === "contacts" ? { tags: selTags } : {},
           total_recipients:   messages.length,
@@ -610,25 +571,9 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
         if (msgErr) throw new Error(msgErr.message);
       }
 
-      if (dispatchChannel === "n8n_email") {
-        const { data: inserted } = await db
-          .from("shooting_messages")
-          .select("id, recipient_name, recipient_phone, recipient_data")
-          .eq("campaign_id", campaign.id);
-
-        await dispatchToN8N(campaign.id, WORKSPACE_ID, name.trim(), inserted ?? []);
-
-        await db
-          .from("shooting_campaigns")
-          .update({ status: "sending", started_at: new Date().toISOString() })
-          .eq("id", campaign.id);
-      }
-
       toast({
-        title: dispatchChannel === "n8n_email" ? "Campanha disparada!" : "Campanha criada!",
-        description: dispatchChannel === "n8n_email"
-          ? `${messages.length} emails enviados ao N8N`
-          : `${messages.length} destinatários · ${sendingSpeed} msg/min`,
+        title: "Campanha criada!",
+        description: `${messages.length} destinatários · ${sendingSpeed} msg/min`,
         variant: "success",
       });
       onCreated();
@@ -672,9 +617,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
         >
           <div>
             <h2 className="font-display text-xl font-bold text-agro-text">Nova Campanha</h2>
-            <p className="text-xs text-agro-muted mt-0.5">
-              {dispatchChannel === "n8n_email" ? "Disparo em massa via Email (N8N)" : "Disparo em massa via WhatsApp Business API"}
-            </p>
+            <p className="text-xs text-agro-muted mt-0.5">Disparo em massa via WhatsApp Business API</p>
           </div>
           <button onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
@@ -742,8 +685,6 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 connections={connections}
                 connId={effectiveConnId}
                 onConnChange={setConnId}
-                dispatchChannel={dispatchChannel}
-                setDispatchChannel={setDispatchChannel}
               />
             )}
             {step === 2 && (
@@ -786,13 +727,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
               />
             )}
-            {step === 3 && dispatchChannel === "n8n_email" && (
-              <Step3N8NConfirmation
-                totalRecipients={totalRecipients}
-                campaignName={name.trim()}
-              />
-            )}
-            {step === 3 && dispatchChannel === "whatsapp" && selectedTpl && (
+            {step === 3 && selectedTpl && (
               <Step3Variables
                 template={selectedTpl}
                 vars={vars}
@@ -848,14 +783,8 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 )}
                 style={(!canNext() || submitting) ? { background: "rgba(63,176,108,0.15)", border: "1px solid rgba(63,176,108,0.1)" } : undefined}
               >
-                {submitting
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : dispatchChannel === "n8n_email" ? <Zap className="w-4 h-4" /> : <Check className="w-4 h-4" />
-                }
-                {submitting
-                  ? (dispatchChannel === "n8n_email" ? "Disparando..." : "Criando campanha...")
-                  : dispatchChannel === "n8n_email" ? "Disparar via Email" : "Criar campanha"
-                }
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {submitting ? "Criando campanha..." : "Criar campanha"}
               </button>
             )}
           </div>
@@ -871,61 +800,18 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
 
 function Step1Setup({
   name, setName, templateId, setTemplateId, templates, connections, connId, onConnChange,
-  dispatchChannel, setDispatchChannel,
 }: {
   name: string; setName: (v: string) => void;
   templateId: string; setTemplateId: (v: string) => void;
   templates: MetaTemplate[];
   connections: { id: string; display_phone: string; business_name: string | null; status: string }[];
   connId: string; onConnChange: (id: string) => void;
-  dispatchChannel: "whatsapp" | "n8n_email";
-  setDispatchChannel: (v: "whatsapp" | "n8n_email") => void;
 }) {
   return (
     <div className="space-y-7">
       <div>
         <h3 className="text-base font-bold text-agro-text mb-1">Configuração inicial</h3>
-        <p className="text-sm text-agro-muted">Defina o canal de envio e o nome da campanha.</p>
-      </div>
-
-      {/* ── Canal de envio ── */}
-      <div className="space-y-2">
-        <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
-          Canal de envio *
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          {(["whatsapp", "n8n_email"] as const).map((ch) => {
-            const sel = dispatchChannel === ch;
-            const icon = ch === "whatsapp"
-              ? <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-              : <Mail className="w-5 h-5" />;
-            const label = ch === "whatsapp" ? "WhatsApp" : "Email via N8N";
-            const desc  = ch === "whatsapp" ? "Conta conectada no app" : "Webhook externo";
-            return (
-              <button
-                key={ch}
-                onClick={() => setDispatchChannel(ch)}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-4 rounded-xl text-left transition-all",
-                  sel ? "text-agro-text" : "text-agro-muted hover:text-agro-text",
-                )}
-                style={{
-                  background: sel ? "rgba(63,176,108,0.1)" : "rgba(13,26,17,0.5)",
-                  border:     sel ? "1px solid rgba(63,176,108,0.35)" : "1px solid rgba(63,176,108,0.1)",
-                }}
-              >
-                <div className={cn("shrink-0 transition-colors", sel ? "text-agro-green" : "text-agro-muted-2")}>
-                  {icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm">{label}</p>
-                  <p className="text-agro-muted-2 text-xs mt-0.5">{desc}</p>
-                </div>
-                {sel && <Check className="w-4 h-4 text-agro-green shrink-0" />}
-              </button>
-            );
-          })}
-        </div>
+        <p className="text-sm text-agro-muted">Defina o nome da campanha e o template WhatsApp.</p>
       </div>
 
       <div className="space-y-2">
@@ -935,7 +821,7 @@ function Step1Setup({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={dispatchChannel === "n8n_email" ? "Ex: Cobrança abril — email clientes PJ" : "Ex: Cobrança abril — clientes PJ"}
+          placeholder="Ex: Cobrança abril — clientes PJ"
           className="w-full px-4 py-3 rounded-xl text-sm text-agro-text placeholder:text-agro-muted-2 focus:outline-none transition-all"
           style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.15)" }}
           onFocus={(e) => { e.target.style.borderColor = "#3fb06c"; }}
@@ -944,9 +830,8 @@ function Step1Setup({
         />
       </div>
 
-      {/* WhatsApp-only: connection + template selectors */}
-      {dispatchChannel === "whatsapp" && (
-        <>
+      {/* Connection + template selectors */}
+      <>
           {connections.length > 1 && (
             <div className="space-y-2">
               <label className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
@@ -1030,24 +915,7 @@ function Step1Setup({
               </div>
             )}
           </div>
-        </>
-      )}
-
-      {/* N8N email: info banner */}
-      {dispatchChannel === "n8n_email" && (
-        <div className="flex items-start gap-3 px-4 py-4 rounded-xl"
-          style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.2)" }}
-        >
-          <Mail className="w-4 h-4 text-agro-green shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-agro-text">Template gerenciado pelo N8N</p>
-            <p className="text-xs text-agro-muted mt-1 leading-relaxed">
-              O Solve AI enviará os dados dos destinatários para o webhook do N8N.
-              O N8N irá processar, aplicar o template de email e retornar os status individualmente.
-            </p>
-          </div>
-        </div>
-      )}
+      </>
     </div>
   );
 }
@@ -1634,93 +1502,6 @@ function TemplateDisplay({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
-// Step 3 — N8N Email Confirmation
-// ─────────────────────────────────────────────────────────
-
-function Step3N8NConfirmation({
-  totalRecipients,
-  campaignName,
-}: {
-  totalRecipients: number;
-  campaignName: string;
-}) {
-  return (
-    <div className="space-y-8">
-      <div>
-        <h3 className="text-base font-bold text-agro-text mb-1">Confirmar disparo</h3>
-        <p className="text-sm text-agro-muted">Revise os detalhes antes de enviar ao N8N.</p>
-      </div>
-
-      {/* Summary card */}
-      <div className="p-6 rounded-2xl space-y-4"
-        style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.2)" }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.2)" }}
-          >
-            <Mail className="w-5 h-5 text-agro-green" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-agro-text">{campaignName || "Campanha"}</p>
-            <p className="text-xs text-agro-muted">Disparo via Email · N8N</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <div className="px-4 py-3 rounded-xl text-center"
-            style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.12)" }}
-          >
-            <p className="text-2xl font-bold text-agro-green">{totalRecipients.toLocaleString("pt-BR")}</p>
-            <p className="text-xs text-agro-muted mt-0.5">destinatários</p>
-          </div>
-          <div className="px-4 py-3 rounded-xl text-center"
-            style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.12)" }}
-          >
-            <p className="text-2xl font-bold text-blue-400">N8N</p>
-            <p className="text-xs text-agro-muted mt-0.5">processamento externo</p>
-          </div>
-        </div>
-      </div>
-
-      {/* How it works */}
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">Como funciona</p>
-        <div className="space-y-2">
-          {[
-            { step: "1", text: "Solve AI envia os dados de todos os destinatários para o webhook N8N" },
-            { step: "2", text: "N8N aplica o template de email e envia para cada destinatário" },
-            { step: "3", text: "N8N retorna o status individual (enviado, falha, etc.) para o Supabase" },
-            { step: "4", text: "O detalhamento do disparo é atualizado em tempo real" },
-          ].map((item) => (
-            <div key={item.step} className="flex items-start gap-3 px-4 py-3 rounded-xl"
-              style={{ background: "rgba(13,26,17,0.5)", border: "1px solid rgba(63,176,108,0.08)" }}
-            >
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5"
-                style={{ background: "rgba(63,176,108,0.3)" }}
-              >
-                {item.step}
-              </span>
-              <p className="text-sm text-agro-muted">{item.text}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
-        style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
-      >
-        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-300 leading-relaxed">
-          Ao clicar em <strong>Disparar via Email</strong>, o payload será enviado imediatamente ao N8N.
-          A campanha ficará com status <em>Enviando</em> até que todos os retornos sejam recebidos.
-        </p>
-      </div>
     </div>
   );
 }

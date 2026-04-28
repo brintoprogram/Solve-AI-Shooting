@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import {
   Settings2, Users, FileText, CheckCircle,
   ChevronLeft, ChevronRight, Search, Mail, X, Plus,
-  AlertCircle, Info,
+  AlertCircle, Info, Zap, Loader2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
+import { dispatchToN8N } from "@/lib/n8nDispatch";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ interface Contact {
 
 interface WizardState {
   step: 1 | 2 | 3 | 4;
+  dispatchChannel: "smtp" | "n8n_email";
   name: string;
   emailConnectionId: string;
   sendingSpeed: number;
@@ -44,6 +46,7 @@ interface WizardState {
 
 const INITIAL: WizardState = {
   step: 1,
+  dispatchChannel: "smtp",
   name: "",
   emailConnectionId: "",
   sendingSpeed: 60,
@@ -58,11 +61,17 @@ const INITIAL: WizardState = {
   totalRecipients: 0,
 };
 
-const STEPS = [
+const SMTP_STEPS = [
   { id: 1, label: "Configuração",   subtitle: "Nome & SMTP",      icon: Settings2  },
   { id: 2, label: "Destinatários",  subtitle: "Quem vai receber", icon: Users      },
   { id: 3, label: "Conteúdo",       subtitle: "Assunto & corpo",  icon: FileText   },
   { id: 4, label: "Confirmação",    subtitle: "Revisar & enviar", icon: CheckCircle},
+];
+
+const N8N_STEPS = [
+  { id: 1, label: "Configuração",   subtitle: "Nome & canal",     icon: Settings2  },
+  { id: 2, label: "Destinatários",  subtitle: "Quem vai receber", icon: Users      },
+  { id: 3, label: "Confirmação",    subtitle: "Revisar & disparar", icon: CheckCircle},
 ];
 
 // ── Available template variables ─────────────────────────────────
@@ -95,6 +104,9 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
   const [emailConns, setEmailConns] = useState<EmailConn[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  const STEPS = state.dispatchChannel === "n8n_email" ? N8N_STEPS : SMTP_STEPS;
+  const totalSteps = STEPS.length;
+
   useEffect(() => {
     supabase
       .from("email_connections")
@@ -110,13 +122,28 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
   const step = state.step;
 
   function canProceed(): boolean {
-    if (step === 1) return !!state.name.trim() && !!state.emailConnectionId;
+    if (step === 1) {
+      if (state.dispatchChannel === "n8n_email") return !!state.name.trim();
+      return !!state.name.trim() && !!state.emailConnectionId;
+    }
     if (step === 2) return state.totalRecipients > 0;
-    if (step === 3) return !!state.subject.trim() && !!state.bodyHtml.trim();
+    if (step === 3) {
+      if (state.dispatchChannel === "n8n_email") return true;
+      return !!state.subject.trim() && !!state.bodyHtml.trim();
+    }
     return true;
   }
 
-  async function handleSubmit() {
+  function goNext() {
+    patch({ step: (step + 1) as WizardState["step"] });
+  }
+
+  function goBack() {
+    if (step === 1) onClose();
+    else patch({ step: (step - 1) as WizardState["step"] });
+  }
+
+  async function handleSubmitSmtp() {
     setSubmitting(true);
     try {
       const ccParsed = state.ccList
@@ -147,12 +174,9 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
 
       if (camErr) throw new Error(camErr.message);
 
-      // Insert email_messages for each selected contact
       const messages = state.contacts.map((c) => {
         const ccEmails = [...ccParsed];
-        if (state.ccRepresentante && c.email_representante) {
-          ccEmails.push(c.email_representante);
-        }
+        if (state.ccRepresentante && c.email_representante) ccEmails.push(c.email_representante);
         if (state.ccGerentes) {
           if (c.gerente1_email) ccEmails.push(c.gerente1_email);
           if (c.gerente2_email) ccEmails.push(c.gerente2_email);
@@ -183,6 +207,80 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmitN8N() {
+    setSubmitting(true);
+    try {
+      const { data: campaign, error: camErr } = await supabase
+        .from("shooting_campaigns")
+        .insert({
+          workspace_id:       WORKSPACE_ID,
+          meta_connection_id: null,
+          name:               state.name.trim(),
+          template_id:        null,
+          dispatch_channel:   "n8n_email",
+          data_source:        "contacts",
+          column_mapping:     {},
+          filters:            {},
+          total_recipients:   state.totalRecipients,
+          status:             "draft",
+          sending_speed:      0,
+          error_summary:      {},
+          created_by:         null,
+          started_at:         null,
+          completed_at:       null,
+          scheduled_at:       null,
+        })
+        .select("id")
+        .single();
+
+      if (camErr) throw new Error(camErr.message);
+
+      const msgs = state.contacts.map((c) => ({
+        campaign_id:     campaign.id,
+        workspace_id:    WORKSPACE_ID,
+        recipient_phone: (c.phone as string | undefined) ?? "",
+        recipient_name:  c.name ?? null,
+        recipient_data:  {
+          ...c,
+          _financial_campaign: false,
+        },
+        status:      "pending" as const,
+        retry_count: 0,
+        max_retries: 3,
+      }));
+
+      for (let i = 0; i < msgs.length; i += 500) {
+        const { error } = await supabase.from("shooting_messages").insert(msgs.slice(i, i + 500));
+        if (error) throw new Error(error.message);
+      }
+
+      const { data: inserted } = await supabase
+        .from("shooting_messages")
+        .select("id, recipient_name, recipient_phone, recipient_data")
+        .eq("campaign_id", campaign.id);
+
+      await dispatchToN8N(campaign.id, WORKSPACE_ID, state.name.trim(), inserted ?? []);
+
+      await supabase
+        .from("shooting_campaigns")
+        .update({ status: "sending", started_at: new Date().toISOString() })
+        .eq("id", campaign.id);
+
+      toast({ title: "Campanha disparada!", description: `${state.totalRecipients} emails enviados ao N8N.`, variant: "success" });
+      onCreated();
+      onClose();
+    } catch (err) {
+      toast({ title: "Erro ao criar campanha", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleSubmit() {
+    if (state.dispatchChannel === "n8n_email") handleSubmitN8N();
+    else handleSubmitSmtp();
   }
 
   return (
@@ -273,12 +371,14 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
                 <h2 className="font-display text-xl font-semibold text-agro-text">
                   {step === 1 ? "Configure sua campanha de email"
                     : step === 2 ? "Selecione os destinatários"
+                    : step === 3 && state.dispatchChannel === "n8n_email" ? "Confirmação do disparo"
                     : step === 3 ? "Escreva o conteúdo do email"
                     : "Revisão final antes do disparo"}
                 </h2>
                 <p className="text-sm text-agro-muted mt-0.5">
-                  {step === 1 ? "Defina o nome, conta SMTP e velocidade de envio"
+                  {step === 1 ? (state.dispatchChannel === "n8n_email" ? "Defina o nome da campanha N8N" : "Defina o nome, conta SMTP e velocidade de envio")
                     : step === 2 ? "Contatos com email preenchido"
+                    : step === 3 && state.dispatchChannel === "n8n_email" ? "Revise e dispare imediatamente para o N8N"
                     : step === 3 ? "Assunto, corpo HTML e configurações de CC"
                     : "Revise todos os detalhes antes de criar a campanha"}
                 </p>
@@ -286,18 +386,23 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
               <div className="ml-auto shrink-0 px-3 py-1 rounded-full text-xs font-semibold"
                 style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.2)", color: "#3fb06c" }}
               >
-                {step} / {STEPS.length}
+                {step} / {totalSteps}
               </div>
             </div>
           </div>
 
           {/* Step body */}
           <div className="px-8 py-8">
-            <div key={step} className="animate-scale-in">
+            <div key={`${step}-${state.dispatchChannel}`} className="animate-scale-in">
               {step === 1 && <Step1 state={state} emailConns={emailConns} onChange={patch} />}
               {step === 2 && <Step2 state={state} onChange={patch} />}
-              {step === 3 && <Step3 state={state} onChange={patch} />}
-              {step === 4 && <Step4 state={state} emailConns={emailConns} onSubmit={handleSubmit} submitting={submitting} />}
+              {step === 3 && state.dispatchChannel === "n8n_email" && (
+                <N8NConfirmationStep state={state} onSubmit={handleSubmit} submitting={submitting} />
+              )}
+              {step === 3 && state.dispatchChannel === "smtp" && <Step3 state={state} onChange={patch} />}
+              {step === 4 && state.dispatchChannel === "smtp" && (
+                <Step4 state={state} emailConns={emailConns} onSubmit={handleSubmit} submitting={submitting} />
+              )}
             </div>
           </div>
 
@@ -306,16 +411,16 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
             style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}
           >
             <button
-              onClick={() => { if (step === 1) onClose(); else patch({ step: (step - 1) as WizardState["step"] }); }}
+              onClick={goBack}
               className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors duration-200 px-4 py-2 rounded-xl hover:bg-white/5"
             >
               <ChevronLeft className="w-4 h-4" />
               {step === 1 ? "Cancelar" : "Voltar"}
             </button>
-            {step < 4 && (
+            {step < totalSteps && !(step === 3 && state.dispatchChannel === "n8n_email") && (
               <button
                 disabled={!canProceed()}
-                onClick={() => patch({ step: (step + 1) as WizardState["step"] })}
+                onClick={goNext}
                 className={cn(
                   "group relative flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-200",
                   canProceed() ? "btn-agro cursor-pointer" : "opacity-30 cursor-not-allowed",
@@ -342,62 +447,169 @@ function Step1({ state, emailConns, onChange }: {
 }) {
   return (
     <div className="space-y-6">
+      {/* Canal de envio */}
+      <div>
+        <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-2">Canal de envio *</p>
+        <div className="grid grid-cols-2 gap-3">
+          {(["smtp", "n8n_email"] as const).map((ch) => {
+            const sel = state.dispatchChannel === ch;
+            return (
+              <button
+                key={ch}
+                onClick={() => onChange({ dispatchChannel: ch, emailConnectionId: "" })}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-4 rounded-xl text-left transition-all",
+                  sel ? "text-agro-text" : "text-agro-muted hover:text-agro-text",
+                )}
+                style={{
+                  background: sel ? "rgba(63,176,108,0.1)" : "rgba(13,26,17,0.5)",
+                  border:     sel ? "1px solid rgba(63,176,108,0.35)" : "1px solid rgba(63,176,108,0.1)",
+                }}
+              >
+                <div className={cn("shrink-0 transition-colors", sel ? "text-agro-green" : "text-agro-muted-2")}>
+                  {ch === "smtp" ? <Mail className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm">{ch === "smtp" ? "Email via SMTP" : "Email via N8N"}</p>
+                  <p className="text-agro-muted-2 text-xs mt-0.5">{ch === "smtp" ? "Conta configurada no app" : "Webhook externo"}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div>
         <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">Nome da campanha *</p>
         <input
           className="input-agro w-full"
-          placeholder="Ex: Cobrança Março 2025"
+          placeholder={state.dispatchChannel === "n8n_email" ? "Ex: Cobrança Abril — Email N8N" : "Ex: Cobrança Março 2025"}
           value={state.name}
           onChange={(e) => onChange({ name: e.target.value })}
         />
       </div>
 
-      <div>
-        <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">Conta de email (SMTP) *</p>
-        {emailConns.length === 0 ? (
-          <div className="flex items-center gap-3 p-4 rounded-xl"
-            style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
-          >
-            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-            <p className="text-sm text-amber-400">
-              Nenhuma conexão SMTP configurada. Adicione uma em{" "}
-              <strong>Configurações → Conexões de Email</strong>.
+      {state.dispatchChannel === "n8n_email" && (
+        <div className="flex items-start gap-3 p-4 rounded-xl"
+          style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)" }}
+        >
+          <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-blue-400">
+            O template de email é gerenciado pelo N8N. Selecione os destinatários e o disparo acontece imediatamente via webhook.
+          </p>
+        </div>
+      )}
+
+      {state.dispatchChannel === "smtp" && (
+        <>
+          <div>
+            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">Conta de email (SMTP) *</p>
+            {emailConns.length === 0 ? (
+              <div className="flex items-center gap-3 p-4 rounded-xl"
+                style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
+              >
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <p className="text-sm text-amber-400">
+                  Nenhuma conexão SMTP configurada. Adicione uma em{" "}
+                  <strong>Configurações → Conexões de Email</strong>.
+                </p>
+              </div>
+            ) : (
+              <select
+                className="input-agro w-full"
+                value={state.emailConnectionId}
+                onChange={(e) => onChange({ emailConnectionId: e.target.value })}
+              >
+                <option value="">Selecionar conta...</option>
+                {emailConns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.provider === "graph" ? "[M365] " : "[SMTP] "}{c.name} · {c.from_email}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">
+              Velocidade de envio — <span className="text-agro-green">{state.sendingSpeed} emails/min</span>
+            </p>
+            <input
+              type="range" min={10} max={300} step={10}
+              value={state.sendingSpeed}
+              onChange={(e) => onChange({ sendingSpeed: Number(e.target.value) })}
+              className="w-full accent-agro-green"
+            />
+            <div className="flex justify-between text-[11px] text-agro-muted-2 mt-1">
+              <span>10/min (cuidadoso)</span>
+              <span>300/min (máximo)</span>
+            </div>
+            <p className="text-xs text-agro-muted mt-2">
+              Gmail recomenda até 100/min. Para SMTP próprio, depende do servidor.
             </p>
           </div>
-        ) : (
-          <select
-            className="input-agro w-full"
-            value={state.emailConnectionId}
-            onChange={(e) => onChange({ emailConnectionId: e.target.value })}
-          >
-            <option value="">Selecionar conta...</option>
-            {emailConns.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.provider === "graph" ? "[M365] " : "[SMTP] "}{c.name} · {c.from_email}
-              </option>
-            ))}
-          </select>
-        )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── N8N Confirmation Step ────────────────────────────────────────
+
+function N8NConfirmationStep({ state, onSubmit, submitting }: {
+  state: WizardState;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 rounded-xl text-center"
+          style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
+        >
+          <p className="text-xs text-agro-muted-2 uppercase tracking-widest mb-1">Campanha</p>
+          <p className="text-lg font-bold text-agro-text truncate">{state.name}</p>
+        </div>
+        <div className="p-4 rounded-xl text-center"
+          style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
+        >
+          <p className="text-xs text-agro-muted-2 uppercase tracking-widest mb-1">Destinatários</p>
+          <p className="text-2xl font-bold text-agro-green font-display">{state.totalRecipients}</p>
+          <p className="text-[11px] text-agro-muted mt-0.5">contatos selecionados</p>
+        </div>
       </div>
 
-      <div>
-        <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">
-          Velocidade de envio — <span className="text-agro-green">{state.sendingSpeed} emails/min</span>
-        </p>
-        <input
-          type="range" min={10} max={300} step={10}
-          value={state.sendingSpeed}
-          onChange={(e) => onChange({ sendingSpeed: Number(e.target.value) })}
-          className="w-full accent-agro-green"
-        />
-        <div className="flex justify-between text-[11px] text-agro-muted-2 mt-1">
-          <span>10/min (cuidadoso)</span>
-          <span>300/min (máximo)</span>
-        </div>
-        <p className="text-xs text-agro-muted mt-2">
-          Gmail recomenda até 100/min. Para SMTP próprio, depende do servidor.
+      <div className="space-y-2 max-h-56 overflow-y-auto rounded-xl"
+        style={{ border: "1px solid rgba(63,176,108,0.1)" }}
+      >
+        {state.contacts.map((c, i) => (
+          <div key={c.id}
+            className="flex items-center justify-between px-4 py-2.5 text-sm"
+            style={{ borderBottom: i < state.contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+          >
+            <span className="font-medium text-agro-text">{c.name || "—"}</span>
+            <span className="text-agro-muted font-mono text-xs">{c.email}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-start gap-3 p-4 rounded-xl"
+        style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
+      >
+        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-sm text-amber-400">
+          O disparo acontece imediatamente ao confirmar. Os emails serão processados pelo N8N e os status atualizados automaticamente.
         </p>
       </div>
+
+      <button
+        onClick={onSubmit}
+        disabled={submitting}
+        className="btn-agro w-full flex items-center justify-center gap-3 py-3.5 rounded-xl text-base font-semibold text-white disabled:opacity-60"
+      >
+        {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+        {submitting ? "Disparando…" : "Disparar via N8N"}
+      </button>
     </div>
   );
 }

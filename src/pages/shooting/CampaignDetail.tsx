@@ -468,7 +468,11 @@ export function CampaignDetail() {
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-agro-muted flex-wrap">
-                <span>Template: <span className="font-medium text-agro-text">{campaign.meta_templates?.template_name ?? "—"}</span></span>
+                {campaign.dispatch_channel === "n8n_email" ? (
+                  <span className="font-medium text-blue-400">Email via N8N</span>
+                ) : (
+                  <span>Template: <span className="font-medium text-agro-text">{campaign.meta_templates?.template_name ?? "—"}</span></span>
+                )}
                 <span className="text-agro-muted-2">·</span>
                 <span>{campaign.total_recipients.toLocaleString("pt-BR")} destinatários</span>
                 <span className="text-agro-muted-2">·</span>
@@ -594,7 +598,7 @@ export function CampaignDetail() {
         {/* ── Messages table ───────────────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard title="Mensagens individuais">
-            <MessagesTable campaignId={campaign.id} />
+            <MessagesTable campaignId={campaign.id} dispatchChannel={campaign.dispatch_channel} />
           </DarkCard>
         </div>
       </div>

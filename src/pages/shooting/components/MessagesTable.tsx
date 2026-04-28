@@ -34,9 +34,11 @@ function getStatusStyle(status: string): StatusDef {
 
 interface MessagesTableProps {
   campaignId: string;
+  dispatchChannel?: string;
 }
 
-export function MessagesTable({ campaignId }: MessagesTableProps) {
+export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProps) {
+  const isEmail = dispatchChannel === "n8n_email";
   const [statusFilter, setStatusFilter] = useState<MessageStatus | "all">("all");
   const [detail, setDetail] = useState<ShootingMessage | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -152,7 +154,8 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
           <thead>
             <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
               {[
-                "Destinatário", "Telefone",
+                "Destinatário",
+                ...(isEmail ? ["Email"] : ["Telefone"]),
                 ...(hasFinancialData ? ["Valor", "Vencimento"] : []),
                 "Status", "Enviado", "Entregue", "Lido", "Erro",
               ].map((h) => (
@@ -186,9 +189,19 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
                       <td className="px-4 py-3 font-medium text-agro-text text-sm">
                         {msg.recipient_name ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-agro-muted font-mono text-xs">
-                        {msg.recipient_phone}
-                      </td>
+                      {isEmail ? (
+                        <td className="px-4 py-3 text-agro-muted font-mono text-xs">
+                          <div>{rd?.email as string ?? "—"}</div>
+                          {rd?.email2 && <div className="text-agro-muted-2">{rd.email2 as string}</div>}
+                          {rd?.email_representante && <div className="text-agro-muted-2 text-[10px]">Rep: {rd.email_representante as string}</div>}
+                          {rd?.gerente1_email && <div className="text-agro-muted-2 text-[10px]">G1: {rd.gerente1_email as string}</div>}
+                          {rd?.gerente2_email && <div className="text-agro-muted-2 text-[10px]">G2: {rd.gerente2_email as string}</div>}
+                        </td>
+                      ) : (
+                        <td className="px-4 py-3 text-agro-muted font-mono text-xs">
+                          {msg.recipient_phone}
+                        </td>
+                      )}
                       {hasFinancialData && (
                         <>
                           <td className="px-4 py-3 text-xs font-semibold text-amber-400">

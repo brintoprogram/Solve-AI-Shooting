@@ -13,6 +13,7 @@ export function useCampaigns(workspaceId: string) {
       .from("shooting_campaigns")
       .select("*, meta_templates(*), meta_connections(display_phone, business_name, quality_rating)")
       .eq("workspace_id", workspaceId)
+      .neq("dispatch_channel", "n8n_email")
       .order("created_at", { ascending: false });
     setCampaigns((data as CampaignWithTemplate[]) ?? []);
     setLoading(false);

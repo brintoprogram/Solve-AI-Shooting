@@ -23,6 +23,15 @@ export interface UserProfile {
   updated_at: string;
 }
 
+export interface WorkspaceInfo {
+  id:   string;
+  name: string;
+  role: "admin" | "manager" | "agent";
+}
+
+// localStorage key — workspace preference per browser
+const WS_STORAGE_KEY = "solve_ai_active_workspace";
+
 // Read hash once at module load, before Supabase clears it asynchronously
 const INITIAL_HASH = typeof window !== "undefined" ? window.location.hash : "";
 
@@ -36,6 +45,8 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   workspaceId: string | null;
+  workspaces: WorkspaceInfo[];
+  switchWorkspace: (id: string) => void;
   loading: boolean;
   setupType: "invite" | "recovery" | null;
   clearSetupType: () => void;
@@ -53,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser]               = useState<User | null>(null);
   const [profile, setProfile]         = useState<UserProfile | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [workspaces, setWorkspaces]   = useState<WorkspaceInfo[]>([]);
   const [loading, setLoading]         = useState(true);
   const [setupType, setSetupType]     = useState<"invite" | "recovery" | null>(detectSetupType);
   const fetchingRef                   = useRef(false); // mutex — prevents concurrent fetchProfile calls
@@ -73,19 +85,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const [profileRes, wsRes] = await Promise.all([
         db.from("user_profiles").select("*").eq("id", userId).single(),
-        // INNER JOIN with workspaces skips orphaned entries whose workspace was deleted.
-        // ORDER BY created_at ensures deterministic result when user has multiple memberships.
+        // Fetch ALL workspaces the user belongs to (INNER JOIN skips deleted workspaces).
+        // No LIMIT — a user may legitimately belong to multiple workspaces.
         db.from("workspace_members")
-          .select("workspace_id, workspaces!inner(id)")
+          .select("workspace_id, role, workspaces!inner(id, name)")
           .eq("user_id", userId)
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle(),
+          .order("created_at", { ascending: true }),
       ]);
       if (profileRes.data) setProfile(profileRes.data as UserProfile);
 
-      if (wsRes.data?.workspace_id) {
-        setWorkspaceId(wsRes.data.workspace_id as string);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wsList: WorkspaceInfo[] = ((wsRes.data ?? []) as any[]).map((m) => ({
+        id:   m.workspace_id as string,
+        name: (m.workspaces as { name: string }).name,
+        role: m.role as WorkspaceInfo["role"],
+      }));
+      setWorkspaces(wsList);
+
+      if (wsList.length > 0) {
+        // Validate the stored workspace preference against the DB-sourced list.
+        // This is the security gate — arbitrary values from localStorage are ignored
+        // if they don't correspond to an actual membership in the database.
+        const stored = localStorage.getItem(WS_STORAGE_KEY);
+        const valid  = wsList.find((w) => w.id === stored);
+        setWorkspaceId((valid ?? wsList[0]).id);
         return;
       }
 
@@ -103,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Verify the target workspace actually exists before accepting
         const { data: wsExists } = await db
           .from("workspaces")
-          .select("id")
+          .select("id, name")
           .eq("id", invite.workspace_id)
           .maybeSingle();
 
@@ -122,7 +145,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .from("workspace_invites")
           .update({ accepted_at: new Date().toISOString() })
           .eq("token", invite.token);
-        setWorkspaceId(invite.workspace_id as string);
+
+        const accepted: WorkspaceInfo = {
+          id:   invite.workspace_id as string,
+          name: (wsExists as { name: string }).name,
+          role: (invite.role ?? "agent") as WorkspaceInfo["role"],
+        };
+        setWorkspaces([accepted]);
+        setWorkspaceId(accepted.id);
       } else {
         console.warn("[auth] no workspace and no valid invite — access denied, signing out");
         await supabase.auth.signOut();
@@ -130,6 +160,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       fetchingRef.current = false;
     }
+  }
+
+  function switchWorkspace(id: string) {
+    // Only allows switching to a workspace that was returned by the DB query.
+    // Any ID injected via browser console that isn't in this list is silently rejected.
+    // Even if bypassed, the Supabase RLS function is_workspace_member() blocks all queries
+    // to workspaces the authenticated user is not a member of at the database level.
+    const target = workspaces.find((w) => w.id === id);
+    if (!target) return;
+    localStorage.setItem(WS_STORAGE_KEY, id);
+    setWorkspaceId(id);
+    // Full reload clears all in-memory caches (React state, query results, etc.)
+    window.location.reload();
   }
 
   useEffect(() => {
@@ -169,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, workspaceId, loading, setupType, clearSetupType, updateProfile, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, workspaceId, workspaces, switchWorkspace, loading, setupType, clearSetupType, updateProfile, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

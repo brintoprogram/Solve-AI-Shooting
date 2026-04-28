@@ -3,6 +3,7 @@ import { Bell, ChevronRight, Settings, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, initials } from "@/context/AuthContext";
 import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 interface TopbarProps {
   breadcrumbs: Array<{ label: string; href?: string }>;
@@ -77,6 +78,9 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
 
       {/* Right */}
       <div className="flex items-center gap-2">
+        {/* Workspace switcher — only visible when user belongs to 2+ workspaces */}
+        <WorkspaceSwitcher />
+
         {/* Bell */}
         <button
           onClick={() => navigate("/alerts")}
