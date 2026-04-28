@@ -27,6 +27,16 @@ interface Contact {
   [key: string]: unknown;
 }
 
+interface ContactInvoice {
+  id: string;
+  contact_id: string;
+  valor: number | null;
+  vencimento: string | null;
+  status: string;
+  numero_nf: string | null;
+  codigo_barras: string | null;
+}
+
 interface WizardState {
   step: 1 | 2 | 3 | 4;
   dispatchChannel: "smtp" | "n8n_email";
@@ -42,6 +52,10 @@ interface WizardState {
   ccRepresentante: boolean;
   ccGerentes: boolean;
   totalRecipients: number;
+  // N8N invoice filter
+  invoiceVencFrom: string;
+  invoiceVencTo: string;
+  contactInvoices: Record<string, ContactInvoice[]>;
 }
 
 const INITIAL: WizardState = {
@@ -59,6 +73,9 @@ const INITIAL: WizardState = {
   ccRepresentante: false,
   ccGerentes: false,
   totalRecipients: 0,
+  invoiceVencFrom: "",
+  invoiceVencTo: "",
+  contactInvoices: {},
 };
 
 const SMTP_STEPS = [
@@ -87,6 +104,15 @@ const BASE_VARS = [
 function interpolate(template: string, contact: Record<string, unknown> | null): string {
   if (!contact) return template;
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => String(contact[key] ?? `{{${key}}}`));
+}
+
+function formatBRL(val: number): string {
+  return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatDateBR(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 // ── Main Wizard ──────────────────────────────────────────────────
@@ -237,19 +263,33 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
 
       if (camErr) throw new Error(camErr.message);
 
-      const msgs = state.contacts.map((c) => ({
-        campaign_id:     campaign.id,
-        workspace_id:    WORKSPACE_ID,
-        recipient_phone: (c.phone as string | undefined) ?? "",
-        recipient_name:  c.name ?? null,
-        recipient_data:  {
-          ...c,
-          _financial_campaign: false,
-        },
-        status:      "pending" as const,
-        retry_count: 0,
-        max_retries: 3,
-      }));
+      const msgs = state.contacts.map((c) => {
+        const invs      = state.contactInvoices[c.id] ?? [];
+        const hasInv    = invs.length > 0;
+        const valorTotal = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+        const proximoVenc = invs
+          .filter((inv) => inv.vencimento)
+          .sort((a, b) => a.vencimento!.localeCompare(b.vencimento!))
+          [0]?.vencimento ?? null;
+        return {
+          campaign_id:     campaign.id,
+          workspace_id:    WORKSPACE_ID,
+          recipient_phone: (c.phone as string | undefined) ?? "",
+          recipient_name:  c.name ?? null,
+          recipient_data:  {
+            ...c,
+            _financial_campaign:  hasInv,
+            valor_total_pendente: hasInv ? formatBRL(valorTotal) : undefined,
+            proximo_vencimento:   proximoVenc ? formatDateBR(proximoVenc) : undefined,
+            _invoice_count:       invs.length,
+            _invoice_ids:         invs.map((inv) => inv.id),
+            contact_invoices:     invs,
+          },
+          status:      "pending" as const,
+          retry_count: 0,
+          max_retries: 3,
+        };
+      });
 
       for (let i = 0; i < msgs.length; i += 500) {
         const { error } = await supabase.from("shooting_messages").insert(msgs.slice(i, i + 500));
@@ -561,9 +601,17 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
   onSubmit: () => void;
   submitting: boolean;
 }) {
+  const hasInvoices = Object.keys(state.contactInvoices).length > 0;
+  const totalValor  = hasInvoices
+    ? state.contacts.reduce((sum, c) => {
+        const invs = state.contactInvoices[c.id] ?? [];
+        return sum + invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+      }, 0)
+    : 0;
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className={`grid gap-4 ${hasInvoices ? "grid-cols-3" : "grid-cols-2"}`}>
         <div className="p-4 rounded-xl text-center"
           style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
         >
@@ -577,20 +625,42 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
           <p className="text-2xl font-bold text-agro-green font-display">{state.totalRecipients}</p>
           <p className="text-[11px] text-agro-muted mt-0.5">contatos selecionados</p>
         </div>
+        {hasInvoices && (
+          <div className="p-4 rounded-xl text-center"
+            style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
+          >
+            <p className="text-xs text-agro-muted-2 uppercase tracking-widest mb-1">Valor Total</p>
+            <p className="text-xl font-bold text-amber-400 font-display">{formatBRL(totalValor)}</p>
+            <p className="text-[11px] text-agro-muted mt-0.5">
+              {state.invoiceVencFrom && state.invoiceVencTo
+                ? `${formatDateBR(state.invoiceVencFrom)} – ${formatDateBR(state.invoiceVencTo)}`
+                : "todos os boletos"}
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="space-y-2 max-h-56 overflow-y-auto rounded-xl"
+      <div className="space-y-0 max-h-56 overflow-y-auto rounded-xl"
         style={{ border: "1px solid rgba(63,176,108,0.1)" }}
       >
-        {state.contacts.map((c, i) => (
-          <div key={c.id}
-            className="flex items-center justify-between px-4 py-2.5 text-sm"
-            style={{ borderBottom: i < state.contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
-          >
-            <span className="font-medium text-agro-text">{c.name || "—"}</span>
-            <span className="text-agro-muted font-mono text-xs">{c.email}</span>
-          </div>
-        ))}
+        {state.contacts.map((c, i) => {
+          const invs = state.contactInvoices[c.id] ?? [];
+          const valor = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+          return (
+            <div key={c.id}
+              className="flex items-center justify-between px-4 py-2.5 text-sm"
+              style={{ borderBottom: i < state.contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+            >
+              <span className="font-medium text-agro-text">{c.name || "—"}</span>
+              <div className="flex items-center gap-4">
+                {invs.length > 0 && (
+                  <span className="text-xs font-semibold text-amber-400">{formatBRL(valor)}</span>
+                )}
+                <span className="text-agro-muted font-mono text-xs">{c.email}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex items-start gap-3 p-4 rounded-xl"
@@ -621,12 +691,15 @@ function Step2({ state, onChange }: {
   onChange: (p: Partial<WizardState>) => void;
 }) {
   const { workspaceId } = useAuth();
-  const [allContacts, setAllContacts]   = useState<Contact[]>([]);
-  const [search, setSearch]             = useState("");
-  const [loading, setLoading]           = useState(true);
-  const [page, setPage]                 = useState(0);
+  const isN8N = state.dispatchChannel === "n8n_email";
+  const [allContacts, setAllContacts]       = useState<Contact[]>([]);
+  const [search, setSearch]                 = useState("");
+  const [loading, setLoading]               = useState(true);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [page, setPage]                     = useState(0);
   const PAGE_SIZE = 10;
 
+  // Load contacts
   useEffect(() => {
     supabase
       .from("inbox_contacts")
@@ -641,11 +714,44 @@ function Step2({ state, onChange }: {
       });
   }, [workspaceId]);
 
-  const filtered = allContacts.filter(
-    (c) =>
+  // Load invoices when N8N + both dates set
+  useEffect(() => {
+    if (!isN8N || !state.invoiceVencFrom || !state.invoiceVencTo || allContacts.length === 0) {
+      if (!state.invoiceVencFrom || !state.invoiceVencTo) onChange({ contactInvoices: {} });
+      return;
+    }
+    let cancelled = false;
+    setLoadingInvoices(true);
+    supabase
+      .from("contact_invoices")
+      .select("id,contact_id,valor,vencimento,status,numero_nf,codigo_barras")
+      .eq("workspace_id", workspaceId ?? "")
+      .gte("vencimento", state.invoiceVencFrom)
+      .lte("vencimento", state.invoiceVencTo)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const map: Record<string, ContactInvoice[]> = {};
+        for (const inv of (data ?? []) as ContactInvoice[]) {
+          if (!map[inv.contact_id]) map[inv.contact_id] = [];
+          map[inv.contact_id].push(inv);
+        }
+        onChange({ contactInvoices: map });
+        setLoadingInvoices(false);
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isN8N, state.invoiceVencFrom, state.invoiceVencTo, allContacts.length, workspaceId]);
+
+  const hasInvoiceFilter = isN8N && !!state.invoiceVencFrom && !!state.invoiceVencTo;
+
+  const filtered = allContacts.filter((c) => {
+    const matchSearch =
       c.name?.toLowerCase().includes(search.toLowerCase()) ||
-      c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+      c.email?.toLowerCase().includes(search.toLowerCase());
+    // When N8N with date filter active, only show contacts that have invoices in range
+    const matchInvoice = !hasInvoiceFilter || !!state.contactInvoices[c.id];
+    return matchSearch && matchInvoice;
+  });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -690,6 +796,67 @@ function Step2({ state, onChange }: {
 
   return (
     <div className="space-y-4">
+      {/* Invoice date filter — N8N only */}
+      {isN8N && (
+        <div className="rounded-xl p-4 space-y-3"
+          style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.18)" }}
+        >
+          <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest">
+            Filtro de vencimento dos boletos
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <p className="text-[10px] text-agro-muted-2 mb-1">De</p>
+              <input
+                type="date"
+                className="input-agro w-full text-sm"
+                value={state.invoiceVencFrom}
+                onChange={(e) => onChange({ invoiceVencFrom: e.target.value })}
+              />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] text-agro-muted-2 mb-1">Até</p>
+              <input
+                type="date"
+                className="input-agro w-full text-sm"
+                value={state.invoiceVencTo}
+                onChange={(e) => onChange({ invoiceVencTo: e.target.value })}
+              />
+            </div>
+            {hasInvoiceFilter && (
+              <div className="pt-5">
+                <button
+                  onClick={() => onChange({ invoiceVencFrom: "", invoiceVencTo: "", contactInvoices: {} })}
+                  className="px-3 py-2 rounded-lg text-xs text-agro-muted hover:text-agro-text transition-colors"
+                  style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                >
+                  Limpar
+                </button>
+              </div>
+            )}
+          </div>
+          {loadingInvoices && (
+            <p className="text-xs text-amber-400 flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" /> Carregando boletos...
+            </p>
+          )}
+          {hasInvoiceFilter && !loadingInvoices && (
+            <p className="text-xs text-agro-muted">
+              <span className="text-amber-400 font-semibold">{filtered.length}</span> contatos com boletos no período
+              {" · "}
+              <span className="text-amber-400 font-semibold">
+                {formatBRL(
+                  filtered.reduce((sum, c) => {
+                    const invs = state.contactInvoices[c.id] ?? [];
+                    return sum + invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+                  }, 0)
+                )}
+              </span> total
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Counter */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
         style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
@@ -769,6 +936,9 @@ function Step2({ state, onChange }: {
                   </th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email</th>
+                  {hasInvoiceFilter && (
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">Valor</th>
+                  )}
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Representante</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 1</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 2</th>
@@ -799,6 +969,15 @@ function Step2({ state, onChange }: {
                         {c.name}
                       </td>
                       <td className="px-4 py-3 text-agro-muted text-xs font-mono">{c.email}</td>
+                      {hasInvoiceFilter && (() => {
+                        const invs  = state.contactInvoices[c.id] ?? [];
+                        const valor = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+                        return (
+                          <td className="px-4 py-3 text-xs font-semibold text-amber-400">
+                            {invs.length > 0 ? formatBRL(valor) : "—"}
+                          </td>
+                        );
+                      })()}
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.email_representante ?? "—"}</td>
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente1_email ?? "—"}</td>
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente2_email ?? "—"}</td>
