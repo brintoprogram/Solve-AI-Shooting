@@ -166,6 +166,23 @@ Deno.serve(async (req: Request) => {
           .eq("id", existingUser.id);
       }
 
+      // Notificar o usuário existente via magic link (link de acesso à plataforma)
+      // Usamos resetPasswordForEmail para que o Supabase envie um email com link de login.
+      // O redirectTo aponta para o app — ao clicar o usuário cai direto no painel.
+      const appUrl = Deno.env.get("APP_URL") ?? "https://solve-ai-shooting.vercel.app";
+      const anonClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+      );
+      const { error: resetErr } = await anonClient.auth.resetPasswordForEmail(normalizedEmail, {
+        redirectTo: appUrl,
+      });
+      if (resetErr) {
+        console.warn(`[invite-user] não foi possível enviar notificação para ${normalizedEmail}: ${resetErr.message}`);
+      } else {
+        console.log(`[invite-user] ✓ email de acesso enviado para usuário existente ${normalizedEmail}`);
+      }
+
       console.log(`[invite-user] ✓ usuário existente ${normalizedEmail} adicionado ao workspace ${workspaceId}`);
       return json({ ok: true, type: "added", email: normalizedEmail });
     }
