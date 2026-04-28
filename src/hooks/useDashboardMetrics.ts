@@ -145,7 +145,7 @@ export function useDashboardMetrics(): DashboardMetrics {
         const rd = msg.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
         let raw: unknown;
-        if ("_invoice_ids" in rd) {
+        if (rd._financial_campaign === true) {
           raw = rd.valor_total_pendente;
         } else {
           const key = Object.keys(rd).find((k) => {

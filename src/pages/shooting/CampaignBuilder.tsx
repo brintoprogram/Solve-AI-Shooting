@@ -499,11 +499,15 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
               ? pendingOnDate.filter((inv) => selIds.has(inv.id)).map((inv) => inv.id)
               : pendingOnDate.map((inv) => inv.id);
 
+          const FINANCIAL_FIELDS = new Set(["valor_total_pendente", "proximo_vencimento", "boleto_nf", "boleto_codigo_barras"]);
+          const isFinancialCampaign = Object.values(varMap).some((v) => FINANCIAL_FIELDS.has(v));
+
           const recipientData: Record<string, unknown> = {
             ...(enriched as unknown as Record<string, unknown>),
-            _vencimento_filtro: filterDate || null,
-            _invoice_ids:       usedIds,
-            _invoice_count:     usedIds.length,
+            _vencimento_filtro:  filterDate || null,
+            _invoice_ids:        usedIds,
+            _invoice_count:      usedIds.length,
+            _financial_campaign: isFinancialCampaign,
           };
 
           return {

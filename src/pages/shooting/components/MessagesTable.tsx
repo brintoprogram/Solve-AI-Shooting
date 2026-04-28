@@ -41,7 +41,7 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
   // Auto-detect whether this campaign has financial data in recipient_data
   const hasFinancialData = messages.some((m) => {
     const d = m.recipient_data as Record<string, unknown> | null;
-    return d && "_invoice_ids" in d;
+    return d && d._financial_campaign === true;
   });
 
   async function exportAllToXlsx() {
@@ -55,7 +55,7 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
     const all: ShootingMessage[] = data ?? [];
     const anyFinancial = all.some((m) => {
       const d = m.recipient_data as Record<string, unknown> | null;
-      return d && "_invoice_ids" in d;
+      return d && d._financial_campaign === true;
     });
     const rows = all.map((m) => {
       const d = m.recipient_data as Record<string, unknown> | null;

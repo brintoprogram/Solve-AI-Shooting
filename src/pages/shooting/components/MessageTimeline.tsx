@@ -147,7 +147,7 @@ export function MessageTimeline({ message, onRetry }: MessageTimelineProps) {
       {/* Boletos enviados (campaigns with financial data) */}
       {(() => {
         const rd = message.recipient_data as Record<string, unknown> | null;
-        if (!rd?._invoice_ids) return null;
+        if (!rd?._financial_campaign || !rd?._invoice_ids) return null;
         const invIds   = rd._invoice_ids as string[];
         const allInvs  = (rd.contact_invoices as Array<{
           id: string; valor: number; vencimento: string | null; numero_nf: string | null;
