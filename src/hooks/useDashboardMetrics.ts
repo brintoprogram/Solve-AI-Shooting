@@ -6,24 +6,29 @@ import { useAuth } from "@/context/AuthContext";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
+export type DashboardDateRange = "7d" | "30d" | "90d" | "all";
+
 export interface DashboardMetrics {
   activeCampaigns:    number;
   messagesSent:       number;
   activeContacts:     number;
   deliveryRate:       number; // 0–100
-  // month deltas
+  // period deltas — "este mês" when dateRange="all", "neste período" when filtered
   campaignsThisMonth: number;
   messagesThisMonth:  number;
   contactsThisMonth:  number;
-  // new cards
+  // extra cards
   timeSavedMinutes:   number;
   valueDispatched:    number;
-  // 30-day area chart
+  // chart
   dailyMessages:      { date: string; enviadas: number; lidas: number }[];
+  // context for UI / exports
+  periodLabel:  string; // "este mês" | "neste período"
+  chartDays:    number;
   loading: boolean;
 }
 
-export function useDashboardMetrics(): DashboardMetrics {
+export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): DashboardMetrics {
   const { workspaceId } = useAuth();
   const [m, setM] = useState<Omit<DashboardMetrics, "loading">>({
     activeCampaigns:    0,
@@ -36,118 +41,143 @@ export function useDashboardMetrics(): DashboardMetrics {
     timeSavedMinutes:   0,
     valueDispatched:    0,
     dailyMessages:      [],
+    periodLabel:        "este mês",
+    chartDays:          30,
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!workspaceId) return;
     let cancelled = false;
+    setLoading(true);
 
     async function load() {
-      const monthStart = startOfMonth(new Date()).toISOString();
+      const isFiltered  = dateRange !== "all";
+      const days        = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
+      // Chart always shows the same window as the period (90d for "all")
+      const chartDays   = isFiltered ? days : 90;
+      const periodStart = isFiltered ? subDays(new Date(), days).toISOString() : null;
+      const monthStart  = startOfMonth(new Date()).toISOString();
+      // Delta: when "all" → this-month count; when filtered → same window as main
+      const deltaStart  = isFiltered ? periodStart! : monthStart;
+      const chartStart  = subDays(new Date(), chartDays - 1).toISOString();
+      const periodLabel = isFiltered ? "neste período" : "este mês";
 
-      const SENT_STATUSES  = ["sent", "delivered", "read", "replied"];
-      const thirtyDaysAgo = subDays(new Date(), 30).toISOString();
+      const SENT_STATUSES = ["sent", "delivered", "read", "replied"];
 
       const [
         campaignsTotal,
-        campaignsMth,
+        campaignsDelta,
         messagesTotal,
-        messagesMth,
+        messagesDelta,
         contactsTotal,
-        contactsMth,
+        contactsDelta,
         campaignAgg,
         valueMsgs,
         dailyMsgs,
       ] = await Promise.all([
-        // Total de campanhas
-        db.from("shooting_campaigns")
-          .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId),
+        // ── Total de campanhas (filtrado pelo período se ativo) ───────
+        (() => {
+          let q = db.from("shooting_campaigns")
+            .select("*", { count: "exact", head: true })
+            .eq("workspace_id", workspaceId);
+          if (periodStart) q = q.gte("created_at", periodStart);
+          return q;
+        })(),
 
-        // Campanhas criadas este mês
+        // ── Delta de campanhas ────────────────────────────────────────
         db.from("shooting_campaigns")
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
-          .gte("created_at", monthStart),
+          .gte("created_at", deltaStart),
 
-        // Total de mensagens efetivamente enviadas (não pending)
-        db.from("shooting_messages")
-          .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId)
-          .in("status", [...SENT_STATUSES, "failed"]),
+        // ── Total de mensagens enviadas ───────────────────────────────
+        (() => {
+          let q = db.from("shooting_messages")
+            .select("*", { count: "exact", head: true })
+            .eq("workspace_id", workspaceId)
+            .in("status", [...SENT_STATUSES, "failed"]);
+          if (periodStart) q = q.gte("created_at", periodStart);
+          return q;
+        })(),
 
-        // Mensagens enviadas este mês
+        // ── Delta de mensagens ────────────────────────────────────────
         db.from("shooting_messages")
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
           .in("status", [...SENT_STATUSES, "failed"])
-          .gte("created_at", monthStart),
+          .gte("created_at", deltaStart),
 
-        // Total de contatos no Inbox
+        // ── Total de contatos no Inbox ────────────────────────────────
+        (() => {
+          let q = db.from("inbox_contacts")
+            .select("*", { count: "exact", head: true })
+            .eq("workspace_id", workspaceId);
+          if (periodStart) q = q.gte("first_seen_at", periodStart);
+          return q;
+        })(),
+
+        // ── Delta de contatos ─────────────────────────────────────────
         db.from("inbox_contacts")
           .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId),
-
-        // Contatos novos este mês
-        db.from("inbox_contacts")
-          .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
-          .gte("first_seen_at", monthStart),
+          .gte("first_seen_at", deltaStart),
 
-        // Contadores acumulados das campanhas (taxa de entrega + tempo de automação)
-        db.from("shooting_campaigns")
-          .select("sent_count, delivered_count, read_count, replied_count, started_at, completed_at, dispatch_channel, total_recipients")
-          .eq("workspace_id", workspaceId)
-          .not("started_at", "is", null),
+        // ── Agg de campanhas (entrega + tempo de automação) ───────────
+        (() => {
+          let q = db.from("shooting_campaigns")
+            .select("sent_count, delivered_count, dispatch_channel, total_recipients, started_at, completed_at")
+            .eq("workspace_id", workspaceId)
+            .not("started_at", "is", null);
+          if (periodStart) q = q.gte("created_at", periodStart);
+          return q;
+        })(),
 
-        // Valor disparado — campo inv_valor no recipient_data (snapshot do contato)
-        db.from("shooting_messages")
-          .select("recipient_data")
-          .eq("workspace_id", workspaceId)
-          .in("status", SENT_STATUSES),
+        // ── Valor disparado ───────────────────────────────────────────
+        (() => {
+          let q = db.from("shooting_messages")
+            .select("recipient_data")
+            .eq("workspace_id", workspaceId)
+            .in("status", SENT_STATUSES);
+          if (periodStart) q = q.gte("created_at", periodStart);
+          return q;
+        })(),
 
-        // Últimos 30 dias — só sent_at e read_at para o gráfico de área
+        // ── Dados do gráfico de área ──────────────────────────────────
         db.from("shooting_messages")
           .select("sent_at, read_at")
           .eq("workspace_id", workspaceId)
           .in("status", SENT_STATUSES)
-          .gte("sent_at", thirtyDaysAgo),
+          .gte("sent_at", chartStart),
       ]);
 
-      // Taxa de entrega + tempo de automação
-      // delivered_count já inclui mensagens que depois foram lidas ou respondidas
-      // (o WhatsApp acumula por estado máximo), então somar read+replied dobra a contagem.
-      // Usamos só delivered_count como proxy de "entregue ou melhor" e capamos em 100%.
-      let totalSent           = 0;
-      let totalDelivered      = 0;
-      let totalRecipients     = 0;
-      let automationMinutes   = 0;
+      // ── Taxa de entrega + tempo de automação ──────────────────────
+      let totalSent         = 0;
+      let totalDelivered    = 0;
+      let totalRecipients   = 0;
+      let automationMinutes = 0;
       for (const c of (campaignAgg.data ?? [])) {
-        const sent = c.sent_count ?? 0;
-        // Email campaigns: sent = delivered (no WhatsApp-style receipt from N8N)
+        const sent      = c.sent_count ?? 0;
         const delivered = c.dispatch_channel === "n8n_email" ? sent : (c.delivered_count ?? 0);
-        totalSent        += sent;
-        totalDelivered   += delivered;
-        totalRecipients  += c.total_recipients ?? 0;
+        totalSent       += sent;
+        totalDelivered  += delivered;
+        totalRecipients += c.total_recipients ?? 0;
         if (c.started_at && c.completed_at) {
           automationMinutes +=
             (new Date(c.completed_at).getTime() - new Date(c.started_at).getTime()) / 60_000;
         }
       }
-      // Denominator: use total_recipients so mixed WhatsApp+email workspaces compute correctly
-      const denominator = totalRecipients > 0 ? totalRecipients : totalSent;
-      const deliveryRate =
-        denominator > 0 ? Math.min(100, Math.round((totalDelivered / denominator) * 1000) / 10) : 0;
+      const denominator  = totalRecipients > 0 ? totalRecipients : totalSent;
+      const deliveryRate = denominator > 0
+        ? Math.min(100, Math.round((totalDelivered / denominator) * 1000) / 10)
+        : 0;
 
-      // Economia de tempo: assume 5 min/mensagem para envio humano
-      // (localizar contato, abrir cliente, escrever/personalizar, enviar, registrar)
+      // ── Economia de tempo ─────────────────────────────────────────
       const HUMAN_MIN_PER_MSG = 5;
       const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
       const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
 
-      // Valor disparado: for new campaigns prefer canonical valor_total_pendente;
-      // for legacy campaigns do a heuristic scan (excluding codigo_barras).
+      // ── Valor disparado ───────────────────────────────────────────
       let valueDispatched = 0;
       for (const msg of (valueMsgs.data ?? [])) {
         const rd = msg.recipient_data as Record<string, unknown> | null;
@@ -167,16 +197,15 @@ export function useDashboardMetrics(): DashboardMetrics {
         if (typeof raw === "number") {
           n = raw;
         } else {
-          // pt-BR currency: "R$ 12.312,00" — dot is thousands separator, comma is decimal
-          const s = String(raw).replace(/[^\d,]/g, ""); // keep digits + comma only
+          const s = String(raw).replace(/[^\d,]/g, "");
           n = parseFloat(s.replace(",", "."));
         }
         if (!isNaN(n) && n > 0) valueDispatched += n;
       }
 
-      // Últimos 30 dias: gerar array com todos os dias e contar por dia
+      // ── Gráfico de área ───────────────────────────────────────────
       const dayMap: Record<string, { enviadas: number; lidas: number }> = {};
-      for (let i = 29; i >= 0; i--) {
+      for (let i = chartDays - 1; i >= 0; i--) {
         dayMap[format(subDays(new Date(), i), "dd/MM")] = { enviadas: 0, lidas: 0 };
       }
       for (const msg of (dailyMsgs.data ?? [])) {
@@ -193,16 +222,18 @@ export function useDashboardMetrics(): DashboardMetrics {
 
       if (!cancelled) {
         setM({
-          activeCampaigns:    campaignsTotal.count  ?? 0,
-          messagesSent:       messagesTotal.count   ?? 0,
-          activeContacts:     contactsTotal.count   ?? 0,
+          activeCampaigns:    campaignsTotal.count ?? 0,
+          messagesSent:       messagesTotal.count  ?? 0,
+          activeContacts:     contactsTotal.count  ?? 0,
           deliveryRate,
-          campaignsThisMonth: campaignsMth.count    ?? 0,
-          messagesThisMonth:  messagesMth.count     ?? 0,
-          contactsThisMonth:  contactsMth.count     ?? 0,
+          campaignsThisMonth: campaignsDelta.count ?? 0,
+          messagesThisMonth:  messagesDelta.count  ?? 0,
+          contactsThisMonth:  contactsDelta.count  ?? 0,
           timeSavedMinutes,
           valueDispatched,
           dailyMessages,
+          periodLabel,
+          chartDays,
         });
         setLoading(false);
       }
@@ -210,7 +241,7 @@ export function useDashboardMetrics(): DashboardMetrics {
 
     load().catch(console.error);
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, dateRange]);
 
   return { ...m, loading };
 }
@@ -224,7 +255,7 @@ export function fmtCount(n: number): string {
 
 /** Formata minutos → "2h 15min", "45min", "3 dias" */
 export function fmtTime(minutes: number): string {
-  if (minutes < 60)  return `${Math.round(minutes)}min`;
+  if (minutes < 60) return `${Math.round(minutes)}min`;
   const h = Math.floor(minutes / 60);
   const m = Math.round(minutes % 60);
   if (h < 24) return m > 0 ? `${h}h ${m}min` : `${h}h`;
@@ -235,4 +266,12 @@ export function fmtTime(minutes: number): string {
 /** Formata valor monetário → "R$ 127.540,00" */
 export function fmtBRL(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
+
+/** Label legível para o período */
+export function periodRangeLabel(dateRange: DashboardDateRange): string {
+  if (dateRange === "7d")  return "Últimos 7 dias";
+  if (dateRange === "30d") return "Últimos 30 dias";
+  if (dateRange === "90d") return "Últimos 90 dias";
+  return "Todo o período";
 }
