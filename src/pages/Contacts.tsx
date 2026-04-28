@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2,
-  Plus, Download, Sparkles, ArrowUpAZ, ArrowDownAZ, X, Filter,
+  Plus, Download, Sparkles, ArrowUpAZ, ArrowDownAZ, X, Filter, Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
@@ -420,6 +421,115 @@ function FilterBar({
   );
 }
 
+// ── Bulk action bar ────────────────────────────────────────────────
+
+function BulkActionBar({
+  count,
+  onDelete,
+  onClear,
+}: { count: number; onDelete: () => void; onClear: () => void }) {
+  if (count === 0) return null;
+  return (
+    <div
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-2xl shadow-2xl"
+      style={{
+        background: "#0d1a11",
+        border: "1px solid rgba(63,176,108,0.3)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(63,176,108,0.1)",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white"
+          style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+        >
+          {count}
+        </div>
+        <span className="text-sm text-white font-medium">
+          contato{count !== 1 ? "s" : ""} selecionado{count !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      <div className="h-4 w-px bg-[#2a3d30]" />
+
+      <button
+        onClick={onDelete}
+        className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-sm font-medium transition-all"
+        style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.2)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.12)")}
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+        Excluir selecionados
+      </button>
+
+      <button
+        onClick={onClear}
+        className="text-[#6b7f6e] hover:text-white transition-colors"
+        title="Cancelar seleção"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+// ── Delete confirm modal ───────────────────────────────────────────
+
+function DeleteConfirmModal({
+  count,
+  onConfirm,
+  onCancel,
+  loading,
+}: { count: number; onConfirm: () => void; onCancel: () => void; loading: boolean }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }}>
+      <div
+        className="w-full max-w-md mx-4 rounded-2xl p-6"
+        style={{ background: "#0d1a11", border: "1px solid rgba(239,68,68,0.3)" }}
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(239,68,68,0.12)" }}>
+            <AlertTriangle className="w-5 h-5 text-red-400" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-white">Excluir {count} contato{count !== 1 ? "s" : ""}?</p>
+            <p className="text-xs text-[#6b7f6e] mt-0.5">Esta ação não pode ser desfeita.</p>
+          </div>
+        </div>
+
+        <div className="p-3 rounded-xl mb-5 text-sm text-red-300" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.15)" }}>
+          Serão excluídos permanentemente:
+          <ul className="mt-1.5 space-y-0.5 text-xs text-[#6b7f6e] list-disc list-inside">
+            <li>{count} contato{count !== 1 ? "s" : ""}</li>
+            <li>Todos os boletos vinculados</li>
+            <li>Todo o histórico de notas</li>
+          </ul>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-[#6b7f6e] hover:text-white transition-colors border border-[#2a3d30] hover:border-[#3a5040]"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all flex items-center justify-center gap-2"
+            style={{ background: loading ? "rgba(239,68,68,0.3)" : "#dc2626", border: "1px solid rgba(239,68,68,0.5)" }}
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            {loading ? "Excluindo…" : "Sim, excluir tudo"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────
 
 export function Contacts() {
@@ -433,6 +543,9 @@ export function Contacts() {
   const [mainTab,         setMainTab]        = useState<"lista" | "limpeza">("lista");
   const [filters,         setFilters]        = useState<FilterState>(FILTER_INITIAL);
   const [showFilters,     setShowFilters]    = useState(false);
+  const [selectedIds,     setSelectedIds]    = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting,        setDeleting]       = useState(false);
 
   // Invoice filter: resolve contact IDs from contact_invoices
   const [contactIds,     setContactIds]     = useState<string[] | null>(null);
@@ -442,6 +555,65 @@ export function Contacts() {
   const [invoiceTotals, setInvoiceTotals] = useState<Record<string, { total: number; nextDue: string | null }>>({});
 
   const workspaceId = useAuth().workspaceId ?? "";
+
+  // Selection helpers
+  const allPageSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
+  const somePageSelected = contacts.some((c) => selectedIds.has(c.id));
+
+  function toggleAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        contacts.forEach((c) => next.delete(c.id));
+      } else {
+        contacts.forEach((c) => next.add(c.id));
+      }
+      return next;
+    });
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleBulkDelete() {
+    setDeleting(true);
+    try {
+      const ids = [...selectedIds];
+
+      // Collect phones for notes deletion (contact_notes references phone, not contact_id)
+      const phones = contacts
+        .filter((c) => ids.includes(c.id) && c.phone)
+        .map((c) => c.phone as string);
+
+      // 1. Delete invoices linked to these contacts
+      await db.from("contact_invoices").delete().in("contact_id", ids);
+
+      // 2. Delete notes linked by phone
+      if (phones.length > 0) {
+        await db.from("contact_notes")
+          .delete()
+          .eq("workspace_id", workspaceId)
+          .in("contact_phone", phones);
+      }
+
+      // 3. Delete the contacts themselves
+      await db.from("inbox_contacts")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("id", ids);
+
+      setSelectedIds(new Set());
+      setShowDeleteConfirm(false);
+      refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function patchFilters(p: Partial<FilterState>) {
     setFilters((prev) => ({ ...prev, ...p }));
@@ -647,8 +819,23 @@ export function Contacts() {
             <table className="w-full text-sm" style={{ minWidth: 1200 }}>
               <thead className="sticky top-0 z-10" style={{ background: "#0d1710", borderBottom: "1px solid #1e2e22" }}>
                 <tr>
+                  {/* Bulk-select checkbox */}
+                  <th className="w-10 px-3 py-3">
+                    <div
+                      onClick={toggleAll}
+                      className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all border"
+                      style={allPageSelected
+                        ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)", border: "none" }
+                        : somePageSelected
+                        ? { background: "rgba(63,176,108,0.15)", borderColor: "#3fb06c" }
+                        : { background: "transparent", borderColor: "#3a4d3e" }}
+                    >
+                      {allPageSelected && <span className="text-white text-[9px] leading-none font-bold">✓</span>}
+                      {somePageSelected && !allPageSelected && <span className="text-[#3fb06c] text-[9px] leading-none font-bold">–</span>}
+                    </div>
+                  </th>
                   <TH
-                    className="pl-5 w-[220px]"
+                    className="pl-2 w-[220px]"
                     sortKey="name"
                     sortOrder={filters.sortOrder}
                     onSort={() => patchFilters({ sortOrder: filters.sortOrder === "name_asc" ? "name_desc" : "name_asc" })}
@@ -673,10 +860,28 @@ export function Contacts() {
                       key={contact.id}
                       onClick={() => setSelected(contact)}
                       className="cursor-pointer transition-colors hover:bg-[#111a14] group"
-                      style={{ borderBottom: i < contacts.length - 1 ? "1px solid #1a2a1e" : undefined }}
+                      style={{
+                        borderBottom: i < contacts.length - 1 ? "1px solid #1a2a1e" : undefined,
+                        background: selectedIds.has(contact.id) ? "rgba(63,176,108,0.05)" : undefined,
+                      }}
                     >
+                      {/* Checkbox */}
+                      <td
+                        className="px-3 py-3"
+                        onClick={(e) => { e.stopPropagation(); toggleOne(contact.id); }}
+                      >
+                        <div
+                          className="w-4 h-4 rounded flex items-center justify-center transition-all border cursor-pointer"
+                          style={selectedIds.has(contact.id)
+                            ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)", border: "none" }
+                            : { background: "transparent", borderColor: "#3a4d3e" }}
+                        >
+                          {selectedIds.has(contact.id) && <span className="text-white text-[9px] leading-none font-bold">✓</span>}
+                        </div>
+                      </td>
+
                       {/* Name + company */}
-                      <td className="px-5 py-3">
+                      <td className="pl-2 pr-4 py-3">
                         <div className="flex items-center gap-3">
                           <Avatar name={contact.name} />
                           <div className="min-w-0">
@@ -805,6 +1010,23 @@ export function Contacts() {
         <ContactFormModal
           onClose={() => setShowNewContact(false)}
           onSaved={(c) => { setShowNewContact(false); refresh(); setSelected(c); }}
+        />
+      )}
+
+      {/* ── Bulk action bar ──────────────────────────── */}
+      <BulkActionBar
+        count={selectedIds.size}
+        onDelete={() => setShowDeleteConfirm(true)}
+        onClear={() => setSelectedIds(new Set())}
+      />
+
+      {/* ── Delete confirm modal ─────────────────────── */}
+      {showDeleteConfirm && (
+        <DeleteConfirmModal
+          count={selectedIds.size}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+          loading={deleting}
         />
       )}
     </div>
