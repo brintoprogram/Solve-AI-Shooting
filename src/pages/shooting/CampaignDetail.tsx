@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2, Pencil, Check, X } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { ShootingMessage } from "@/types/shooting";
@@ -12,6 +12,7 @@ import { MessagesTable } from "./components/MessagesTable";
 import { useCampaignDetail } from "@/hooks/useCampaign";
 import { startCampaign, pauseCampaign, resumeCampaign, cancelCampaign } from "@/services/campaignEngine";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -124,6 +125,25 @@ export function CampaignDetail() {
   const isLive = campaign?.status === "sending";
   const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [savingName,  setSavingName]  = useState(false);
+
+  async function handleRenameSave() {
+    if (!campaign || !editingName) return;
+    const trimmed = editingName.trim();
+    if (!trimmed || trimmed === campaign.name) { setEditingName(null); return; }
+    setSavingName(true);
+    const { error } = await db.from("shooting_campaigns").update({ name: trimmed }).eq("id", campaign.id);
+    setSavingName(false);
+    if (error) {
+      toast({ title: "Erro ao renomear campanha", variant: "destructive" });
+    } else {
+      toast({ title: "Campanha renomeada", variant: "success" });
+      setEditingName(null);
+    }
+  }
 
   async function exportPdf() {
     if (!campaign) return;
@@ -457,7 +477,39 @@ export function CampaignDetail() {
             </button>
             <div>
               <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="font-display text-2xl font-bold text-agro-text">{campaign.name}</h1>
+                {isAdmin && editingName !== null ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter")  handleRenameSave();
+                        if (e.key === "Escape") setEditingName(null);
+                      }}
+                      className="font-display text-2xl font-bold bg-transparent border-b-2 border-[#3fb06c] text-agro-text outline-none w-72"
+                    />
+                    <button onClick={handleRenameSave} disabled={savingName} className="text-[#3fb06c] hover:text-green-300 transition-colors">
+                      {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button onClick={() => setEditingName(null)} className="text-agro-muted hover:text-agro-text transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 group">
+                    <h1 className="font-display text-2xl font-bold text-agro-text">{campaign.name}</h1>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setEditingName(campaign.name)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-agro-muted hover:text-agro-text"
+                        title="Renomear campanha"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
                   style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}
                 >
