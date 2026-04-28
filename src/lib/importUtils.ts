@@ -396,7 +396,11 @@ export async function runImport(
   const contactMap = new Map<string, MappedRow>();
   for (const r of withPhone) {
     const existing = contactMap.get(r.phone!);
-    // Mantém a versão com mais campos preenchidos
+    if (existing && existing.name && r.name && existing.name !== r.name) {
+      stats.errors.push(
+        `Telefone ${r.phone} duplicado: "${existing.name}" mantido, "${r.name}" ignorado — verifique a planilha`
+      );
+    }
     contactMap.set(r.phone!, mergeRow(existing, r));
   }
 
@@ -456,8 +460,13 @@ export async function runImport(
   const invoiceRows_ = rows
     .filter((r) => r.inv_valor !== undefined || r.inv_vencimento)
     .map((r) => {
-      const cid = (r.phone && phoneIdMap.get(r.phone))
-               || (r.cpf_cnpj && cpfIdMap.get(r.cpf_cnpj));
+      // Lookup estrito: se a linha tem telefone, usa SÓ telefone.
+      // Não faz fallback para CPF — evita atribuir boleto ao contato errado
+      // caso o upsert do contato tenha falhado ou o telefone não esteja no mapa.
+      const cid: string | undefined =
+        r.phone    ? phoneIdMap.get(r.phone)
+        : r.cpf_cnpj ? cpfIdMap.get(r.cpf_cnpj)
+        : undefined;
       if (!cid) return null;
       return {
         workspace_id:   workspaceId,
@@ -521,6 +530,7 @@ function mergeRow(a: MappedRow | undefined, b: MappedRow): MappedRow {
   if (!a) return b;
   const merged: MappedRow = { ...a };
   for (const [k, v] of Object.entries(b)) {
+    if (k.startsWith("inv_")) continue; // boletos são por linha, não por contato
     if (v !== undefined && v !== null && v !== "" &&
         ((merged as Record<string, unknown>)[k] === undefined ||
          (merged as Record<string, unknown>)[k] === null ||
