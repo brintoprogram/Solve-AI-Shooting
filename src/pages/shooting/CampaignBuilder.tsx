@@ -254,6 +254,8 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const [filterDate,        setFilterDate]        = useState<string>("");
   const [invoiceSelections, setInvoiceSelections] = useState<Map<string, Set<string>>>(new Map());
   const [expandedContacts,  setExpandedContacts]  = useState<Set<string>>(new Set());
+  const [sortDir,           setSortDir]           = useState<"asc" | "desc">("asc");
+  const [sendFilter,        setSendFilter]        = useState<"all" | "never" | "not_today">("all");
   // csv mode
   const [csvFile,    setCsvFile]    = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -301,6 +303,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     setSelTags([]); setSearch(""); setSelected(new Set());
     setContacts([]); setAllTags([]); setVarMap({}); setSendingSpeed(80);
     setFilterDate(""); setInvoiceSelections(new Map()); setExpandedContacts(new Set());
+    setSortDir("asc"); setSendFilter("all");
     setCsvFile(null); setCsvHeaders([]); setCsvRows([]); setCsvPhone(""); setCsvError("");
   }, [open]);
 
@@ -320,8 +323,6 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   const loadContacts = useCallback(async () => {
     setLoadingC(true);
 
-    // When filterDate is active use !inner join so only contacts with a pending
-    // invoice on that date are returned (server-side filter, not client-side).
     const invoiceSelect = filterDate
       ? "*, contact_invoices!inner(id, valor, vencimento, status, numero_nf, codigo_barras)"
       : "*, contact_invoices(id, valor, vencimento, status, numero_nf, codigo_barras)";
@@ -330,7 +331,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       .from("inbox_contacts")
       .select(invoiceSelect, { count: "exact" })
       .eq("workspace_id", WORKSPACE_ID)
-      .order("name")
+      .order("name", { ascending: sortDir === "asc" })
       .limit(PAGE);
 
     if (filterDate) {
@@ -344,13 +345,31 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     }
     if (selTags.length > 0) q = q.overlaps("tags", selTags);
 
+    // Send-date filter: pre-fetch phones that were already sent and exclude them
+    if (sendFilter !== "all") {
+      const today = new Date().toISOString().split("T")[0];
+      let sentQ = db
+        .from("shooting_messages")
+        .select("recipient_phone")
+        .eq("workspace_id", WORKSPACE_ID)
+        .not("sent_at", "is", null);
+      if (sendFilter === "not_today") {
+        sentQ = sentQ.gte("sent_at", `${today}T00:00:00Z`);
+      }
+      const { data: sentData } = await sentQ;
+      const sentPhones = [
+        ...new Set(((sentData ?? []) as { recipient_phone: string }[]).map((m) => m.recipient_phone)),
+      ];
+      if (sentPhones.length > 0) {
+        q = q.not("phone", "in", `(${sentPhones.join(",")})`);
+      }
+    }
+
     const { data, count } = await q;
-    // Store raw contacts; aggregation happens at render time so invoice
-    // selections can update the displayed value without a re-fetch.
     setContacts((data ?? []) as ContactWithInvoices[]);
     setTotal(count ?? 0);
     setLoadingC(false);
-  }, [search, selTags, filterDate]);
+  }, [search, selTags, filterDate, sortDir, sendFilter]);
 
   useEffect(() => {
     if (step !== 2 || source !== "contacts") return;
@@ -414,6 +433,21 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       next.has(contactId) ? next.delete(contactId) : next.add(contactId);
       return next;
     });
+  }
+
+  function expandAll(expand: boolean) {
+    if (!expand) {
+      setExpandedContacts(new Set());
+    } else {
+      const ids = contacts
+        .filter((c) =>
+          (c.contact_invoices ?? []).some((inv) =>
+            PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
+          )
+        )
+        .map((c) => c.id);
+      setExpandedContacts(new Set(ids));
+    }
   }
 
   // ── canNext ───────────────────────────────────────────
@@ -555,8 +589,8 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       <div
         className="relative w-full flex flex-col rounded-2xl overflow-hidden"
         style={{
-          maxWidth: "960px",
-          height: "min(90vh, 780px)",
+          maxWidth: "min(95vw, 1400px)",
+          height: "95vh",
           background: "#0a110e",
           border: "1px solid rgba(63,176,108,0.2)",
           boxShadow: "0 32px 100px rgba(0,0,0,0.7), 0 4px 24px rgba(0,0,0,0.5)",
@@ -671,6 +705,9 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 onToggleInvoice={toggleInvoice}
                 expandedContacts={expandedContacts}
                 onToggleExpand={toggleExpand}
+                onExpandAll={expandAll}
+                sortDir={sortDir} setSortDir={setSortDir}
+                sendFilter={sendFilter} setSendFilter={setSendFilter}
                 csvFile={csvFile} csvHeaders={csvHeaders} csvRows={csvRows}
                 csvPhone={csvPhone} setCsvPhone={setCsvPhone}
                 csvError={csvError}
@@ -880,7 +917,8 @@ function Step2Audience({
   contacts, totalCount, selected, toggleContact, toggleAll,
   search, setSearch, loading,
   filterDate, setFilterDate,
-  invoiceSelections, onToggleInvoice, expandedContacts, onToggleExpand,
+  invoiceSelections, onToggleInvoice, expandedContacts, onToggleExpand, onExpandAll,
+  sortDir, setSortDir, sendFilter, setSendFilter,
   csvFile, csvHeaders, csvRows, csvPhone, setCsvPhone, csvError,
   isDragging, setIsDragging, onDrop, onFileChange, fileInputRef,
 }: {
@@ -894,6 +932,9 @@ function Step2Audience({
   onToggleInvoice: (contactId: string, invoiceId: string, allIds: string[]) => void;
   expandedContacts: Set<string>;
   onToggleExpand: (contactId: string) => void;
+  onExpandAll: (expand: boolean) => void;
+  sortDir: "asc" | "desc"; setSortDir: (v: "asc" | "desc") => void;
+  sendFilter: "all" | "never" | "not_today"; setSendFilter: (v: "all" | "never" | "not_today") => void;
   csvFile: File | null; csvHeaders: string[]; csvRows: Record<string, string>[];
   csvPhone: string; setCsvPhone: (v: string) => void; csvError: string;
   isDragging: boolean; setIsDragging: (v: boolean) => void;
@@ -1027,6 +1068,56 @@ function Step2Audience({
             />
           </div>
 
+          {/* Toolbar: sort + send filter + expand all */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Alphabetical sort */}
+            <button
+              onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all text-agro-muted hover:text-agro-text"
+              style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.12)" }}
+            >
+              {sortDir === "asc" ? "A → Z" : "Z → A"}
+            </button>
+
+            {/* Send date filter */}
+            <select
+              value={sendFilter}
+              onChange={(e) => setSendFilter(e.target.value as "all" | "never" | "not_today")}
+              className="flex-1 px-3 py-2 rounded-lg text-xs focus:outline-none appearance-none cursor-pointer"
+              style={{
+                background: sendFilter !== "all" ? "rgba(63,176,108,0.08)" : "rgba(13,26,17,0.6)",
+                border: sendFilter !== "all" ? "1px solid rgba(63,176,108,0.35)" : "1px solid rgba(63,176,108,0.12)",
+                color: sendFilter !== "all" ? "#3fb06c" : "#9ca3af",
+                colorScheme: "dark",
+              }}
+            >
+              <option value="all">Todos os contatos</option>
+              <option value="never">Nunca enviados</option>
+              <option value="not_today">Não enviados hoje</option>
+            </select>
+
+            {/* Expand / collapse all */}
+            {contacts.some((c) => (c.contact_invoices ?? []).some((inv) => PENDING_STATUSES.includes((inv.status ?? "").toLowerCase()))) && (
+              <button
+                onClick={() => {
+                  const hasAll = contacts
+                    .filter((c) => (c.contact_invoices ?? []).some((inv) => PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())))
+                    .every((c) => expandedContacts.has(c.id));
+                  onExpandAll(!hasAll);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all text-agro-muted hover:text-agro-text shrink-0"
+                style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.12)" }}
+              >
+                <ChevronDown className={cn("w-3 h-3 transition-transform",
+                  contacts.filter((c) => (c.contact_invoices ?? []).some((inv) => PENDING_STATUSES.includes((inv.status ?? "").toLowerCase()))).every((c) => expandedContacts.has(c.id))
+                    ? "rotate-180" : ""
+                )} />
+                {contacts.filter((c) => (c.contact_invoices ?? []).some((inv) => PENDING_STATUSES.includes((inv.status ?? "").toLowerCase()))).every((c) => expandedContacts.has(c.id))
+                  ? "Colapsar todos" : "Expandir todos"}
+              </button>
+            )}
+          </div>
+
           <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
             <div className="flex items-center gap-3 px-4 py-3"
               style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
@@ -1042,8 +1133,9 @@ function Step2Audience({
               <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-32 text-right hidden md:block">
                 {filterDate ? "Valor (data filtrada)" : "Pendente"}
               </span>
+              <span className="w-5 shrink-0" />
             </div>
-            <div className="max-h-52 overflow-y-auto">
+            <div className="max-h-[420px] overflow-y-auto">
               {loading ? (
                 <div className="flex items-center justify-center py-10">
                   <Loader2 className="w-5 h-5 text-agro-green animate-spin" />
@@ -1058,17 +1150,17 @@ function Step2Audience({
                   const hasPending   = enriched.valor_total_pendente && enriched.valor_total_pendente !== "R$ 0,00";
                   const hasMultDates = !filterDate && hasMultipleDueDates(c);
 
-                  // Invoices that match the active filterDate (for sub-panel)
+                  // Sub-panel invoices: all pending (or filtered by date when active)
+                  const allPending = (c.contact_invoices ?? []).filter((inv) =>
+                    PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
+                  );
                   const dateInvoices = filterDate
-                    ? (c.contact_invoices ?? []).filter((inv) =>
-                        inv.vencimento === filterDate &&
-                        PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
-                      )
-                    : [];
-                  const showSubPanel  = filterDate && dateInvoices.length > 1;
-                  const isExpanded    = expandedContacts.has(c.id);
-                  const allInvIds     = dateInvoices.map((inv) => inv.id);
-                  const isInvChecked  = (invId: string) =>
+                    ? allPending.filter((inv) => inv.vencimento === filterDate)
+                    : allPending;
+                  const showSubPanel = dateInvoices.length > 0;
+                  const isExpanded   = expandedContacts.has(c.id);
+                  const allInvIds    = dateInvoices.map((inv) => inv.id);
+                  const isInvChecked = (invId: string) =>
                     !selIds || selIds.size === 0 || selIds.has(invId);
 
                   return (
@@ -1107,34 +1199,83 @@ function Step2Audience({
                       {showSubPanel && isExpanded && (
                         <div
                           className="mx-4 mb-2 rounded-lg overflow-hidden"
-                          style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.15)" }}
+                          style={{ background: "rgba(10,18,13,0.8)", border: "1px solid rgba(63,176,108,0.15)" }}
                         >
-                          {dateInvoices.map((inv) => {
-                            const checked = isInvChecked(inv.id);
+                          {/* Column header */}
+                          <div className="flex items-center gap-2 px-3 py-1.5"
+                            style={{ borderBottom: "1px solid rgba(63,176,108,0.08)", background: "rgba(13,26,17,0.6)" }}
+                          >
+                            {filterDate && <span className="w-3.5 shrink-0" />}
+                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider flex-1">NF / Boleto</span>
+                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider w-20 text-center">Vencimento</span>
+                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider w-20 text-right">Valor</span>
+                            {!filterDate && <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider w-16 text-right">Status</span>}
+                          </div>
+
+                          {dateInvoices.map((inv, idx) => {
+                            const dueStr  = inv.vencimento
+                              ? (() => { const [y,m,d] = inv.vencimento!.split("-"); return `${d}/${m}/${y}`; })()
+                              : "—";
+                            const valor   = Number(inv.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                            const status  = (inv.status ?? "").toLowerCase();
+                            const overdue = status === "vencido";
+                            const isLast  = idx === dateInvoices.length - 1;
+
+                            if (filterDate) {
+                              const checked = isInvChecked(inv.id);
+                              return (
+                                <div
+                                  key={inv.id}
+                                  onClick={(e) => { e.stopPropagation(); onToggleInvoice(c.id, inv.id, allInvIds); }}
+                                  className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/[0.03] transition-colors"
+                                  style={!isLast ? { borderBottom: "1px solid rgba(63,176,108,0.05)" } : undefined}
+                                >
+                                  <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 transition-all",
+                                    checked ? "bg-agro-green border-agro-green" : "border-agro-muted-2")}>
+                                    {checked && <Check className="w-2 h-2 text-white" />}
+                                  </div>
+                                  <span className="text-xs text-agro-muted flex-1 truncate">
+                                    {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
+                                  </span>
+                                  <span className="text-xs text-agro-muted-2 w-20 text-center">{dueStr}</span>
+                                  <span className="text-xs font-semibold text-amber-400 w-20 text-right">{valor}</span>
+                                </div>
+                              );
+                            }
+
                             return (
                               <div
                                 key={inv.id}
-                                onClick={(e) => { e.stopPropagation(); onToggleInvoice(c.id, inv.id, allInvIds); }}
-                                className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors"
-                                style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-2 px-3 py-1.5"
+                                style={!isLast ? { borderBottom: "1px solid rgba(63,176,108,0.05)" } : undefined}
                               >
-                                <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 transition-all",
-                                  checked ? "bg-agro-green border-agro-green" : "border-agro-muted-2")}>
-                                  {checked && <Check className="w-2 h-2 text-white" />}
-                                </div>
-                                <span className="text-xs text-agro-muted flex-1">
+                                <span className="text-xs text-agro-muted flex-1 truncate">
                                   {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
                                 </span>
-                                <span className="text-xs font-semibold text-amber-400">
-                                  {Number(inv.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                                <span className={cn("text-xs w-20 text-center", overdue ? "text-red-400" : "text-agro-muted-2")}>
+                                  {dueStr}
+                                </span>
+                                <span className="text-xs font-semibold text-amber-400 w-20 text-right">{valor}</span>
+                                <span className={cn(
+                                  "text-[10px] px-1.5 py-0.5 rounded-full font-semibold w-16 text-center shrink-0",
+                                  overdue ? "text-red-400 bg-red-400/10" : "text-agro-green bg-agro-green/10"
+                                )}>
+                                  {overdue ? "vencido" : "pendente"}
                                 </span>
                               </div>
                             );
                           })}
+
+                          {/* Footer: total + count */}
                           <div className="px-3 py-1.5 flex items-center justify-between"
                             style={{ background: "rgba(63,176,108,0.05)", borderTop: "1px solid rgba(63,176,108,0.08)" }}
                           >
-                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider">Total selecionado</span>
+                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider">
+                              {filterDate
+                                ? `${dateInvoices.length} boleto${dateInvoices.length !== 1 ? "s" : ""} · total selecionado`
+                                : `${allPending.length} boleto${allPending.length !== 1 ? "s" : ""} pendente${allPending.length !== 1 ? "s" : ""}`}
+                            </span>
                             <span className="text-xs font-bold text-agro-green">{enriched.valor_total_pendente}</span>
                           </div>
                         </div>
