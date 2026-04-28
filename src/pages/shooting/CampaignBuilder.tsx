@@ -861,7 +861,7 @@ function Step1Setup({
             <p className="text-xs text-agro-muted-2 mt-1">Sincronize em Templates → Sincronizar Meta.</p>
           </div>
         ) : (
-          <div className="grid gap-2 max-h-72 overflow-y-auto pr-1">
+          <div className="grid gap-2 pr-1">
             {templates.map((tpl) => {
               const sel = templateId === tpl.id;
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1399,6 +1399,101 @@ function Step2Audience({
 }
 
 // ─────────────────────────────────────────────────────────
+// Full template preview card (header + body + footer + buttons)
+// ─────────────────────────────────────────────────────────
+
+function TemplateDisplay({
+  template, varMap, data, isPreview = false,
+}: {
+  template: MetaTemplate;
+  varMap?: Record<string, string>;
+  data?: Record<string, unknown> | null;
+  isPreview?: boolean;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const comps   = template.components as any[];
+  const header  = comps.find((c) => c.type === "HEADER");
+  const body    = comps.find((c) => c.type === "BODY");
+  const footer  = comps.find((c) => c.type === "FOOTER");
+  const buttons = comps.find((c) => c.type === "BUTTONS");
+
+  function sub(text: string): string {
+    if (!varMap || !data) return text;
+    let t = text;
+    for (const [idx, field] of Object.entries(varMap)) {
+      const val = data[field] ?? `{{${idx}}}`;
+      t = t.replaceAll(`{{${idx}}}`, String(val));
+    }
+    return t;
+  }
+
+  const containerStyle = isPreview
+    ? { background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.18)" }
+    : { background: "rgba(13,26,17,0.5)", border: "1px solid rgba(63,176,108,0.08)" };
+
+  const mediaLabel =
+    header?.format === "IMAGE"    ? "📷  Imagem"   :
+    header?.format === "VIDEO"    ? "🎥  Vídeo"    :
+    header?.format === "DOCUMENT" ? "📄  Documento" : null;
+
+  return (
+    <div className="rounded-xl overflow-hidden text-sm" style={containerStyle}>
+      {/* HEADER */}
+      {header && (
+        <div className="px-4 pt-3 pb-2.5" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+          {header.format === "TEXT" && header.text ? (
+            <p className={cn("font-bold leading-snug", isPreview ? "text-agro-text" : "text-agro-muted")}>
+              {sub(header.text)}
+            </p>
+          ) : mediaLabel ? (
+            <div className="w-full h-12 rounded-lg flex items-center justify-center text-xs text-agro-muted-2 gap-1.5"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(63,176,108,0.2)" }}
+            >
+              {mediaLabel}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* BODY */}
+      {body?.text && (
+        <p className={cn("px-4 py-3 leading-relaxed", isPreview ? "text-agro-text" : "text-agro-muted")}
+          style={{ whiteSpace: "pre-wrap" }}
+        >
+          {sub(body.text)}
+        </p>
+      )}
+
+      {/* FOOTER */}
+      {footer?.text && (
+        <p className="px-4 pt-1 pb-2.5 text-xs text-agro-muted-2"
+          style={{ borderTop: "1px solid rgba(63,176,108,0.06)" }}
+        >
+          {footer.text}
+        </p>
+      )}
+
+      {/* BUTTONS */}
+      {buttons?.buttons?.length > 0 && (
+        <div className="px-3 pb-3 pt-1.5 flex flex-col gap-1"
+          style={{ borderTop: "1px solid rgba(63,176,108,0.1)" }}
+        >
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {(buttons.buttons as any[]).map((btn, i: number) => (
+            <div key={i}
+              className="text-center text-xs text-agro-green font-semibold py-1.5 rounded-lg"
+              style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.15)" }}
+            >
+              {btn.text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
 // Step 3 — Variáveis & Velocidade
 // ─────────────────────────────────────────────────────────
 
@@ -1416,10 +1511,6 @@ function Step3Variables({
   sendingSpeed: number;
   setSendingSpeed: (v: number) => void;
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bodyText: string = (template.components as any[]).find((c) => c.type === "BODY")?.text ?? "";
-  const preview = previewData ? renderPreview(template, previewData, varMap) : null;
-
   return (
     <div className="space-y-8">
       <div>
@@ -1515,22 +1606,14 @@ function Step3Variables({
           <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-1.5">
             <Eye className="w-3 h-3" /> Template original
           </p>
-          <div className="px-4 py-3 rounded-xl text-sm text-agro-muted leading-relaxed"
-            style={{ background: "rgba(13,26,17,0.5)", border: "1px solid rgba(63,176,108,0.08)", whiteSpace: "pre-wrap", minHeight: "80px" }}
-          >
-            {bodyText || "—"}
-          </div>
+          <TemplateDisplay template={template} />
         </div>
-        {preview && previewData && (
+        {previewData && (
           <div className="space-y-2">
             <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-1.5">
               <Eye className="w-3 h-3" /> Preview — 1º contato
             </p>
-            <div className="px-4 py-3 rounded-xl text-sm text-agro-text leading-relaxed"
-              style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.18)", whiteSpace: "pre-wrap", minHeight: "80px" }}
-            >
-              {preview}
-            </div>
+            <TemplateDisplay template={template} varMap={varMap} data={previewData} isPreview />
           </div>
         )}
       </div>
