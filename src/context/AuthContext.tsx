@@ -112,14 +112,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // No valid workspace membership — check for a pending invite
+      // No valid workspace membership — check for a pending invite.
+      // Accept NULL expires_at (no explicit expiry set) OR a future expiry date.
       const userEmail = (await supabase.auth.getUser()).data.user?.email ?? "";
+      const now = new Date().toISOString();
       const { data: invite } = await db
         .from("workspace_invites")
         .select("workspace_id, role, token")
         .eq("email", userEmail.toLowerCase())
         .is("accepted_at", null)
-        .gte("expires_at", new Date().toISOString())
+        .or(`expires_at.is.null,expires_at.gte.${now}`)
         .maybeSingle();
 
       if (invite?.workspace_id) {
@@ -154,6 +156,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setWorkspaces([accepted]);
         setWorkspaceId(accepted.id);
       } else {
+        // If we're in an invite/recovery password-setup flow, don't sign out —
+        // the user needs their session active to call updateUser({ password }).
+        // After they set the password, clearSetupType() triggers a re-render and
+        // fetchProfile runs again to pick up the workspace membership.
+        if (INITIAL_HASH.includes("type=invite") || INITIAL_HASH.includes("type=recovery")) {
+          console.warn("[auth] setup flow — no invite found yet, keeping session alive");
+          return;
+        }
         console.warn("[auth] no workspace and no valid invite — access denied, signing out");
         await supabase.auth.signOut();
       }

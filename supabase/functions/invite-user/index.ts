@@ -93,9 +93,10 @@ Deno.serve(async (req: Request) => {
 
     // ── 4. Tentar enviar convite (detecta se usuário já existe) ───
     // Insere workspace_invite primeiro para ter o token disponível no email
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
     const { data: invite, error: inviteInsertErr } = await admin
       .from("workspace_invites")
-      .insert({ workspace_id: workspaceId, email: normalizedEmail, role, invited_by: caller.id })
+      .insert({ workspace_id: workspaceId, email: normalizedEmail, role, invited_by: caller.id, expires_at: expiresAt })
       .select("token")
       .single();
 
