@@ -73,7 +73,7 @@ Deno.serve(async (req: Request) => {
     workspace_id,
     campaign_name,
     dispatched_at:   new Date().toISOString(),
-    callback_url:    callbackUrl,
+    callback_api:    callbackUrl,
     callback_secret: WEBHOOK_SECRET, // nunca exposto no bundle do browser
     recipients,
   };
