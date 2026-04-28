@@ -7,15 +7,17 @@ const supabase = createClient(
 
 const SYSTEM_PROMPT = `Você é um classificador de conversas de clientes que responderam a disparos de cobrança/marketing via WhatsApp.
 
-Você receberá o histórico COMPLETO da conversa entre o bot (empresa) e o cliente. Analise o contexto como um todo — não apenas a última mensagem — para entender a intenção real do cliente.
+Você receberá as MENSAGENS MAIS RECENTES da conversa (janela deslizante). As mensagens estão em ordem cronológica — as últimas são as mais recentes e têm MAIOR PESO na classificação.
+
+IMPORTANTE: A classificação deve refletir o ESTADO ATUAL da conversa, não interações passadas isoladas. Se o cliente inicialmente reclamou de fraude ou não reconheceu a dívida, mas depois propôs data de pagamento, confirmou pagamento ou encerrou o conflito positivamente, classifique com base no posicionamento mais recente. Uma conversa que evoluiu positivamente deve ser classificada positivamente.
 
 Retorne EXATAMENTE este JSON (sem markdown, sem explicação):
-{"severity":"info|warning|critical","category":"fraude|valor_incorreto|nao_reconhece|ameaca|duvida|reclamacao|elogio|pagamento_confirmado|outros","summary":"resumo da conversa em até 2 frases em português, focando na posição atual do cliente"}
+{"severity":"info|warning|critical","category":"fraude|valor_incorreto|nao_reconhece|ameaca|duvida|reclamacao|elogio|pagamento_confirmado|outros","summary":"resumo do ESTADO ATUAL da conversa em até 2 frases em português, focando na posição atual do cliente"}
 
-Regras de severidade (baseadas no contexto completo, não só na última mensagem):
-- critical: cliente alega fraude, não reconhece a dívida, ameaça com advogado/Procon/órgão regulador, alega erro grave de valor, nega qualquer relação com a cobrança
-- warning: dúvida sobre o valor cobrado, pedido de parcelamento, reclamação sobre atendimento, pedido de mais informações, insatisfação
-- info: pagamento confirmado, agradecimento, resposta neutra, curiosidade, saudação simples sem conteúdo relevante`;
+Regras de severidade (baseadas no estado ATUAL, não no histórico):
+- critical: cliente alega fraude ativamente, não reconhece a dívida, ameaça com advogado/Procon/órgão regulador, alega erro grave de valor — e não houve evolução positiva posterior
+- warning: dúvida sobre o valor cobrado, pedido de parcelamento, reclamação sobre atendimento, pedido de mais informações, insatisfação sem resolução ainda
+- info: pagamento confirmado, proposta de data de pagamento, agradecimento, situação resolvida ou em andamento positivo, resposta neutra`;
 
 interface AnalyzeResult {
   severity: "info" | "warning" | "critical";
@@ -88,31 +90,33 @@ async function buildTranscript(
   conversationId: string,
   lastReplyText:  string,
 ): Promise<{ transcript: string; messageCount: number }> {
+  // Sliding window: fetch the MOST RECENT messages (newest first), then reverse for chronological display.
+  // This ensures long conversations don't obscure recent payment proposals or resolutions.
+  const WINDOW_SIZE = 15;
   const { data, error } = await supabase
     .from("inbox_messages")
     .select("direction, message_type, body, created_at")
     .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(30);
+    .order("created_at", { ascending: false })
+    .limit(WINDOW_SIZE);
 
   if (error || !data || data.length === 0) {
     if (error) console.warn("[analyze-reply] failed to fetch conversation history:", error.message);
-    // Fall back to single message
     return { transcript: `Cliente: "${lastReplyText}"`, messageCount: 0 };
   }
 
-  const messages = data as InboxMessage[];
+  // Reverse to chronological order so the transcript reads oldest → newest
+  const messages = (data as InboxMessage[]).reverse();
   const lines = messages.map((msg) => {
     const time   = new Date(msg.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     const sender = msg.direction === "outbound" ? "Bot" : "Cliente";
     const text   = msg.body?.trim()
       ? msg.body.trim()
       : (TYPE_LABELS[msg.message_type] ?? "[Mensagem]");
-
     return `[${time}] ${sender}: ${text}`;
   });
 
-  console.log(`[analyze-reply] built transcript with ${lines.length} messages from conversation ${conversationId}`);
+  console.log(`[analyze-reply] built transcript with ${lines.length} most-recent messages from conversation ${conversationId}`);
 
   return {
     transcript:   lines.join("\n"),
@@ -312,15 +316,16 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
 
   const severityRank: Record<string, number> = { info: 0, warning: 1, critical: 2 };
-  const escalated = existing
-    ? (severityRank[result.severity] ?? 0) > (severityRank[existing.severity] ?? 0)
-    : false;
+  const prevRank = existing ? (severityRank[existing.severity] ?? 0) : -1;
+  const nextRank = severityRank[result.severity] ?? 0;
+  const escalated   = existing ? nextRank > prevRank : false;
+  const deescalated = existing ? nextRank < prevRank : false;
 
   let savedAlert: { id: string } | null = null;
   let alertErr: { message: string } | null = null;
 
   if (existing) {
-    // Update — reset read_at only if severity escalated so user is re-notified
+    // Update — reset read_at on escalation (new problem) OR de-escalation (situation resolved)
     const patch: Record<string, unknown> = {
       reply_text,
       severity:    result.severity,
@@ -328,7 +333,7 @@ Deno.serve(async (req: Request) => {
       summary:     result.summary,
       analyzed_at: new Date().toISOString(),
     };
-    if (escalated) patch.read_at = null;
+    if (escalated || deescalated) patch.read_at = null;
 
     const { data, error } = await supabase
       .from("campaign_alerts")
@@ -339,7 +344,8 @@ Deno.serve(async (req: Request) => {
 
     savedAlert = data;
     alertErr   = error;
-    if (!error) console.log(`[analyze-reply] ✓ alert updated id=${existing.id} severity=${result.severity}${escalated ? " (escalated → unread)" : ""}`);
+    const changeNote = escalated ? " (escalated → unread)" : deescalated ? " (de-escalated → unread)" : "";
+    if (!error) console.log(`[analyze-reply] ✓ alert updated id=${existing.id} severity=${result.severity}${changeNote}`);
   } else {
     // Insert new alert
     const { data, error } = await supabase
