@@ -138,21 +138,22 @@ export function useDashboardMetrics(): DashboardMetrics {
       const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
       const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
 
-      // Valor disparado: busca o primeiro campo numérico cujo nome contenha
-      // palavras relacionadas a valor monetário (case-insensitive).
-      // Cobre nomes como "valor", "inv_valor", "valor_boleto", "Valor Cobrado", "total", etc.
-      // Prefer the canonical field written by the new dispatch system;
-      // fall back to heuristic scan for legacy campaigns.
+      // Valor disparado: for new campaigns prefer canonical valor_total_pendente;
+      // for legacy campaigns do a heuristic scan (excluding codigo_barras).
       let valueDispatched = 0;
-      const MONETARY_TERMS = ["valor_total_pendente", "valor", "value", "total", "amount", "boleto"];
       for (const msg of (valueMsgs.data ?? [])) {
         const rd = msg.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
-        const key = Object.keys(rd).find((k) =>
-          MONETARY_TERMS.some((t) => k.toLowerCase() === t || k.toLowerCase().includes(t))
-        );
-        if (!key) continue;
-        const raw = rd[key];
+        let raw: unknown;
+        if ("_invoice_ids" in rd) {
+          raw = rd.valor_total_pendente;
+        } else {
+          const key = Object.keys(rd).find((k) => {
+            const lk = k.toLowerCase();
+            return ["valor", "value", "total", "amount"].some((t) => lk.includes(t)) && !lk.includes("barras");
+          });
+          raw = key ? rd[key] : null;
+        }
         if (raw == null) continue;
         let n: number;
         if (typeof raw === "number") {

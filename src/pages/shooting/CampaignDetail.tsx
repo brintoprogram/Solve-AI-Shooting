@@ -156,7 +156,6 @@ export function CampaignDetail() {
       const messages: ShootingMessage[] = rawMsgs ?? [];
 
       // Compute total value from recipient_data (pt-BR currency parsing)
-      const MONETARY = ["valor_total_pendente", "valor", "value", "total", "amount", "boleto"];
       function parseBRL(raw: unknown): number {
         if (typeof raw === "number") return raw;
         const s = String(raw).replace(/[^\d,]/g, ""); // strip everything except digits + comma
@@ -166,9 +165,18 @@ export function CampaignDetail() {
       for (const m of messages) {
         const rd = m.recipient_data as Record<string, unknown> | null;
         if (!rd) continue;
-        const key = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase() === t || k.toLowerCase().includes(t)));
-        if (!key) continue;
-        const n = parseBRL(rd[key]);
+        let raw: unknown;
+        if ("_invoice_ids" in rd) {
+          raw = rd.valor_total_pendente;
+        } else {
+          const key = Object.keys(rd).find((k) => {
+            const lk = k.toLowerCase();
+            return ["valor", "value", "total", "amount"].some((t) => lk.includes(t)) && !lk.includes("barras");
+          });
+          raw = key ? rd[key] : null;
+        }
+        if (raw == null) continue;
+        const n = parseBRL(raw);
         if (!isNaN(n) && n > 0) totalValue += n;
       }
 
@@ -300,7 +308,7 @@ export function CampaignDetail() {
       // Detect whether any message has financial data from the new dispatch system
       const hasFinancialRd = messages.some((m) => {
         const rd = m.recipient_data as Record<string, unknown> | null;
-        return rd && rd._vencimento_filtro != null;
+        return rd && "_invoice_ids" in rd;
       });
 
       // For legacy campaigns: auto-detect columns from recipient_data keys
