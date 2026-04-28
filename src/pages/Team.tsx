@@ -260,25 +260,34 @@ function InviteModal({ onClose, onSuccess, workspaceId, invitedBy }: InviteModal
         },
       );
 
-      const json = await res.json();
+      // Parse response safely — edge function may return non-JSON on unexpected crash
+      let resJson: { ok?: boolean; error?: string; type?: string } = {};
+      try { resJson = await res.json(); } catch { /* ignore parse error */ }
 
       if (!res.ok) {
-        setError(json.error ?? "Erro ao enviar convite.");
+        setError(resJson.error ?? `Erro ao enviar convite (HTTP ${res.status}).`);
       } else {
-        toast({ title: "Convite enviado!", description: `${email} receberá um e-mail de acesso.`, variant: "success" });
+        const added = resJson.type === "added";
+        toast({
+          title: added ? "Membro adicionado!" : "Convite enviado!",
+          description: added
+            ? `${email} foi adicionado diretamente ao workspace.`
+            : `${email} receberá um e-mail de acesso.`,
+          variant: "success",
+        });
         db.from("audit_logs").insert({
           workspace_id: workspaceId,
           event_type:   "member_invited",
           entity_type:  "workspace_invite",
           entity_id:    email.trim(),
           status:       "ok",
-          metadata:     { email: email.trim(), role, invited_by: invitedBy },
+          metadata:     { email: email.trim(), role, invited_by: invitedBy, type: resJson.type },
         });
         onSuccess();
         onClose();
       }
     } catch (err) {
-      setError("Erro de conexão. Tente novamente.");
+      setError("Erro de conexão. Verifique sua internet e tente novamente.");
       console.error("[invite] error:", err);
     } finally {
       setLoading(false);
