@@ -68,14 +68,18 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
     const rows = all.map((m) => {
       const d = m.recipient_data as Record<string, unknown> | null;
       const base: Record<string, string> = {
-        "Nome":           m.recipient_name ?? "",
-        "Telefone":       m.recipient_phone,
-        "Status":         MESSAGE_STATUS_LABELS[m.status],
-        "Enviado":        m.sent_at      ? format(new Date(m.sent_at),      "dd/MM/yyyy HH:mm") : "",
-        "Entregue":       m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
-        "Lido":           m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
-        "Respondido":     m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
-        "Código de erro": m.error_code   ? `#${m.error_code}` : "",
+        "Nome": m.recipient_name ?? "",
+        ...(isEmail
+          ? { "Email": (d?.email as string) ?? "" }
+          : { "Telefone": m.recipient_phone }),
+        "Status":  MESSAGE_STATUS_LABELS[m.status],
+        "Enviado": m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy HH:mm") : "",
+        ...(!isEmail && {
+          "Entregue":   m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
+          "Lido":       m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
+          "Respondido": m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
+        }),
+        "Código de erro": m.error_code ? `#${m.error_code}` : "",
         "Mensagem de erro": m.error_message ?? "",
       };
       if (anyFinancial) {
@@ -157,7 +161,9 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                 "Destinatário",
                 ...(isEmail ? ["Email"] : ["Telefone"]),
                 ...(hasFinancialData ? ["Valor", "Vencimento"] : []),
-                "Status", "Enviado", "Entregue", "Lido", "Erro",
+                "Status", "Enviado",
+                ...(!isEmail ? ["Entregue", "Lido"] : []),
+                "Erro",
               ].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
                   {h}
@@ -169,7 +175,7 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
-                    {Array.from({ length: hasFinancialData ? 9 : 7 }).map((_, j) => (
+                    {Array.from({ length: isEmail ? (hasFinancialData ? 7 : 5) : (hasFinancialData ? 9 : 7) }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <Skeleton className="h-4 w-20" style={{ background: "rgba(63,176,108,0.06)" }} />
                       </td>
@@ -228,22 +234,26 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                           </span>
                         ) : "—"}
                       </td>
-                      <td className="px-4 py-3 text-agro-muted text-xs">
-                        {msg.delivered_at ? (
-                          <span className="flex items-center gap-1">
-                            <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2" />
-                            {fmt(msg.delivered_at)}
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {msg.read_at ? (
-                          <span className="flex items-center gap-1" style={{ color: "#34d4fb" }}>
-                            <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />
-                            {fmt(msg.read_at)}
-                          </span>
-                        ) : "—"}
-                      </td>
+                      {!isEmail && (
+                        <td className="px-4 py-3 text-agro-muted text-xs">
+                          {msg.delivered_at ? (
+                            <span className="flex items-center gap-1">
+                              <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2" />
+                              {fmt(msg.delivered_at)}
+                            </span>
+                          ) : "—"}
+                        </td>
+                      )}
+                      {!isEmail && (
+                        <td className="px-4 py-3 text-xs">
+                          {msg.read_at ? (
+                            <span className="flex items-center gap-1" style={{ color: "#34d4fb" }}>
+                              <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />
+                              {fmt(msg.read_at)}
+                            </span>
+                          ) : "—"}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-xs text-red-400">
                         {msg.error_code ? `#${msg.error_code}` : "—"}
                       </td>

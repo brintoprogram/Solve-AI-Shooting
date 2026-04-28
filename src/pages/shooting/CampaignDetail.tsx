@@ -262,9 +262,14 @@ export function CampaignDetail() {
       const SOURCE_PT: Record<string, string> = {
         contacts: "Contatos da base", xlsx_upload: "Planilha importada",
       };
+      const isPdfEmail = campaign.dispatch_channel === "n8n_email";
       let yL = y, yR = y;
       yL = infoLine("Nome do Disparo", campaign.name, MX, yL);
-      yL = infoLine("Template", campaign.meta_templates?.template_name ?? "—", MX, yL);
+      yL = infoLine(
+        isPdfEmail ? "Canal" : "Template",
+        isPdfEmail ? "Email via N8N" : (campaign.meta_templates?.template_name ?? "—"),
+        MX, yL,
+      );
       yR = infoLine("Tipo", SOURCE_PT[campaign.data_source] ?? campaign.data_source, c2, yR);
       yR = infoLine("Limpeza de Base", "Não", c2, yR);
       if (campaign.started_at)   yR = infoLine("Iniciada em",  format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm"), c2, yR);
@@ -341,7 +346,8 @@ export function CampaignDetail() {
         read: "Lido", replied: "Respondido", failed: "Falhou", undeliverable: "Não entregável",
       };
 
-      const head: string[] = ["#", "Nome", "Telefone"];
+      const isEmailCampaign = campaign.dispatch_channel === "n8n_email";
+      const head: string[] = ["#", "Nome", isEmailCampaign ? "Email" : "Telefone"];
       if (hasFinancialRd) {
         head.push("Nº NF(s)", "Qtd", "Valor", "Vencimento");
       } else {
@@ -355,7 +361,8 @@ export function CampaignDetail() {
 
       const body = messages.map((m, idx) => {
         const rd = m.recipient_data as Record<string, unknown> | null ?? {};
-        const row: string[] = [`${idx + 1}`, m.recipient_name ?? "—", m.recipient_phone];
+        const contactCol = isEmailCampaign ? ((rd.email as string) ?? "—") : m.recipient_phone;
+        const row: string[] = [`${idx + 1}`, m.recipient_name ?? "—", contactCol];
 
         if (hasFinancialRd) {
           // New system: extract NF numbers from contact_invoices filtered by _invoice_ids
@@ -600,7 +607,7 @@ export function CampaignDetail() {
         </div>
 
         {/* ── Chart ───────────────────────────── */}
-        {campaign.status !== "draft" && (
+        {campaign.status !== "draft" && campaign.dispatch_channel !== "n8n_email" && (
           <div className="animate-fade-up-delay-1">
             <DarkCard title="Timeline de envios">
               {chartLoading ? (
