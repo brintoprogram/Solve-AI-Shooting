@@ -7,14 +7,7 @@ export function WorkspaceSwitcher() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Only render for users that belong to more than one workspace.
-  // This is gated by the database — the list comes from workspace_members,
-  // not from localStorage or any client-side check.
-  if (workspaces.length <= 1) return null;
-
-  const current = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+  // Hooks must always be called before any early return.
   useEffect(() => {
     function onOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -22,6 +15,11 @@ export function WorkspaceSwitcher() {
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
   }, []);
+
+  // Only render for users that belong to more than one workspace.
+  if (workspaces.length <= 1) return null;
+
+  const current = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
 
   return (
     <div className="relative" ref={ref}>
