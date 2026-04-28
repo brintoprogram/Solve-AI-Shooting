@@ -22,6 +22,7 @@ interface Campaign {
   id: string;
   name: string;
   status: string;
+  dispatch_channel: string | null;
   total_recipients: number | null;
   sent_count: number | null;
   delivered_count: number | null;
@@ -32,6 +33,23 @@ interface Campaign {
   started_at: string | null;
   completed_at: string | null;
   meta_templates: { template_name: string } | null;
+}
+
+function isEmailCamp(c: Campaign) { return c.dispatch_channel === "n8n_email"; }
+
+// For email: sent = delivered (no delivery receipt from N8N). For WhatsApp: use delivered_count.
+function effectiveDelivered(c: Campaign) {
+  return isEmailCamp(c) ? (c.sent_count ?? 0) : (c.delivered_count ?? 0);
+}
+
+// Rate denominator: email → total_recipients, WhatsApp → sent_count
+function effectiveRate(c: Campaign): number | null {
+  if (isEmailCamp(c)) {
+    const total = c.total_recipients ?? 0;
+    return total > 0 ? Math.round(((c.sent_count ?? 0) / total) * 100) : null;
+  }
+  const sent = c.sent_count ?? 0;
+  return sent > 0 ? Math.round(((c.delivered_count ?? 0) / sent) * 100) : null;
 }
 
 interface AuditLog {
@@ -120,7 +138,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
     setLoading(true);
     let q = db
       .from("shooting_campaigns")
-      .select("id,name,status,total_recipients,sent_count,delivered_count,read_count,replied_count,failed_count,created_at,started_at,completed_at,meta_templates(template_name)")
+      .select("id,name,status,dispatch_channel,total_recipients,sent_count,delivered_count,read_count,replied_count,failed_count,created_at,started_at,completed_at,meta_templates(template_name)")
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
 
@@ -137,26 +155,29 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const totalSent      = campaigns.reduce((a, c) => a + (c.sent_count      ?? 0), 0);
-  const totalDelivered = campaigns.reduce((a, c) => a + (c.delivered_count ?? 0), 0);
-  const totalRead      = campaigns.reduce((a, c) => a + (c.read_count      ?? 0), 0);
-  const deliveryRate   = totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0;
+  const totalSent      = campaigns.reduce((a, c) => a + (c.sent_count ?? 0), 0);
+  const totalDelivered = campaigns.reduce((a, c) => a + effectiveDelivered(c), 0);
+  const totalRead      = campaigns.reduce((a, c) => a + (c.read_count ?? 0), 0);
+  const totalRecip     = campaigns.reduce((a, c) => a + (c.total_recipients ?? 0), 0);
+  const deliveryRate   = totalRecip > 0 ? Math.round((totalDelivered / totalRecip) * 100) : 0;
 
   function exportXlsx() {
     const rows = campaigns.map((c) => {
       const sent = c.sent_count ?? 0;
-      const del  = c.delivered_count ?? 0;
+      const del  = effectiveDelivered(c);
+      const rate = effectiveRate(c) ?? 0;
       return {
         "Nome":             c.name,
+        "Canal":            isEmailCamp(c) ? "Email via N8N" : "WhatsApp",
         "Template":         c.meta_templates?.template_name ?? "",
         "Status":           CAMP_STATUS[c.status]?.label ?? c.status,
         "Destinatários":    c.total_recipients ?? 0,
         "Enviadas":         sent,
         "Entregues":        del,
-        "Lidas":            c.read_count ?? 0,
-        "Respondidas":      c.replied_count ?? 0,
+        "Lidas":            isEmailCamp(c) ? "" : (c.read_count ?? 0),
+        "Respondidas":      isEmailCamp(c) ? "" : (c.replied_count ?? 0),
         "Falhas":           c.failed_count ?? 0,
-        "Taxa entrega (%)": sent > 0 ? Math.round((del / sent) * 100) : 0,
+        "Taxa entrega (%)": rate,
         "Criada em":        format(new Date(c.created_at), "dd/MM/yyyy HH:mm"),
         "Iniciada em":      c.started_at   ? format(new Date(c.started_at),   "dd/MM/yyyy HH:mm") : "",
         "Concluída em":     c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy HH:mm") : "",
@@ -257,9 +278,9 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
                 <td colSpan={8} className="px-4 py-14 text-center text-[#6b7f6e]">Nenhuma campanha encontrada para os filtros selecionados</td>
               </tr>
             ) : campaigns.map((c, i) => {
-              const sent = c.sent_count      ?? 0;
-              const del  = c.delivered_count ?? 0;
-              const rate = sent > 0 ? Math.round((del / sent) * 100) : null;
+              const sent = c.sent_count ?? 0;
+              const del  = effectiveDelivered(c);
+              const rate = effectiveRate(c);
               const st   = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
               return (
                 <tr key={c.id} className="hover:bg-white/[0.02] transition-colors"
@@ -280,7 +301,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
                   <td className="px-4 py-3 text-[#8faf9a]">{(c.total_recipients ?? 0).toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3 text-[#8faf9a]">{sent.toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3 text-[#3fb06c]">{del.toLocaleString("pt-BR")}</td>
-                  <td className="px-4 py-3 text-[#fbbf24]">{(c.read_count ?? 0).toLocaleString("pt-BR")}</td>
+                  <td className="px-4 py-3 text-[#fbbf24]">{isEmailCamp(c) ? <span className="text-[#6b7f6e]">—</span> : (c.read_count ?? 0).toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3">
                     {rate !== null ? (
                       <div className="flex items-center gap-2">
