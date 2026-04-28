@@ -257,9 +257,13 @@ interface ActionsMenuProps {
 }
 
 function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onUpdateTags }: ActionsMenuProps) {
-  const [open, setOpen]                   = useState(false);
+  const { workspaceId, profile }      = useAuth();
+  const [open, setOpen]               = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const ref                               = useRef<HTMLDivElement>(null);
+  const [noteMode, setNoteMode]       = useState(false);
+  const [noteDraft, setNoteDraft]     = useState("");
+  const [noteSaving, setNoteSaving]   = useState(false);
+  const ref                           = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -267,6 +271,8 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
         setConfirmDelete(false);
+        setNoteMode(false);
+        setNoteDraft("");
       }
     }
     document.addEventListener("mousedown", handle);
@@ -279,12 +285,32 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
     onUpdateTags(next);
   }
 
+  async function saveNote() {
+    if (!noteDraft.trim() || !workspaceId) return;
+    setNoteSaving(true);
+    await db.from("contact_notes").insert({
+      workspace_id:    workspaceId,
+      contact_phone:   conversation.inbox_contacts.phone,
+      contact_name:    conversation.inbox_contacts.name ?? null,
+      created_by:      profile?.id ?? null,
+      created_by_name: profile?.full_name ?? null,
+      type:            "manual",
+      content:         noteDraft.trim(),
+      follow_up_date:  null,
+      follow_up_done:  false,
+    });
+    setNoteSaving(false);
+    setNoteDraft("");
+    setNoteMode(false);
+    setOpen(false);
+  }
+
   const tags = conversation.tags ?? [];
 
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => { setOpen((v) => !v); setConfirmDelete(false); }}
+        onClick={() => { setOpen((v) => !v); setConfirmDelete(false); setNoteMode(false); setNoteDraft(""); }}
         className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
         style={{ border: "1px solid rgba(63,176,108,0.1)" }}
         title="Mais opções"
@@ -296,11 +322,10 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
         <div
           className="absolute right-0 top-full mt-1 z-50 rounded-xl overflow-hidden"
           style={{
-            background:   "rgba(13,26,17,0.98)",
-            border:       "1px solid rgba(63,176,108,0.2)",
-            boxShadow:    "0 8px 32px rgba(0,0,0,0.5)",
-            minWidth:     200,
-            backdropFilter: "blur(16px)",
+            background: "#0d1a11",
+            border:     "1px solid rgba(63,176,108,0.2)",
+            boxShadow:  "0 8px 32px rgba(0,0,0,0.6)",
+            minWidth:   220,
           }}
         >
           {/* Pin */}
@@ -355,6 +380,58 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
                 </button>
               );
             })}
+          </div>
+
+          {/* Apontamento */}
+          <div style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
+            {!noteMode ? (
+              <button
+                onClick={() => setNoteMode(true)}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-agro-muted hover:text-agro-text hover:bg-white/5 transition-colors"
+              >
+                <ClipboardList className="w-3.5 h-3.5 shrink-0" />
+                Criar apontamento
+              </button>
+            ) : (
+              <div className="px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-agro-muted-2">Apontamento</p>
+                  <button onClick={() => { setNoteMode(false); setNoteDraft(""); }} className="text-agro-muted-2 hover:text-agro-muted transition-colors">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                <textarea
+                  autoFocus
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder="Digite o apontamento..."
+                  rows={3}
+                  className="w-full resize-none text-xs text-agro-text placeholder-agro-muted-2 rounded-lg px-2.5 py-2 focus:outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border:     "1px solid rgba(63,176,108,0.15)",
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveNote(); }}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setNoteMode(false); setNoteDraft(""); }}
+                    className="flex-1 py-1.5 rounded-lg text-xs text-agro-muted transition-colors hover:bg-white/5"
+                    style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={saveNote}
+                    disabled={!noteDraft.trim() || noteSaving}
+                    className="flex-1 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-40"
+                    style={{ background: "rgba(63,176,108,0.8)" }}
+                  >
+                    {noteSaving ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : "Salvar"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Delete */}
