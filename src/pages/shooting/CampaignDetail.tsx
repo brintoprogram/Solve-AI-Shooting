@@ -311,20 +311,10 @@ export function CampaignDetail() {
         return rd && rd._financial_campaign === true;
       });
 
-      // For legacy campaigns: auto-detect columns from recipient_data keys
-      let valorKey: string | null = null;
-      let nfKey:    string | null = null;
-      let vencKey:  string | null = null;
-      if (!hasFinancialRd) {
-        for (const m of messages) {
-          const rd = m.recipient_data as Record<string, unknown> | null;
-          if (!rd) continue;
-          if (!valorKey) valorKey = Object.keys(rd).find((k) => MONETARY.some((t) => k.toLowerCase().includes(t))) ?? null;
-          if (!nfKey)    nfKey    = Object.keys(rd).find((k) => ["nf", "nota", "numero", "duplicata"].some((t) => k.toLowerCase().includes(t))) ?? null;
-          if (!vencKey)  vencKey  = Object.keys(rd).find((k) => ["venc", "vencimento", "prazo"].some((t) => k.toLowerCase().includes(t))) ?? null;
-          if (valorKey && nfKey && vencKey) break;
-        }
-      }
+      // Non-financial campaigns skip all financial columns
+      const valorKey: string | null = null;
+      const nfKey:    string | null = null;
+      const vencKey:  string | null = null;
 
       const STATUS_PT: Record<string, string> = {
         pending: "Na fila", sent: "Enviado", delivered: "Entregue",
