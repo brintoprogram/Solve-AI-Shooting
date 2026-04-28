@@ -393,13 +393,20 @@ export async function runImport(
   stats.skipped += noKey.length;
 
   // Mapa dedup de contatos (phone → dados mais completos)
-  const contactMap = new Map<string, MappedRow>();
+  // skippedRows: linhas "perdedoras" do dedup com nome diferente —
+  // o boleto delas NÃO deve ser criado (evita boleto no contato errado).
+  const contactMap  = new Map<string, MappedRow>();
+  const skippedRows = new Set<MappedRow>();
+
   for (const r of withPhone) {
     const existing = contactMap.get(r.phone!);
-    if (existing && existing.name && r.name && existing.name !== r.name) {
-      stats.errors.push(
-        `Telefone ${r.phone} duplicado: "${existing.name}" mantido, "${r.name}" ignorado — verifique a planilha`
-      );
+    if (existing) {
+      if (existing.name && r.name && existing.name !== r.name) {
+        stats.errors.push(
+          `Telefone ${r.phone} duplicado: "${existing.name}" mantido, "${r.name}" ignorado — verifique a planilha`
+        );
+        skippedRows.add(r); // boleto desta linha será pulado
+      }
     }
     contactMap.set(r.phone!, mergeRow(existing, r));
   }
@@ -458,6 +465,7 @@ export async function runImport(
 
   // ─── 3. Inserir boletos ───────────────────────────────────────────
   const invoiceRows_ = rows
+    .filter((r) => !skippedRows.has(r))                            // pula perdedores do dedup
     .filter((r) => r.inv_valor !== undefined || r.inv_vencimento)
     .map((r) => {
       // Lookup estrito: se a linha tem telefone, usa SÓ telefone.
