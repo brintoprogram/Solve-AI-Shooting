@@ -508,7 +508,7 @@ export function CampaignDetail() {
                 Retomar
               </button>
             )}
-            {campaign.status === "draft" && (
+            {campaign.status === "draft" && campaign.dispatch_channel !== "n8n_email" && (
               <button
                 onClick={() => startCampaign(id!)}
                 className="btn-agro flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"

@@ -112,9 +112,10 @@ export interface TemplateButton {
 export interface ShootingCampaign {
   id: string;
   workspace_id: string;
-  meta_connection_id: string;
+  meta_connection_id: string | null;
   name: string;
-  template_id: string;
+  template_id: string | null;
+  dispatch_channel: "whatsapp" | "n8n_email";
   data_source: "contacts" | "xlsx_upload";
   column_mapping: ColumnMapping;
   filters: Json;
