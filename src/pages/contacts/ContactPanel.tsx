@@ -26,6 +26,10 @@ export interface Contact {
   email2:              string | null;
   nome_representante:  string | null;
   email_representante: string | null;
+  gerente1_nome:       string | null;
+  gerente1_email:      string | null;
+  gerente2_nome:       string | null;
+  gerente2_email:      string | null;
   cep:                 string | null;
   logradouro:          string | null;
   numero:              string | null;
@@ -520,6 +524,28 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
                   <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
                     <InfoRow icon={User} label="Nome"   value={contact.nome_representante} />
                     <InfoRow icon={Mail} label="E-mail" value={contact.email_representante} />
+                  </div>
+                </div>
+              )}
+
+              {(contact.gerente1_nome || contact.gerente1_email || contact.gerente2_nome || contact.gerente2_email) && (
+                <div>
+                  <p className="text-[10px] text-[#6b7f6e] uppercase tracking-wider mb-2 ml-1">Gerentes</p>
+                  <div className="space-y-2">
+                    {(contact.gerente1_nome || contact.gerente1_email) && (
+                      <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
+                        <p className="text-[10px] text-[#3fb06c] uppercase tracking-wider pt-2 pb-1 font-semibold">Gerente 1</p>
+                        <InfoRow icon={User} label="Nome"   value={contact.gerente1_nome} />
+                        <InfoRow icon={Mail} label="E-mail" value={contact.gerente1_email} />
+                      </div>
+                    )}
+                    {(contact.gerente2_nome || contact.gerente2_email) && (
+                      <div className="rounded-xl border border-[#2a3d30] bg-[#111a14] px-4 py-1">
+                        <p className="text-[10px] text-[#3fb06c] uppercase tracking-wider pt-2 pb-1 font-semibold">Gerente 2</p>
+                        <InfoRow icon={User} label="Nome"   value={contact.gerente2_nome} />
+                        <InfoRow icon={Mail} label="E-mail" value={contact.gerente2_email} />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

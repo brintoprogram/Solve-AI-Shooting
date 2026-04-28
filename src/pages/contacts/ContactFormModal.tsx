@@ -45,6 +45,10 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
   const [email2,              setEmail2]             = useState(contact?.email2              ?? "");
   const [nome_representante,  setNomeRep]            = useState(contact?.nome_representante  ?? "");
   const [email_representante, setEmailRep]           = useState(contact?.email_representante ?? "");
+  const [gerente1_nome,       setGerente1Nome]       = useState(contact?.gerente1_nome       ?? "");
+  const [gerente1_email,      setGerente1Email]      = useState(contact?.gerente1_email      ?? "");
+  const [gerente2_nome,       setGerente2Nome]       = useState(contact?.gerente2_nome       ?? "");
+  const [gerente2_email,      setGerente2Email]      = useState(contact?.gerente2_email      ?? "");
   const [cep,                 setCep]                = useState(contact?.cep                 ?? "");
   const [logradouro,          setLogradouro]         = useState(contact?.logradouro          ?? "");
   const [numero,              setNumero]             = useState(contact?.numero              ?? "");
@@ -82,6 +86,10 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
       email2:              email2.trim()              || null,
       nome_representante:  nome_representante.trim()  || null,
       email_representante: email_representante.trim() || null,
+      gerente1_nome:       gerente1_nome.trim()       || null,
+      gerente1_email:      gerente1_email.trim()      || null,
+      gerente2_nome:       gerente2_nome.trim()       || null,
+      gerente2_email:      gerente2_email.trim()      || null,
       cep:                 cep.trim()                 || null,
       logradouro:          logradouro.trim()          || null,
       numero:              numero.trim()              || null,
@@ -205,6 +213,37 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
               <Field label="E-mail">
                 <input className={inputCls} type="email" value={email_representante} onChange={(e) => setEmailRep(e.target.value)} placeholder="resp@empresa.com" />
               </Field>
+            </div>
+          </section>
+
+          {/* Gerentes */}
+          <section>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] mb-3 border-b border-[#1e2e22] pb-2">
+              Gerentes (até 2)
+            </p>
+            <div className="space-y-4">
+              <div>
+                <p className="text-[10px] text-[#3fb06c] font-semibold uppercase tracking-wider mb-2">Gerente 1</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Nome">
+                    <input className={inputCls} value={gerente1_nome} onChange={(e) => setGerente1Nome(e.target.value)} placeholder="Nome do gerente" />
+                  </Field>
+                  <Field label="E-mail">
+                    <input className={inputCls} type="email" value={gerente1_email} onChange={(e) => setGerente1Email(e.target.value)} placeholder="gerente@empresa.com" />
+                  </Field>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] text-[#3fb06c] font-semibold uppercase tracking-wider mb-2">Gerente 2</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Nome">
+                    <input className={inputCls} value={gerente2_nome} onChange={(e) => setGerente2Nome(e.target.value)} placeholder="Nome do gerente" />
+                  </Field>
+                  <Field label="E-mail">
+                    <input className={inputCls} type="email" value={gerente2_email} onChange={(e) => setGerente2Email(e.target.value)} placeholder="gerente2@empresa.com" />
+                  </Field>
+                </div>
+              </div>
             </div>
           </section>
 
