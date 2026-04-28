@@ -27,6 +27,10 @@ export const MAPPABLE_FIELDS = [
   { key: "email2",              label: "E-mail 2",                category: "contact" as const },
   { key: "nome_representante",  label: "Nome do Representante",   category: "contact" as const },
   { key: "email_representante", label: "E-mail do Representante", category: "contact" as const },
+  { key: "gerente1_nome",       label: "Nome do Gerente 1",        category: "contact" as const },
+  { key: "gerente1_email",      label: "E-mail do Gerente 1",      category: "contact" as const },
+  { key: "gerente2_nome",       label: "Nome do Gerente 2",        category: "contact" as const },
+  { key: "gerente2_email",      label: "E-mail do Gerente 2",      category: "contact" as const },
   { key: "cep",                 label: "CEP",                     category: "contact" as const },
   { key: "logradouro",          label: "Logradouro / Rua",        category: "contact" as const },
   { key: "numero",              label: "Número",                  category: "contact" as const },
@@ -58,6 +62,10 @@ export interface MappedRow {
   email2?:              string;
   nome_representante?:  string;
   email_representante?: string;
+  gerente1_nome?:       string;
+  gerente1_email?:      string;
+  gerente2_nome?:       string;
+  gerente2_email?:      string;
   cep?:                 string;
   logradouro?:          string;
   numero?:              string;
@@ -93,6 +101,10 @@ const DETECT: Partial<Record<FieldKey, string[]>> = {
   email2:              ["email2", "e-mail 2", "segundo email"],
   nome_representante:  ["representante", "responsável", "responsavel", "contato"],
   email_representante: ["email representante", "e-mail representante", "email_representante"],
+  gerente1_nome:       ["gerente1 nome", "nome gerente 1", "gerente1_nome", "gerente 1"],
+  gerente1_email:      ["gerente1 email", "email gerente 1", "gerente1_email", "e-mail gerente 1"],
+  gerente2_nome:       ["gerente2 nome", "nome gerente 2", "gerente2_nome", "gerente 2"],
+  gerente2_email:      ["gerente2 email", "email gerente 2", "gerente2_email", "e-mail gerente 2"],
   cep:                 ["cep", "zip", "postal"],
   logradouro:          ["logradouro", "endereço", "endereco", "rua", "avenida", "address"],
   numero:              ["número", "numero", "nº", "n°", "num"],
@@ -324,6 +336,7 @@ export function applyMapping(
 
     const strFields = [
       "empresa", "email", "email2", "nome_representante", "email_representante",
+      "gerente1_nome", "gerente1_email", "gerente2_nome", "gerente2_email",
       "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado",
     ] as const;
     for (const f of strFields) {
@@ -487,6 +500,10 @@ function toContactRow(r: MappedRow, workspaceId: string, skipRequired = false) {
     email2:              r.email2              ?? null,
     nome_representante:  r.nome_representante  ?? null,
     email_representante: r.email_representante ?? null,
+    gerente1_nome:       r.gerente1_nome       ?? null,
+    gerente1_email:      r.gerente1_email      ?? null,
+    gerente2_nome:       r.gerente2_nome       ?? null,
+    gerente2_email:      r.gerente2_email      ?? null,
     cep:                 r.cep                 ?? null,
     logradouro:          r.logradouro          ?? null,
     numero:              r.numero              ?? null,
