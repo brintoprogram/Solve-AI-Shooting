@@ -12,9 +12,11 @@ import {
   LayoutTemplate,
   Bell,
   BarChart2,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
+import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
+import type { PermissionKey } from "@/context/AuthContext";
 import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
 
 interface NavItem {
@@ -22,27 +24,35 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   subtitle: string;
+  permission?: PermissionKey | PermissionKey[]; // undefined = accessible by all
 }
 
 const BASE_NAV: NavItem[] = [
-  { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"          },
-  { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp"    },
-  { to: "/shooting/history",  icon: History,         label: "Histórico",    subtitle: "Campanhas anteriores" },
-  { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes"     },
-  { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas"     },
+  { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
+  { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
+  { to: "/shooting/history",  icon: History,         label: "Histórico",    subtitle: "Campanhas anteriores",  permission: ["can_shoot", "can_manage_campaigns"] },
+  { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
+  { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
   { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
-  { to: "/reports",           icon: BarChart2,        label: "Relatórios",   subtitle: "Campanhas & auditoria" },
-  { to: "/templates",          icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"   },
-  { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"  },
-  { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações"  },
+  { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
+  { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },
+  { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
+  { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações",   permission: "can_settings" },
 ];
 
 const TEAM_NAV: NavItem = {
-  to:       "/team",
-  icon:     UserCog,
-  label:    "Equipe",
-  subtitle: "Agentes & convites",
+  to:         "/team",
+  icon:       UserCog,
+  label:      "Equipe",
+  subtitle:   "Agentes & convites",
+  permission: "can_manage_team",
 };
+
+function isAllowed(profile: ReturnType<typeof useAuth>["profile"], item: NavItem): boolean {
+  if (!item.permission) return true;
+  const perms = Array.isArray(item.permission) ? item.permission : [item.permission];
+  return perms.some((p) => hasPermission(profile, p));
+}
 
 export function Sidebar() {
   const { profile, signOut } = useAuth();
@@ -56,7 +66,7 @@ export function Sidebar() {
 
   const navItems = [...BASE_NAV, TEAM_NAV];
 
-  const rs           = profile ? ROLE_STYLE[profile.role]   : null;
+  const rs           = profile ? ROLE_STYLE[profile.role] : null;
   const roleLabel    = profile ? ROLE_LABELS[profile.role]  : null;
   const avatarText   = initials(profile?.full_name);
 
@@ -96,88 +106,93 @@ export function Sidebar() {
           Menu principal
         </p>
 
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/" || item.to === "/shooting"}
-            className={({ isActive }) =>
-              cn(
-                "group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative",
-                isActive ? "text-white" : "text-agro-muted hover:text-agro-text"
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <div
-                    className="absolute inset-0 rounded-xl"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, rgba(63,176,108,0.2) 0%, rgba(22,163,74,0.12) 100%)",
-                      border: "1px solid rgba(63,176,108,0.3)",
-                      boxShadow:
-                        "0 0 20px rgba(63,176,108,0.1), inset 0 0 20px rgba(63,176,108,0.05)",
-                    }}
-                  />
-                )}
+        {navItems.map((item) => {
+          const allowed = isAllowed(profile, item);
 
-                {!isActive && (
-                  <div
-                    className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                    style={{
-                      background: "rgba(63,176,108,0.05)",
-                      border: "1px solid rgba(63,176,108,0.08)",
-                    }}
-                  />
-                )}
-
-                <div
-                  className={cn(
-                    "relative w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200",
-                    isActive
-                      ? "bg-agro-green text-white"
-                      : "bg-agro-surface text-agro-muted-2 group-hover:text-agro-green group-hover:bg-agro-surface-2"
-                  )}
-                >
+          // ── Locked item (no permission) ───────────────────────────
+          if (!allowed) {
+            return (
+              <div
+                key={item.to}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl relative select-none"
+                style={{ opacity: 0.35, cursor: "not-allowed" }}
+                title={`Você não tem permissão para acessar ${item.label}`}
+              >
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-agro-surface text-agro-muted-2">
                   <item.icon className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium leading-none text-agro-text-2">{item.label}</p>
+                  <p className="text-[10px] mt-0.5 truncate text-agro-muted-2">{item.subtitle}</p>
+                </div>
+                <Lock className="w-3 h-3 text-agro-muted-2 shrink-0" />
+              </div>
+            );
+          }
+
+          // ── Normal item ───────────────────────────────────────────
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/" || item.to === "/shooting"}
+              className={({ isActive }) =>
+                cn(
+                  "group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative",
+                  isActive ? "text-white" : "text-agro-muted hover:text-agro-text"
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
                   {isActive && (
-                    <div className="absolute inset-0 rounded-lg glow-green-sm opacity-60" />
+                    <div
+                      className="absolute inset-0 rounded-xl"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(63,176,108,0.2) 0%, rgba(22,163,74,0.12) 100%)",
+                        border: "1px solid rgba(63,176,108,0.3)",
+                        boxShadow: "0 0 20px rgba(63,176,108,0.1), inset 0 0 20px rgba(63,176,108,0.05)",
+                      }}
+                    />
                   )}
-                </div>
-
-                <div className="relative min-w-0">
-                  <p
+                  {!isActive && (
+                    <div
+                      className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.08)" }}
+                    />
+                  )}
+                  <div
                     className={cn(
-                      "text-sm font-medium leading-none transition-colors duration-200",
-                      isActive ? "text-agro-text" : "text-agro-text-2 group-hover:text-agro-text"
+                      "relative w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200",
+                      isActive
+                        ? "bg-agro-green text-white"
+                        : "bg-agro-surface text-agro-muted-2 group-hover:text-agro-green group-hover:bg-agro-surface-2"
                     )}
                   >
-                    {item.label}
-                  </p>
-                  <p
-                    className={cn(
-                      "text-[10px] mt-0.5 truncate transition-colors duration-200",
-                      isActive ? "text-agro-green" : "text-agro-muted-2"
-                    )}
-                  >
-                    {item.subtitle}
-                  </p>
-                </div>
-
-                {isActive && item.to !== "/alerts" && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
-                )}
-                {item.to === "/alerts" && unreadCount > 0 && (
-                  <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </>
-            )}
-          </NavLink>
-        ))}
+                    <item.icon className="w-3.5 h-3.5" />
+                    {isActive && <div className="absolute inset-0 rounded-lg glow-green-sm opacity-60" />}
+                  </div>
+                  <div className="relative min-w-0">
+                    <p className={cn("text-sm font-medium leading-none transition-colors duration-200", isActive ? "text-agro-text" : "text-agro-text-2 group-hover:text-agro-text")}>
+                      {item.label}
+                    </p>
+                    <p className={cn("text-[10px] mt-0.5 truncate transition-colors duration-200", isActive ? "text-agro-green" : "text-agro-muted-2")}>
+                      {item.subtitle}
+                    </p>
+                  </div>
+                  {isActive && item.to !== "/alerts" && (
+                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
+                  )}
+                  {item.to === "/alerts" && unreadCount > 0 && (
+                    <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
 
       {/* Footer — user info + logout */}

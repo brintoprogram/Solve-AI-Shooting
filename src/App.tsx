@@ -2,7 +2,9 @@ import { Component, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Leaf, AlertTriangle } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { AuthProvider, useAuth, hasPermission } from "@/context/AuthContext";
+import type { PermissionKey } from "@/context/AuthContext";
+import { AccessDenied } from "@/components/AccessDenied";
 import { Login } from "@/pages/Login";
 import { Dashboard } from "@/pages/Dashboard";
 import { ShootingPage } from "@/pages/shooting/ShootingPage";
@@ -73,6 +75,26 @@ export function App() {
   );
 }
 
+// ── Permission-gated route wrapper ────────────────────────────────
+// Safe to do conditional rendering here because this component itself
+// calls no hooks beyond useAuth — the page component only mounts when allowed.
+function PR({
+  permission,
+  feature,
+  children,
+}: {
+  permission: PermissionKey | PermissionKey[];
+  feature: string;
+  children: ReactNode;
+}) {
+  const { profile } = useAuth();
+  const perms = Array.isArray(permission) ? permission : [permission];
+  if (!perms.some((p) => hasPermission(profile, p))) {
+    return <AccessDenied feature={feature} permission={permission} />;
+  }
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   const { user, loading, setupType } = useAuth();
 
@@ -83,20 +105,20 @@ function AppRoutes() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/"                         element={<Dashboard />} />
-        <Route path="/shooting"                 element={<ShootingPage />} />
-        <Route path="/shooting/history"         element={<ShootingPage />} />
-        <Route path="/shooting/new"             element={<CampaignWizard />} />
-        <Route path="/shooting/campaigns/:id"   element={<CampaignDetail />} />
-        <Route path="/settings"                 element={<Settings />} />
-        <Route path="/contacts"                 element={<Contacts />} />
-        <Route path="/inbox"                    element={<Inbox />} />
-        <Route path="/automations"              element={<PlaceholderPage title="Automações" />} />
-        <Route path="/team"                     element={<Team />} />
-        <Route path="/templates"               element={<Templates />} />
-        <Route path="/alerts"                   element={<Alerts />} />
-        <Route path="/reports"                  element={<Reports />} />
-        <Route path="*"                         element={<Navigate to="/" replace />} />
+        <Route path="/"                       element={<Dashboard />} />
+        <Route path="/shooting"               element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Shooting & Campanhas"><ShootingPage /></PR>} />
+        <Route path="/shooting/history"       element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Histórico de Campanhas"><ShootingPage /></PR>} />
+        <Route path="/shooting/new"           element={<PR permission="can_manage_campaigns" feature="Nova Campanha"><CampaignWizard /></PR>} />
+        <Route path="/shooting/campaigns/:id" element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Detalhe da Campanha"><CampaignDetail /></PR>} />
+        <Route path="/settings"               element={<PR permission="can_settings" feature="Configurações"><Settings /></PR>} />
+        <Route path="/contacts"               element={<PR permission="can_manage_contacts" feature="Contatos"><Contacts /></PR>} />
+        <Route path="/inbox"                  element={<PR permission="can_inbox" feature="Inbox"><Inbox /></PR>} />
+        <Route path="/automations"            element={<PlaceholderPage title="Automações" />} />
+        <Route path="/team"                   element={<PR permission="can_manage_team" feature="Equipe"><Team /></PR>} />
+        <Route path="/templates"              element={<Templates />} />
+        <Route path="/alerts"                 element={<Alerts />} />
+        <Route path="/reports"                element={<Reports />} />
+        <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}
       <Route path="/onboarding" element={<Onboarding />} />
