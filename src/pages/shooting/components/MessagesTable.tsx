@@ -38,6 +38,12 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
   const { messages, total, page, totalPages, loading, search, setSearch, setPage } =
     useCampaignMessages(campaignId, statusFilter === "all" ? undefined : statusFilter);
 
+  // Auto-detect whether this campaign has financial data in recipient_data
+  const hasFinancialData = messages.some((m) => {
+    const d = m.recipient_data as Record<string, unknown> | null;
+    return d && d._vencimento_filtro != null;
+  });
+
   async function exportAllToXlsx() {
     setExporting(true);
     const { data } = await supabase
@@ -47,17 +53,29 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
       .order("created_at");
 
     const all: ShootingMessage[] = data ?? [];
-    const rows = all.map((m) => ({
-      "Nome":           m.recipient_name ?? "",
-      "Telefone":       m.recipient_phone,
-      "Status":         MESSAGE_STATUS_LABELS[m.status],
-      "Enviado":        m.sent_at      ? format(new Date(m.sent_at),      "dd/MM/yyyy HH:mm") : "",
-      "Entregue":       m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
-      "Lido":           m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
-      "Respondido":     m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
-      "Código de erro": m.error_code   ? `#${m.error_code}` : "",
-      "Mensagem de erro": m.error_message ?? "",
-    }));
+    const anyFinancial = all.some((m) => {
+      const d = m.recipient_data as Record<string, unknown> | null;
+      return d && d._vencimento_filtro != null;
+    });
+    const rows = all.map((m) => {
+      const d = m.recipient_data as Record<string, unknown> | null;
+      const base: Record<string, string> = {
+        "Nome":           m.recipient_name ?? "",
+        "Telefone":       m.recipient_phone,
+        "Status":         MESSAGE_STATUS_LABELS[m.status],
+        "Enviado":        m.sent_at      ? format(new Date(m.sent_at),      "dd/MM/yyyy HH:mm") : "",
+        "Entregue":       m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
+        "Lido":           m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
+        "Respondido":     m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
+        "Código de erro": m.error_code   ? `#${m.error_code}` : "",
+        "Mensagem de erro": m.error_message ?? "",
+      };
+      if (anyFinancial) {
+        base["Valor (boleto)"]      = d?.valor_total_pendente as string ?? "";
+        base["Vencimento (filtro)"] = d?.proximo_vencimento   as string ?? "";
+      }
+      return base;
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Mensagens");
@@ -121,7 +139,11 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
-              {["Destinatário", "Telefone", "Status", "Enviado", "Entregue", "Lido", "Erro"].map((h) => (
+              {[
+                "Destinatário", "Telefone",
+                ...(hasFinancialData ? ["Valor", "Vencimento"] : []),
+                "Status", "Enviado", "Entregue", "Lido", "Erro",
+              ].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
                   {h}
                 </th>
@@ -132,7 +154,7 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
-                    {Array.from({ length: 7 }).map((_, j) => (
+                    {Array.from({ length: hasFinancialData ? 9 : 7 }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <Skeleton className="h-4 w-20" style={{ background: "rgba(63,176,108,0.06)" }} />
                       </td>
@@ -141,6 +163,7 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
                 ))
               : messages.map((msg, i) => {
                   const s = STATUS_STYLE[msg.status];
+                  const rd = msg.recipient_data as Record<string, unknown> | null;
                   return (
                     <tr
                       key={msg.id}
@@ -154,6 +177,16 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
                       <td className="px-4 py-3 text-agro-muted font-mono text-xs">
                         {msg.recipient_phone}
                       </td>
+                      {hasFinancialData && (
+                        <>
+                          <td className="px-4 py-3 text-xs font-semibold text-amber-400">
+                            {rd?.valor_total_pendente as string ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-agro-muted">
+                            {rd?.proximo_vencimento as string ?? "—"}
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
                           style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}

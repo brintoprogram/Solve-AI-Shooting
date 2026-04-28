@@ -3,6 +3,7 @@ import {
   X, Target, Users, Sliders, ChevronLeft, ChevronRight,
   Search, Check, Tag, Loader2, Eye, ArrowRight,
   Upload, FileSpreadsheet, Database, Gauge, AlertCircle,
+  ChevronDown, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
@@ -18,6 +19,7 @@ import type { Contact } from "@/pages/contacts/ContactPanel";
 // ─────────────────────────────────────────────────────────
 
 interface InvoiceRaw {
+  id:            string;
   valor:         number;
   vencimento:    string | null;
   status:        string;
@@ -97,16 +99,29 @@ const PENDING_STATUSES = ["pendente", "vencido", "aberto", "em_aberto"];
 // Financial aggregation
 // ─────────────────────────────────────────────────────────
 
-function aggregateInvoices(contact: ContactWithInvoices): ContactWithInvoices {
-  const invoices = (contact.contact_invoices ?? []).filter((inv) =>
+function aggregateInvoices(
+  contact: ContactWithInvoices,
+  filterDate?: string,
+  selectedIds?: Set<string>,
+): ContactWithInvoices {
+  let invoices = (contact.contact_invoices ?? []).filter((inv) =>
     PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
   );
+
+  if (filterDate) {
+    invoices = invoices.filter((inv) => inv.vencimento === filterDate);
+  }
+
+  // Non-empty selectedIds → restrict to chosen invoices
+  if (selectedIds && selectedIds.size > 0) {
+    invoices = invoices.filter((inv) => selectedIds.has(inv.id));
+  }
 
   if (invoices.length === 0) {
     return {
       ...contact,
       valor_total_pendente:  "R$ 0,00",
-      proximo_vencimento:    "",
+      proximo_vencimento:    filterDate ? (() => { const [y,m,d] = filterDate.split("-"); return `${d}/${m}/${y}`; })() : "",
       boleto_nf:             "",
       boleto_codigo_barras:  "",
     };
@@ -122,12 +137,10 @@ function aggregateInvoices(contact: ContactWithInvoices): ContactWithInvoices {
   const total      = invoices.reduce((sum, inv) => sum + (Number(inv.valor) || 0), 0);
   const mostUrgent = sorted[0];
 
-  // Format currency pt-BR
   const valorFormatado = total.toLocaleString("pt-BR", {
     style: "currency", currency: "BRL",
   });
 
-  // Format date dd/mm/aaaa (force UTC to avoid timezone shifts)
   let vencimentoFormatado = "";
   if (mostUrgent.vencimento) {
     const [y, m, d] = mostUrgent.vencimento.split("-");
@@ -141,6 +154,14 @@ function aggregateInvoices(contact: ContactWithInvoices): ContactWithInvoices {
     boleto_nf:             mostUrgent.numero_nf     ?? "",
     boleto_codigo_barras:  mostUrgent.codigo_barras ?? "",
   };
+}
+
+function hasMultipleDueDates(contact: ContactWithInvoices): boolean {
+  const pending = (contact.contact_invoices ?? []).filter((inv) =>
+    PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
+  );
+  const dates = new Set(pending.map((inv) => inv.vencimento).filter(Boolean));
+  return dates.size > 1;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -223,13 +244,16 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   // Audience
   const [source,    setSource]   = useState<"contacts" | "csv">("contacts");
   // contacts mode
-  const [selTags,   setSelTags]  = useState<string[]>([]);
-  const [search,    setSearch]   = useState("");
-  const [selected,  setSelected] = useState<Set<string>>(new Set());
-  const [contacts,  setContacts] = useState<ContactWithInvoices[]>([]);
-  const [allTags,   setAllTags]  = useState<string[]>([]);
-  const [totalCount, setTotal]   = useState(0);
-  const [loadingC,   setLoadingC] = useState(false);
+  const [selTags,           setSelTags]           = useState<string[]>([]);
+  const [search,            setSearch]            = useState("");
+  const [selected,          setSelected]          = useState<Set<string>>(new Set());
+  const [contacts,          setContacts]          = useState<ContactWithInvoices[]>([]);
+  const [allTags,           setAllTags]           = useState<string[]>([]);
+  const [totalCount,        setTotal]             = useState(0);
+  const [loadingC,          setLoadingC]          = useState(false);
+  const [filterDate,        setFilterDate]        = useState<string>("");
+  const [invoiceSelections, setInvoiceSelections] = useState<Map<string, Set<string>>>(new Map());
+  const [expandedContacts,  setExpandedContacts]  = useState<Set<string>>(new Set());
   // csv mode
   const [csvFile,    setCsvFile]    = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -255,11 +279,16 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
       ? CONTACTS_FIELD_GROUPS
       : [{ label: "Colunas da planilha", fields: csvHeaders.map((h) => ({ value: h, label: h })) }];
 
-  // First selected item for preview
-  const previewData: Record<string, unknown> | null =
-    source === "contacts"
-      ? (contacts.find((c) => selected.has(c.id)) as Record<string, unknown> | undefined) ?? null
-      : csvRows[0] ?? null;
+  // First selected item for preview — aggregate inline so virtual columns reflect
+  // the current filterDate + invoiceSelections without storing duplicated state.
+  const rawPreviewContact = source === "contacts" ? contacts.find((c) => selected.has(c.id)) : null;
+  const previewData: Record<string, unknown> | null = rawPreviewContact
+    ? aggregateInvoices(
+        rawPreviewContact,
+        filterDate || undefined,
+        invoiceSelections.get(rawPreviewContact.id),
+      ) as Record<string, unknown>
+    : source === "csv" ? csvRows[0] ?? null : null;
 
   const totalRecipients =
     source === "contacts" ? selected.size : csvRows.length;
@@ -271,6 +300,7 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     setSource("contacts");
     setSelTags([]); setSearch(""); setSelected(new Set());
     setContacts([]); setAllTags([]); setVarMap({}); setSendingSpeed(80);
+    setFilterDate(""); setInvoiceSelections(new Map()); setExpandedContacts(new Set());
     setCsvFile(null); setCsvHeaders([]); setCsvRows([]); setCsvPhone(""); setCsvError("");
   }, [open]);
 
@@ -289,14 +319,25 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
   // ── Load contacts + invoices (debounced) ──────────────
   const loadContacts = useCallback(async () => {
     setLoadingC(true);
+
+    // When filterDate is active use !inner join so only contacts with a pending
+    // invoice on that date are returned (server-side filter, not client-side).
+    const invoiceSelect = filterDate
+      ? "*, contact_invoices!inner(id, valor, vencimento, status, numero_nf, codigo_barras)"
+      : "*, contact_invoices(id, valor, vencimento, status, numero_nf, codigo_barras)";
+
     let q = db
       .from("inbox_contacts")
-      // Traz boletos junto para calcular colunas virtuais financeiras
-      .select("*, contact_invoices(valor, vencimento, status, numero_nf, codigo_barras)", { count: "exact" })
+      .select(invoiceSelect, { count: "exact" })
       .eq("workspace_id", WORKSPACE_ID)
       .order("name")
       .limit(PAGE);
 
+    if (filterDate) {
+      q = q
+        .eq("contact_invoices.vencimento", filterDate)
+        .in("contact_invoices.status", PENDING_STATUSES);
+    }
     if (search.trim()) {
       const s = search.trim();
       q = q.or(`name.ilike.%${s}%,phone.ilike.%${s}%,empresa.ilike.%${s}%`);
@@ -304,12 +345,12 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     if (selTags.length > 0) q = q.overlaps("tags", selTags);
 
     const { data, count } = await q;
-    // Inject aggregated financial virtual columns into each contact
-    const enriched = ((data ?? []) as ContactWithInvoices[]).map(aggregateInvoices);
-    setContacts(enriched);
+    // Store raw contacts; aggregation happens at render time so invoice
+    // selections can update the displayed value without a re-fetch.
+    setContacts((data ?? []) as ContactWithInvoices[]);
     setTotal(count ?? 0);
     setLoadingC(false);
-  }, [search, selTags]);
+  }, [search, selTags, filterDate]);
 
   useEffect(() => {
     if (step !== 2 || source !== "contacts") return;
@@ -351,6 +392,30 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
     if (file) processFile(file);
   }
 
+  // ── Invoice selection handlers ────────────────────────
+  function toggleInvoice(contactId: string, invoiceId: string, allInvoiceIds: string[]) {
+    setInvoiceSelections((prev) => {
+      const next = new Map(prev);
+      const prevSel = next.get(contactId);
+      // undefined / missing = all selected; build an explicit set to toggle from
+      const current = prevSel !== undefined ? new Set(prevSel) : new Set(allInvoiceIds);
+      if (current.has(invoiceId)) current.delete(invoiceId);
+      else current.add(invoiceId);
+      // If everything is selected again, reset to undefined (default = all)
+      if (current.size === allInvoiceIds.length) next.delete(contactId);
+      else next.set(contactId, current);
+      return next;
+    });
+  }
+
+  function toggleExpand(contactId: string) {
+    setExpandedContacts((prev) => {
+      const next = new Set(prev);
+      next.has(contactId) ? next.delete(contactId) : next.add(contactId);
+      return next;
+    });
+  }
+
   // ── canNext ───────────────────────────────────────────
   function canNext(): boolean {
     if (step === 1) return name.trim().length > 0 && !!templateId;
@@ -381,23 +446,42 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
         // Fetch full contact data WITH invoices so virtual columns can be computed
         const { data: selContacts, error: selErr } = await db
           .from("inbox_contacts")
-          .select("*, contact_invoices(valor, vencimento, status, numero_nf, codigo_barras)")
+          .select("*, contact_invoices(id, valor, vencimento, status, numero_nf, codigo_barras)")
           .in("id", [...selected]);
 
         if (selErr) throw new Error(selErr.message);
 
-        // Aggregate financial virtual columns before saving to recipient_data
-        const enriched = ((selContacts ?? []) as ContactWithInvoices[]).map(aggregateInvoices);
+        messages = ((selContacts ?? []) as ContactWithInvoices[]).map((c) => {
+          const selIds = invoiceSelections.get(c.id);
+          const enriched = aggregateInvoices(c, filterDate || undefined, selIds);
 
-        messages = enriched.map((c) => ({
-          workspace_id:    WORKSPACE_ID,
-          recipient_phone: c.phone ?? "",
-          recipient_name:  c.name  ?? "",
-          recipient_data:  c as unknown as Record<string, unknown>,
-          status:          "pending",
-          retry_count:     0,
-          max_retries:     3,
-        }));
+          // Determine the exact invoice IDs used in this aggregation
+          const pendingOnDate = (c.contact_invoices ?? []).filter((inv) =>
+            PENDING_STATUSES.includes((inv.status ?? "").toLowerCase()) &&
+            (!filterDate || inv.vencimento === filterDate)
+          );
+          const usedIds =
+            selIds && selIds.size > 0
+              ? pendingOnDate.filter((inv) => selIds.has(inv.id)).map((inv) => inv.id)
+              : pendingOnDate.map((inv) => inv.id);
+
+          const recipientData: Record<string, unknown> = {
+            ...(enriched as unknown as Record<string, unknown>),
+            _vencimento_filtro: filterDate || null,
+            _invoice_ids:       usedIds,
+            _invoice_count:     usedIds.length,
+          };
+
+          return {
+            workspace_id:    WORKSPACE_ID,
+            recipient_phone: c.phone ?? "",
+            recipient_name:  c.name  ?? "",
+            recipient_data:  recipientData,
+            status:          "pending",
+            retry_count:     0,
+            max_retries:     3,
+          };
+        });
       } else {
         messages = csvRows.map((row) => ({
           workspace_id:    WORKSPACE_ID,
@@ -582,6 +666,11 @@ export function CampaignBuilder({ open, onClose, onCreated }: Props) {
                 }}
                 search={search} setSearch={setSearch}
                 loading={loadingC}
+                filterDate={filterDate} setFilterDate={(v) => { setFilterDate(v); setSelected(new Set()); setInvoiceSelections(new Map()); setExpandedContacts(new Set()); }}
+                invoiceSelections={invoiceSelections}
+                onToggleInvoice={toggleInvoice}
+                expandedContacts={expandedContacts}
+                onToggleExpand={toggleExpand}
                 csvFile={csvFile} csvHeaders={csvHeaders} csvRows={csvRows}
                 csvPhone={csvPhone} setCsvPhone={setCsvPhone}
                 csvError={csvError}
@@ -790,6 +879,8 @@ function Step2Audience({
   allTags, selTags, toggleTag,
   contacts, totalCount, selected, toggleContact, toggleAll,
   search, setSearch, loading,
+  filterDate, setFilterDate,
+  invoiceSelections, onToggleInvoice, expandedContacts, onToggleExpand,
   csvFile, csvHeaders, csvRows, csvPhone, setCsvPhone, csvError,
   isDragging, setIsDragging, onDrop, onFileChange, fileInputRef,
 }: {
@@ -798,6 +889,11 @@ function Step2Audience({
   contacts: ContactWithInvoices[]; totalCount: number; selected: Set<string>;
   toggleContact: (id: string) => void; toggleAll: () => void;
   search: string; setSearch: (s: string) => void; loading: boolean;
+  filterDate: string; setFilterDate: (v: string) => void;
+  invoiceSelections: Map<string, Set<string>>;
+  onToggleInvoice: (contactId: string, invoiceId: string, allIds: string[]) => void;
+  expandedContacts: Set<string>;
+  onToggleExpand: (contactId: string) => void;
   csvFile: File | null; csvHeaders: string[]; csvRows: Record<string, string>[];
   csvPhone: string; setCsvPhone: (v: string) => void; csvError: string;
   isDragging: boolean; setIsDragging: (v: boolean) => void;
@@ -886,6 +982,39 @@ function Step2Audience({
             </div>
           )}
 
+          {/* Date filter */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none transition-all appearance-none"
+                style={{
+                  background: filterDate ? "rgba(63,176,108,0.08)" : "rgba(13,26,17,0.6)",
+                  border: filterDate ? "1px solid rgba(63,176,108,0.4)" : "1px solid rgba(63,176,108,0.12)",
+                  color: filterDate ? "#3fb06c" : "#6b7280",
+                  colorScheme: "dark",
+                }}
+              />
+            </div>
+            {filterDate && (
+              <button
+                onClick={() => setFilterDate("")}
+                className="px-3 py-2.5 rounded-xl text-xs text-agro-muted hover:text-red-400 transition-colors shrink-0"
+                style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {filterDate && (
+            <p className="text-xs text-agro-green -mt-3">
+              Exibindo apenas contatos com boleto pendente em{" "}
+              {(() => { const [y,m,d] = filterDate.split("-"); return `${d}/${m}/${y}`; })()}
+            </p>
+          )}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-agro-muted-2" />
             <input
@@ -910,7 +1039,9 @@ function Step2Audience({
               </button>
               <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest flex-1">Nome</span>
               <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-32 hidden sm:block">Telefone</span>
-              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-28 text-right hidden md:block">Pendente</span>
+              <span className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-32 text-right hidden md:block">
+                {filterDate ? "Valor (data filtrada)" : "Pendente"}
+              </span>
             </div>
             <div className="max-h-52 overflow-y-auto">
               {loading ? (
@@ -921,22 +1052,93 @@ function Step2Audience({
                 <div className="py-10 text-center text-sm text-agro-muted">Nenhum contato encontrado</div>
               ) : (
                 contacts.map((c) => {
-                  const sel = selected.has(c.id);
-                  const hasPending = c.valor_total_pendente && c.valor_total_pendente !== "R$ 0,00";
+                  const sel      = selected.has(c.id);
+                  const selIds   = invoiceSelections.get(c.id);
+                  const enriched = aggregateInvoices(c, filterDate || undefined, selIds);
+                  const hasPending   = enriched.valor_total_pendente && enriched.valor_total_pendente !== "R$ 0,00";
+                  const hasMultDates = !filterDate && hasMultipleDueDates(c);
+
+                  // Invoices that match the active filterDate (for sub-panel)
+                  const dateInvoices = filterDate
+                    ? (c.contact_invoices ?? []).filter((inv) =>
+                        inv.vencimento === filterDate &&
+                        PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
+                      )
+                    : [];
+                  const showSubPanel  = filterDate && dateInvoices.length > 1;
+                  const isExpanded    = expandedContacts.has(c.id);
+                  const allInvIds     = dateInvoices.map((inv) => inv.id);
+                  const isInvChecked  = (invId: string) =>
+                    !selIds || selIds.size === 0 || selIds.has(invId);
+
                   return (
-                    <div key={c.id} onClick={() => toggleContact(c.id)}
-                      className={cn("flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors", sel ? "bg-agro-green/5" : "hover:bg-white/[0.03]")}
-                      style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}
-                    >
-                      <div className={cn("w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
-                        sel ? "bg-agro-green border-agro-green" : "border-agro-muted-2")}>
-                        {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                    <div key={c.id} style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}>
+                      <div
+                        onClick={() => toggleContact(c.id)}
+                        className={cn("flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors", sel ? "bg-agro-green/5" : "hover:bg-white/[0.03]")}
+                      >
+                        <div className={cn("w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0",
+                          sel ? "bg-agro-green border-agro-green" : "border-agro-muted-2")}>
+                          {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                        </div>
+                        <span className="text-sm text-agro-text flex-1 truncate">{c.name ?? "—"}</span>
+                        <span className="text-xs text-agro-muted w-32 hidden sm:block truncate">{c.phone ?? "—"}</span>
+                        <span className={cn("text-xs w-32 text-right hidden md:flex items-center justify-end gap-1 font-medium",
+                          hasPending ? "text-amber-400" : "text-agro-muted-2")}
+                        >
+                          {hasMultDates && (
+                            <AlertTriangle
+                              className="w-3 h-3 text-amber-500 shrink-0"
+                              title="Boletos em datas diferentes. Use o filtro de vencimento para escolher uma data específica."
+                            />
+                          )}
+                          {hasPending ? enriched.valor_total_pendente : "—"}
+                        </span>
+                        {showSubPanel && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onToggleExpand(c.id); }}
+                            className="ml-1 w-5 h-5 flex items-center justify-center text-agro-muted hover:text-agro-green transition-colors shrink-0"
+                          >
+                            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isExpanded && "rotate-180")} />
+                          </button>
+                        )}
                       </div>
-                      <span className="text-sm text-agro-text flex-1 truncate">{c.name ?? "—"}</span>
-                      <span className="text-xs text-agro-muted w-32 hidden sm:block truncate">{c.phone ?? "—"}</span>
-                      <span className={cn("text-xs w-28 text-right hidden md:block font-medium", hasPending ? "text-amber-400" : "text-agro-muted-2")}>
-                        {hasPending ? c.valor_total_pendente : "—"}
-                      </span>
+
+                      {showSubPanel && isExpanded && (
+                        <div
+                          className="mx-4 mb-2 rounded-lg overflow-hidden"
+                          style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.15)" }}
+                        >
+                          {dateInvoices.map((inv) => {
+                            const checked = isInvChecked(inv.id);
+                            return (
+                              <div
+                                key={inv.id}
+                                onClick={(e) => { e.stopPropagation(); onToggleInvoice(c.id, inv.id, allInvIds); }}
+                                className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-white/[0.03] transition-colors"
+                                style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}
+                              >
+                                <div className={cn("w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 transition-all",
+                                  checked ? "bg-agro-green border-agro-green" : "border-agro-muted-2")}>
+                                  {checked && <Check className="w-2 h-2 text-white" />}
+                                </div>
+                                <span className="text-xs text-agro-muted flex-1">
+                                  {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
+                                </span>
+                                <span className="text-xs font-semibold text-amber-400">
+                                  {Number(inv.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div className="px-3 py-1.5 flex items-center justify-between"
+                            style={{ background: "rgba(63,176,108,0.05)", borderTop: "1px solid rgba(63,176,108,0.08)" }}
+                          >
+                            <span className="text-[10px] text-agro-muted-2 uppercase tracking-wider">Total selecionado</span>
+                            <span className="text-xs font-bold text-agro-green">{enriched.valor_total_pendente}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
