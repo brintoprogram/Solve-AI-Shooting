@@ -560,6 +560,13 @@ export function Contacts() {
 
   const workspaceId = useAuth().workspaceId ?? "";
 
+  // contacts must be declared before the selection helpers that reference it.
+  // useContacts is a hook so it must be called unconditionally at the top level.
+  const { contacts, total, loading, refresh } = useContacts(
+    debouncedSearch, page, filters.sortOrder, contactIds,
+  );
+  const pages = Math.ceil(total / PAGE_SIZE);
+
   // Selection helpers
   const allPageSelected = contacts.length > 0 && contacts.every((c) => selectedIds.has(c.id));
   const somePageSelected = contacts.some((c) => selectedIds.has(c.id));
@@ -664,11 +671,6 @@ export function Contacts() {
     });
     return () => { cancelled = true; };
   }, [filters.hasInvoice, filters.vencFrom, filters.vencTo, workspaceId]);
-
-  const { contacts, total, loading, refresh } = useContacts(
-    debouncedSearch, page, filters.sortOrder, contactIds,
-  );
-  const pages = Math.ceil(total / PAGE_SIZE);
 
   // Compute aggregate invoice total for ALL contacts matching current filters
   useEffect(() => {
