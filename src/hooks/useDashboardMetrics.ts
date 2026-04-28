@@ -97,7 +97,7 @@ export function useDashboardMetrics(): DashboardMetrics {
 
         // Contadores acumulados das campanhas (taxa de entrega + tempo de automação)
         db.from("shooting_campaigns")
-          .select("sent_count, delivered_count, read_count, replied_count, started_at, completed_at")
+          .select("sent_count, delivered_count, read_count, replied_count, started_at, completed_at, dispatch_channel, total_recipients")
           .eq("workspace_id", workspaceId)
           .not("started_at", "is", null),
 
@@ -121,17 +121,24 @@ export function useDashboardMetrics(): DashboardMetrics {
       // Usamos só delivered_count como proxy de "entregue ou melhor" e capamos em 100%.
       let totalSent           = 0;
       let totalDelivered      = 0;
+      let totalRecipients     = 0;
       let automationMinutes   = 0;
       for (const c of (campaignAgg.data ?? [])) {
-        totalSent      += c.sent_count ?? 0;
-        totalDelivered += c.delivered_count ?? 0;
+        const sent = c.sent_count ?? 0;
+        // Email campaigns: sent = delivered (no WhatsApp-style receipt from N8N)
+        const delivered = c.dispatch_channel === "n8n_email" ? sent : (c.delivered_count ?? 0);
+        totalSent        += sent;
+        totalDelivered   += delivered;
+        totalRecipients  += c.total_recipients ?? 0;
         if (c.started_at && c.completed_at) {
           automationMinutes +=
             (new Date(c.completed_at).getTime() - new Date(c.started_at).getTime()) / 60_000;
         }
       }
+      // Denominator: use total_recipients so mixed WhatsApp+email workspaces compute correctly
+      const denominator = totalRecipients > 0 ? totalRecipients : totalSent;
       const deliveryRate =
-        totalSent > 0 ? Math.min(100, Math.round((totalDelivered / totalSent) * 1000) / 10) : 0;
+        denominator > 0 ? Math.min(100, Math.round((totalDelivered / denominator) * 1000) / 10) : 0;
 
       // Economia de tempo: assume 5 min/mensagem para envio humano
       // (localizar contato, abrir cliente, escrever/personalizar, enviar, registrar)
