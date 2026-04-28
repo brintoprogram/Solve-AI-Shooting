@@ -255,12 +255,12 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_settings:         false,
   },
   agent: {
-    can_shoot:            false,
+    can_shoot:            true,
     can_manage_campaigns: false,
     can_manage_contacts:  false,
     can_import:           false,
     can_inbox:            true,
-    can_manage_team:      false,
+    can_manage_team:      true,
     can_settings:         false,
   },
 };

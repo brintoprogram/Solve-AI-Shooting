@@ -486,9 +486,10 @@ export function Team() {
     if (!isAdmin) return;
     setUpdating(memberId);
     const { error } = await db
-      .from("user_profiles")
+      .from("workspace_members")
       .update({ role: newRole })
-      .eq("id", memberId);
+      .eq("user_id", memberId)
+      .eq("workspace_id", workspaceId);
 
     if (error) {
       toast({ title: "Erro ao atualizar cargo", description: error.message, variant: "destructive" });
