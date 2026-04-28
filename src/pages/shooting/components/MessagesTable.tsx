@@ -26,6 +26,12 @@ const STATUS_STYLE: Record<MessageStatus, StatusDef> = {
   undeliverable:{ bg: "rgba(239,68,68,0.08)",   color: "#f87171", border: "rgba(239,68,68,0.15)",   label: "Não entregável", Icon: AlertCircle, iconStyle: {} },
 };
 
+const STATUS_FALLBACK: StatusDef = { bg: "rgba(107,114,128,0.1)", color: "#9ca3af", border: "rgba(107,114,128,0.2)", label: "Desconhecido", Icon: AlertCircle, iconStyle: {} };
+
+function getStatusStyle(status: string): StatusDef {
+  return STATUS_STYLE[status as MessageStatus] ?? STATUS_FALLBACK;
+}
+
 interface MessagesTableProps {
   campaignId: string;
 }
@@ -168,7 +174,7 @@ export function MessagesTable({ campaignId }: MessagesTableProps) {
                   </tr>
                 ))
               : messages.map((msg, i) => {
-                  const s = STATUS_STYLE[msg.status];
+                  const s = getStatusStyle(msg.status);
                   const rd = msg.recipient_data as Record<string, unknown> | null;
                   return (
                     <tr

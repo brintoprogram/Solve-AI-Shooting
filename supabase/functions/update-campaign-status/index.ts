@@ -34,9 +34,15 @@ Deno.serve(async (req: Request) => {
 
   console.log(`[update-campaign-status] campaign=${campaign_id} updates=${updates.length}`);
 
+  const VALID_STATUSES = new Set(["sent", "delivered", "read", "replied", "failed", "undeliverable"]);
+
   // ── Update each shooting_message ─────────────────────────
   const results = await Promise.all(updates.map(async (upd) => {
-    const patch: Record<string, unknown> = { status: upd.status };
+    const resolvedStatus = VALID_STATUSES.has(upd.status) ? upd.status : "failed";
+    if (resolvedStatus !== upd.status) {
+      console.warn(`[update-campaign-status] unknown status "${upd.status}" for message ${upd.message_id} → mapped to "failed"`);
+    }
+    const patch: Record<string, unknown> = { status: resolvedStatus };
 
     if (upd.sent_at       !== undefined) patch.sent_at       = upd.sent_at;
     if (upd.delivered_at  !== undefined) patch.delivered_at  = upd.delivered_at;
@@ -46,9 +52,10 @@ Deno.serve(async (req: Request) => {
 
     // Auto-set timestamp when not provided
     const now = new Date().toISOString();
-    if (upd.status === "sent"       && !patch.sent_at)      patch.sent_at      = now;
-    if (upd.status === "delivered"  && !patch.delivered_at) patch.delivered_at = now;
-    if (upd.status === "read"       && !patch.read_at)      patch.read_at      = now;
+    if (resolvedStatus === "sent"       && !patch.sent_at)      patch.sent_at      = now;
+    if (resolvedStatus === "delivered"  && !patch.delivered_at) patch.delivered_at = now;
+    if (resolvedStatus === "read"       && !patch.read_at)      patch.read_at      = now;
+    if (resolvedStatus === "failed"     && !patch.failed_at)    patch.failed_at    = now;
 
     const { error } = await supabase
       .from("shooting_messages")
