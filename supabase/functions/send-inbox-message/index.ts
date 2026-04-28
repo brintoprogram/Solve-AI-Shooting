@@ -43,6 +43,14 @@ async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Method not allowed" }, 405);
   }
 
+  // ── Auth: validar JWT do chamador ─────────────────────────────
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ error: "Não autorizado" }, 401);
+
+  const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !caller) return json({ error: "Token inválido" }, 401);
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -52,7 +60,6 @@ async function handleRequest(req: Request): Promise<Response> {
 
   const {
     conversation_id,
-    workspace_id,
     sent_by,
     type = "text",
     text,
@@ -60,7 +67,6 @@ async function handleRequest(req: Request): Promise<Response> {
     media_filename,
   } = body as {
     conversation_id: string;
-    workspace_id:    string;
     sent_by?:        string;
     type?:           string;
     text?:           string;
@@ -68,23 +74,38 @@ async function handleRequest(req: Request): Promise<Response> {
     media_filename?: string;
   };
 
-  if (!conversation_id || !workspace_id) {
-    return json({ error: "conversation_id and workspace_id são obrigatórios" }, 400);
+  if (!conversation_id) {
+    return json({ error: "conversation_id é obrigatório" }, 400);
   }
   if (!text?.trim() && !media_url) {
     return json({ error: "text ou media_url é obrigatório" }, 400);
   }
 
-  // 1. Conversation → contact_id + meta_connection_id
+  // 1. Conversation → contact_id + meta_connection_id + workspace_id
+  // workspace_id é derivado do banco, nunca do request body — evita spoofing.
   const { data: conv, error: convErr } = await supabase
     .from("inbox_conversations")
-    .select("contact_id, meta_connection_id")
+    .select("contact_id, meta_connection_id, workspace_id")
     .eq("id", conversation_id)
     .single();
 
   if (convErr || !conv) {
     console.error("[send] conversa não encontrada:", convErr?.message);
     return json({ error: "Conversa não encontrada" }, 404);
+  }
+
+  // ── Verificar que o chamador pertence ao workspace da conversa ─
+  const workspace_id = conv.workspace_id as string;
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", caller.id)
+    .eq("workspace_id", workspace_id)
+    .maybeSingle();
+
+  if (!membership) {
+    console.warn(`[send] usuário ${caller.id} sem acesso ao workspace ${workspace_id}`);
+    return json({ error: "Sem permissão para enviar mensagens neste workspace" }, 403);
   }
 
   // 2. Contact → phone

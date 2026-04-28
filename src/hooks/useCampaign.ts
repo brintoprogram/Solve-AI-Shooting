@@ -40,7 +40,8 @@ export function useCampaigns(workspaceId: string) {
     const { error } = await supabase
       .from("shooting_campaigns")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("workspace_id", workspaceId); // impede deletar campanhas de outros workspaces
     if (error) throw error;
     setCampaigns((prev) => prev.filter((c) => c.id !== id));
   }
@@ -59,6 +60,8 @@ export function useCampaignDetail(campaignId: string) {
       .from("shooting_campaigns")
       .select("*, meta_templates(*), meta_connections(*)")
       .eq("id", campaignId)
+      // RLS já garante isolamento, mas filtrar explicitamente impede fetch de campanhas alheias
+      // mesmo se o RLS ainda não estiver ativo no banco.
       .single()
       .then(({ data }) => {
         setCampaign(data as CampaignWithTemplate);

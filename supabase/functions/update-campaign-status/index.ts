@@ -5,6 +5,10 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// Secret compartilhado entre esta função e quem a chama (N8N, meta-webhook).
+// Gerado via: supabase secrets set WEBHOOK_CALLBACK_SECRET=<uuid>
+const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_CALLBACK_SECRET") ?? "";
+
 interface StatusUpdate {
   message_id:     string;
   status:         string;
@@ -20,11 +24,29 @@ Deno.serve(async (req: Request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  let body: { campaign_id: string; updates: StatusUpdate[] };
+  // ── Auth: validar segredo compartilhado ───────────────────────
+  // Aceita o segredo em dois lugares: header X-Webhook-Secret
+  // ou campo "callback_secret" no body (para compatibilidade com N8N).
+  // Sem segredo configurado a função fica bloqueada por segurança.
+  if (!WEBHOOK_SECRET) {
+    console.error("[update-campaign-status] WEBHOOK_CALLBACK_SECRET não configurado");
+    return new Response("Service misconfigured", { status: 500 });
+  }
+
+  const headerSecret = req.headers.get("X-Webhook-Secret") ?? "";
+  // Body precisa ser clonado antes da leitura — lemos o secret e depois o body completo
+  const rawBody = await req.text();
+  let body: { campaign_id: string; updates: StatusUpdate[]; callback_secret?: string };
   try {
-    body = await req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return new Response("Invalid JSON", { status: 400 });
+  }
+
+  const providedSecret = headerSecret || (body.callback_secret ?? "");
+  if (!providedSecret || providedSecret !== WEBHOOK_SECRET) {
+    console.warn("[update-campaign-status] tentativa não autorizada rejeitada");
+    return new Response("Unauthorized", { status: 401 });
   }
 
   const { campaign_id, updates } = body;

@@ -66,17 +66,17 @@ function sleep(ms: number): Promise<void> {
 
 // ── Auth ─────────────────────────────────────────────────
 
-async function authorizeRequest(req: Request): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+async function authorizeRequest(req: Request): Promise<
+  { ok: true; userId: string } | { ok: false; status: number; error: string }
+> {
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
   if (!token) return { ok: false, status: 401, error: "Token ausente" };
 
-  // Verify token against Supabase auth
   const { data: { user }, error } = await db.auth.getUser(token);
   if (error || !user) return { ok: false, status: 401, error: "Token inválido" };
 
-  // Check role in user_profiles table
   const { data: profile } = await db
     .from("user_profiles")
     .select("role, permissions")
@@ -90,12 +90,11 @@ async function authorizeRequest(req: Request): Promise<{ ok: true } | { ok: fals
     return { ok: false, status: 403, error: `Permissão negada. Cargo "${role}" não autorizado.` };
   }
 
-  // Granular check: manager needs explicit can_shoot permission (admin always passes)
   if (role === "manager" && permissions.can_shoot === false) {
     return { ok: false, status: 403, error: "Permissão negada. Você não tem autorização para disparar campanhas." };
   }
 
-  return { ok: true };
+  return { ok: true, userId: user.id };
 }
 
 // ── Meta API ─────────────────────────────────────────────
@@ -404,14 +403,27 @@ Deno.serve(async (req: Request) => {
   if (!authResult.ok) return json({ error: authResult.error }, authResult.status);
 
   try {
-    // ── Quick actions ──────────────────────────────────────────
-    // Fetch workspace_id upfront so all actions can emit audit logs
+    // ── Fetch campaign workspace + verify caller membership ────
     const { data: campMeta } = await db
       .from("shooting_campaigns")
       .select("workspace_id")
       .eq("id", campaign_id)
       .maybeSingle();
     const auditWid = (campMeta?.workspace_id as string) ?? "";
+
+    // Verify the caller actually belongs to this campaign's workspace.
+    // Prevents a manager from Workspace A triggering campaigns in Workspace B.
+    if (auditWid) {
+      const { data: membership } = await db
+        .from("workspace_members")
+        .select("workspace_id")
+        .eq("user_id", authResult.userId)
+        .eq("workspace_id", auditWid)
+        .maybeSingle();
+      if (!membership) {
+        return json({ error: "Você não tem acesso a esta campanha." }, 403);
+      }
+    }
 
     if (action === "pause") {
       await db.from("shooting_campaigns").update({ status: "paused" }).eq("id", campaign_id);

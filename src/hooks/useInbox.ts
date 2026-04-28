@@ -6,27 +6,27 @@ import type { InboxConversation, InboxMessage } from "@/types/inbox";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-export function useInboxConversations(_workspaceId?: string) {
+export function useInboxConversations(workspaceId?: string) {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    // Busca todas as conversas sem filtrar por workspace_id
-    // (app single-tenant — o Supabase já isola por projeto)
+    if (!workspaceId) return;
     const { data, error } = await db
       .from("inbox_conversations")
       .select("*, inbox_contacts(*)")
+      .eq("workspace_id", workspaceId)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     if (error) console.error("[useInbox] erro ao carregar conversas:", error.message);
     setConversations(data ?? []);
     setLoading(false);
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     load();
 
     const channel = db
-      .channel("inbox-convs-all")
+      .channel(`inbox-convs-${workspaceId ?? "none"}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "inbox_conversations" },
@@ -38,30 +38,40 @@ export function useInboxConversations(_workspaceId?: string) {
   }, [load]);
 
   async function markAsRead(conversationId: string) {
-    await db.from("inbox_conversations").update({ unread_count: 0 }).eq("id", conversationId);
+    if (!workspaceId) return;
+    await db.from("inbox_conversations").update({ unread_count: 0 })
+      .eq("id", conversationId).eq("workspace_id", workspaceId);
     setConversations((prev) =>
       prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c))
     );
   }
 
   async function pinConversation(id: string, pinned: boolean) {
+    if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned } : c)));
-    await db.from("inbox_conversations").update({ pinned }).eq("id", id);
+    await db.from("inbox_conversations").update({ pinned })
+      .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function archiveConversation(id: string, archived: boolean) {
+    if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, archived } : c)));
-    await db.from("inbox_conversations").update({ archived }).eq("id", id);
+    await db.from("inbox_conversations").update({ archived })
+      .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function deleteConversation(id: string) {
+    if (!workspaceId) return;
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    await db.from("inbox_conversations").delete().eq("id", id);
+    await db.from("inbox_conversations").delete()
+      .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function updateTags(id: string, tags: string[]) {
+    if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, tags } : c)));
-    await db.from("inbox_conversations").update({ tags }).eq("id", id);
+    await db.from("inbox_conversations").update({ tags })
+      .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   return { conversations, loading, markAsRead, pinConversation, archiveConversation, deleteConversation, updateTags };
