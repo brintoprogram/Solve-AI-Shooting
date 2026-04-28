@@ -551,8 +551,12 @@ export function Contacts() {
   const [contactIds,     setContactIds]     = useState<string[] | null>(null);
   const [filterLoading,  setFilterLoading]  = useState(false);
 
-  // Invoice totals for current page contacts
+  // Invoice totals for current page contacts (per-row display)
   const [invoiceTotals, setInvoiceTotals] = useState<Record<string, { total: number; nextDue: string | null }>>({});
+
+  // Aggregate total for ALL filtered contacts (not just current page)
+  const [filteredTotal,        setFilteredTotal]        = useState<number | null>(null);
+  const [filteredTotalLoading, setFilteredTotalLoading] = useState(false);
 
   const workspaceId = useAuth().workspaceId ?? "";
 
@@ -665,6 +669,62 @@ export function Contacts() {
     debouncedSearch, page, filters.sortOrder, contactIds,
   );
   const pages = Math.ceil(total / PAGE_SIZE);
+
+  // Compute aggregate invoice total for ALL contacts matching current filters
+  useEffect(() => {
+    let cancelled = false;
+    setFilteredTotalLoading(true);
+
+    async function compute() {
+      // Start with contactIds from the invoice filter (null = whole workspace)
+      let idsToSum: string[] | null = contactIds;
+
+      // If search is active, intersect with search results
+      if (debouncedSearch.trim()) {
+        const s = debouncedSearch.trim();
+        const { data } = await db
+          .from("inbox_contacts")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .or(`name.ilike.%${s}%,cpf_cnpj.ilike.%${s}%,phone.ilike.%${s}%,empresa.ilike.%${s}%`);
+        if (cancelled) return;
+        const searchIds = (data ?? []).map((r: { id: string }) => r.id) as string[];
+        if (idsToSum !== null) {
+          const set = new Set(idsToSum);
+          idsToSum = searchIds.filter((id) => set.has(id));
+        } else {
+          idsToSum = searchIds;
+        }
+      }
+
+      if (idsToSum !== null && idsToSum.length === 0) {
+        if (!cancelled) { setFilteredTotal(0); setFilteredTotalLoading(false); }
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q = (db as any)
+        .from("contact_invoices")
+        .select("valor")
+        .eq("workspace_id", workspaceId);
+      if (idsToSum !== null) q = q.in("contact_id", idsToSum);
+      if (filters.vencFrom)  q = q.gte("vencimento", filters.vencFrom);
+      if (filters.vencTo)    q = q.lte("vencimento", filters.vencTo);
+
+      const { data } = await q;
+      if (cancelled) return;
+
+      const sum = (data ?? []).reduce(
+        (s: number, r: { valor: number | null }) => s + (r.valor ?? 0), 0,
+      );
+      setFilteredTotal(sum);
+      setFilteredTotalLoading(false);
+    }
+
+    compute();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, contactIds, filters.vencFrom, filters.vencTo, workspaceId]);
 
   // Fetch invoice totals for current page of contacts
   useEffect(() => {
@@ -804,6 +864,31 @@ export function Contacts() {
           activeCount={activeFilterCount}
           onClear={clearFilters}
         />
+      )}
+
+      {/* ── Summary strip ────────────────────────────── */}
+      {mainTab === "lista" && total > 0 && (
+        <div
+          className="px-6 py-2 shrink-0 flex items-center justify-between text-xs"
+          style={{ borderBottom: "1px solid #1e2e22", background: "rgba(10,17,14,0.8)" }}
+        >
+          <span className="text-[#6b7f6e]">
+            <span className="text-white font-semibold">{total}</span>{" "}
+            contato{total !== 1 ? "s" : ""} encontrado{total !== 1 ? "s" : ""}
+            {(activeFilterCount > 0 || debouncedSearch) ? " (filtrado)" : ""}
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span className="text-[#6b7f6e]">Saldo total em aberto:</span>
+            {filteredTotalLoading ? (
+              <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
+            ) : filteredTotal !== null && filteredTotal > 0 ? (
+              <span className="font-bold text-amber-400 text-sm">{formatBRL(filteredTotal)}</span>
+            ) : (
+              <span className="text-[#3a4d3e]">—</span>
+            )}
+          </span>
+        </div>
       )}
 
       {/* ── Table ─────────────────────────────────────── */}
