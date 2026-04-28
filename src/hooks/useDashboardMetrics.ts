@@ -133,8 +133,9 @@ export function useDashboardMetrics(): DashboardMetrics {
       const deliveryRate =
         totalSent > 0 ? Math.min(100, Math.round((totalDelivered / totalSent) * 1000) / 10) : 0;
 
-      // Economia de tempo: assume 2 min/mensagem para envio humano (abrir WA, colar número, digitar, enviar)
-      const HUMAN_MIN_PER_MSG = 2;
+      // Economia de tempo: assume 5 min/mensagem para envio humano
+      // (localizar contato, abrir cliente, escrever/personalizar, enviar, registrar)
+      const HUMAN_MIN_PER_MSG = 5;
       const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
       const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
 
