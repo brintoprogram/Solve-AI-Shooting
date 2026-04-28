@@ -19,6 +19,10 @@ interface Contact {
   email: string;
   phone?: string;
   email_representante?: string;
+  gerente1_nome?: string;
+  gerente1_email?: string;
+  gerente2_nome?: string;
+  gerente2_email?: string;
   [key: string]: unknown;
 }
 
@@ -34,6 +38,7 @@ interface WizardState {
   bodyHtml: string;
   ccList: string;                // comma-separated
   ccRepresentante: boolean;
+  ccGerentes: boolean;
   totalRecipients: number;
 }
 
@@ -49,6 +54,7 @@ const INITIAL: WizardState = {
   bodyHtml: "",
   ccList: "",
   ccRepresentante: false,
+  ccGerentes: false,
   totalRecipients: 0,
 };
 
@@ -146,6 +152,10 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
         const ccEmails = [...ccParsed];
         if (state.ccRepresentante && c.email_representante) {
           ccEmails.push(c.email_representante);
+        }
+        if (state.ccGerentes) {
+          if (c.gerente1_email) ccEmails.push(c.gerente1_email);
+          if (c.gerente2_email) ccEmails.push(c.gerente2_email);
         }
         return {
           campaign_id:     campaign.id,
@@ -398,6 +408,7 @@ function Step2({ state, onChange }: {
   state: WizardState;
   onChange: (p: Partial<WizardState>) => void;
 }) {
+  const { workspaceId } = useAuth();
   const [allContacts, setAllContacts]   = useState<Contact[]>([]);
   const [search, setSearch]             = useState("");
   const [loading, setLoading]           = useState(true);
@@ -407,8 +418,8 @@ function Step2({ state, onChange }: {
   useEffect(() => {
     supabase
       .from("inbox_contacts")
-      .select("id,name,email,phone,email_representante")
-      .eq("workspace_id", WORKSPACE_ID)
+      .select("id,name,email,phone,email_representante,gerente1_nome,gerente1_email,gerente2_nome,gerente2_email")
+      .eq("workspace_id", workspaceId ?? "")
       .not("email", "is", null)
       .neq("email", "")
       .order("name", { ascending: true })
@@ -416,7 +427,7 @@ function Step2({ state, onChange }: {
         setAllContacts((data ?? []) as Contact[]);
         setLoading(false);
       });
-  }, []);
+  }, [workspaceId]);
 
   const filtered = allContacts.filter(
     (c) =>
@@ -546,7 +557,9 @@ function Step2({ state, onChange }: {
                   </th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email Rep.</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Representante</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 1</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 2</th>
                 </tr>
               </thead>
               <tbody>
@@ -575,6 +588,8 @@ function Step2({ state, onChange }: {
                       </td>
                       <td className="px-4 py-3 text-agro-muted text-xs font-mono">{c.email}</td>
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.email_representante ?? "—"}</td>
+                      <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente1_email ?? "—"}</td>
+                      <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente2_email ?? "—"}</td>
                     </tr>
                   );
                 })}
@@ -708,7 +723,7 @@ function Step3({ state, onChange }: {
       <label className="flex items-center gap-3 cursor-pointer select-none">
         <div
           onClick={() => onChange({ ccRepresentante: !state.ccRepresentante })}
-          className={cn("w-10 h-6 rounded-full transition-colors relative", state.ccRepresentante ? "bg-agro-green" : "bg-agro-border")}
+          className={cn("w-10 h-6 rounded-full transition-colors relative shrink-0", state.ccRepresentante ? "bg-agro-green" : "bg-agro-border")}
         >
           <span className={cn(
             "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
@@ -716,8 +731,25 @@ function Step3({ state, onChange }: {
           )} />
         </div>
         <div>
-          <p className="text-sm text-agro-text">CC automático para email_representante</p>
-          <p className="text-[11px] text-agro-muted-2">Se o contato tiver um representante cadastrado, ele será incluído em cópia automaticamente.</p>
+          <p className="text-sm text-agro-text">CC automático para representante</p>
+          <p className="text-[11px] text-agro-muted-2">Se o contato tiver email_representante cadastrado, ele será incluído em cópia.</p>
+        </div>
+      </label>
+
+      {/* CC gerentes */}
+      <label className="flex items-center gap-3 cursor-pointer select-none">
+        <div
+          onClick={() => onChange({ ccGerentes: !state.ccGerentes })}
+          className={cn("w-10 h-6 rounded-full transition-colors relative shrink-0", state.ccGerentes ? "bg-agro-green" : "bg-agro-border")}
+        >
+          <span className={cn(
+            "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform",
+            state.ccGerentes && "translate-x-4",
+          )} />
+        </div>
+        <div>
+          <p className="text-sm text-agro-text">CC automático para gerentes</p>
+          <p className="text-[11px] text-agro-muted-2">Se o contato tiver gerente1_email e/ou gerente2_email cadastrados, ambos serão incluídos em cópia.</p>
         </div>
       </label>
 
@@ -787,6 +819,12 @@ function Step4({ state, emailConns, onSubmit, submitting }: {
           <div className="flex gap-3 p-3 rounded-xl" style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.08)" }}>
             <span className="text-agro-muted-2 shrink-0 w-24">CC auto:</span>
             <span className="text-agro-text">email_representante de cada contato</span>
+          </div>
+        )}
+        {state.ccGerentes && (
+          <div className="flex gap-3 p-3 rounded-xl" style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.08)" }}>
+            <span className="text-agro-muted-2 shrink-0 w-24">CC gerentes:</span>
+            <span className="text-agro-text">gerente1_email e gerente2_email de cada contato</span>
           </div>
         )}
       </div>
