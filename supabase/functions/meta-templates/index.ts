@@ -16,6 +16,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const META_BASE = "https://graph.facebook.com/v25.0";
 
@@ -37,8 +38,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    if (req.method === "GET")  return await handleList(req);
-    if (req.method === "POST") return await handleCreate(req);
+    if (req.method === "GET")  return await handleList(req, json);
+    if (req.method === "POST") return await handleCreate(req, json);
     return json({ error: "Method not allowed" }, 405);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -49,7 +50,9 @@ Deno.serve(async (req: Request) => {
 
 // ── GET: list & sync ─────────────────────────────────────────────
 
-async function handleList(req: Request): Promise<Response> {
+type JsonFn = (data: unknown, status?: number) => Response;
+
+async function handleList(req: Request, json: JsonFn): Promise<Response> {
   const url          = new URL(req.url);
   const connectionId = url.searchParams.get("connection_id");
   const workspaceId  = url.searchParams.get("workspace_id");
@@ -81,7 +84,7 @@ async function handleList(req: Request): Promise<Response> {
 
 // ── POST: create ─────────────────────────────────────────────────
 
-async function handleCreate(req: Request): Promise<Response> {
+async function handleCreate(req: Request, json: JsonFn): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     body = await req.json();

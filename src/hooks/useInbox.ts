@@ -11,7 +11,10 @@ export function useInboxConversations(workspaceId?: string) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setLoading(false);
+      return;
+    }
     const { data, error } = await db
       .from("inbox_conversations")
       .select("*, inbox_contacts(*)")

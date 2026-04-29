@@ -286,7 +286,7 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_manage_contacts:  true,
     can_import:           true,
     can_inbox:            true,
-    can_manage_team:      false,
+    can_manage_team:      true,
     can_settings:         false,
   },
   agent: {
@@ -295,7 +295,7 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_manage_contacts:  false,
     can_import:           false,
     can_inbox:            true,
-    can_manage_team:      true,
+    can_manage_team:      false,
     can_settings:         false,
   },
 };
