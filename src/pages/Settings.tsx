@@ -147,7 +147,8 @@ function ReconnectModal({ conn, onClose, onSaved }: {
       onSaved();
       onClose();
     } catch (err) {
-      toast({ title: "Erro ao salvar", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+      console.error("[reconnect] save:", err);
+      toast({ title: "Não foi possível reconectar", description: "Verifique os dados e tente novamente.", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -323,16 +324,18 @@ export function Settings() {
       setAvatarPreview(null);
 
       if (avatarUploadError) {
+        console.error("[profile] avatar upload:", avatarUploadError);
         toast({
-          title:       "Nome e bio salvos — foto não",
-          description: "Rode o SQL do Passo 5 nas Configurações para habilitar fotos de perfil.",
+          title:       "Perfil salvo — foto não atualizada",
+          description: "Não foi possível salvar a foto. Tente novamente ou use uma imagem menor.",
           variant:     "destructive",
         });
       } else {
         toast({ title: "Perfil atualizado!", variant: "success" });
       }
     } catch (err) {
-      toast({ title: "Erro ao salvar perfil", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+      console.error("[profile] save:", err);
+      toast({ title: "Não foi possível salvar o perfil", description: "Tente novamente.", variant: "destructive" });
     } finally {
       setProfileSaving(false);
     }
@@ -417,7 +420,8 @@ export function Settings() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase as any).from("workspaces").update(updates).eq("id", WORKSPACE_ID);
     if (error) {
-      toast({ title: "Erro ao salvar configurações de IA", description: error.message, variant: "destructive" });
+      console.error("[ai] save:", error);
+      toast({ title: "Não foi possível salvar as configurações de IA", description: "Tente novamente.", variant: "destructive" });
     } else {
       if (anthropicKey.trim()) { setAnthropicKeySet(true); setAnthropicKey(""); }
       if (openaiKey.trim())    { setOpenaiKeySet(true);    setOpenaiKey(""); }
@@ -557,7 +561,8 @@ export function Settings() {
       setShowEmailForm(false);
       toast({ title: "Conexão de email salva!", variant: "success" });
     } catch (err) {
-      toast({ title: "Erro ao salvar", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+      console.error("[email] save:", err);
+      toast({ title: "Não foi possível salvar a conexão de email", description: "Verifique os dados e tente novamente.", variant: "destructive" });
     } finally {
       setEmailSaving(false);
     }
@@ -611,9 +616,10 @@ export function Settings() {
       setForm({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
       setTestResult(null);
     } catch (err) {
+      console.error("[whatsapp] save:", err);
       toast({
-        title:       "Erro ao salvar",
-        description: err instanceof Error ? err.message : "Tente novamente.",
+        title:       "Não foi possível salvar a conexão",
+        description: "Verifique os dados da API e tente novamente.",
         variant:     "destructive",
       });
     } finally {
