@@ -203,19 +203,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // server-initiated invites have no stored PKCE verifier in the browser.
     // Explicitly calling exchangeCodeForSession ensures the exchange is attempted
     // even without a stored verifier (Supabase accepts this for invite flows).
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get("code");
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).catch(() => {
-        // Silently ignore — onAuthStateChange will fire (or not) based on the result
-      });
-    }
-
     // getSession only controls the initial loading state.
     // fetchProfile is driven exclusively by onAuthStateChange to avoid concurrent calls.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session?.user) setLoading(false);
-    });
+    // When a ?code= is present (PKCE invite/recovery link), we must wait for the exchange
+    // to complete before checking the session — otherwise getSession() runs before the
+    // session exists and setLoading(false) fires prematurely, flashing the Login page.
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get("code");
+
+    const checkSession = () =>
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session?.user) setLoading(false);
+      });
+
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code)
+        .catch(() => {})
+        .finally(checkSession);
+    } else {
+      checkSession();
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
