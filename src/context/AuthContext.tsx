@@ -132,32 +132,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (invite?.workspace_id) {
-        // Verify the target workspace actually exists before accepting
-        const { data: wsExists } = await db
-          .from("workspaces")
-          .select("id, name")
-          .eq("id", invite.workspace_id)
-          .maybeSingle();
-
-        if (!wsExists) {
-          console.warn("[auth] invite workspace does not exist — access denied, signing out");
-          await supabase.auth.signOut();
-          return;
-        }
-
-        await db.from("workspace_members").insert({
+        // Insert into workspace_members FIRST — the RLS on the workspaces table
+        // requires membership to read, so we must become a member before querying.
+        const { error: memberErr } = await db.from("workspace_members").insert({
           workspace_id: invite.workspace_id,
           user_id:      userId,
           role:         invite.role ?? "agent",
         });
+
+        const alreadyMember = memberErr?.code === "23505"; // duplicate key = already a member
+        if (memberErr && !alreadyMember) {
+          // A real error (e.g. FK violation = workspace deleted) — abort
+          console.warn("[auth] failed to accept workspace invite:", memberErr.message);
+          await supabase.auth.signOut();
+          return;
+        }
+
         await db
           .from("workspace_invites")
           .update({ accepted_at: new Date().toISOString() })
           .eq("token", invite.token);
 
+        // Now that user is a member, RLS allows reading the workspace name
+        const { data: wsData } = await db
+          .from("workspaces")
+          .select("id, name")
+          .eq("id", invite.workspace_id)
+          .maybeSingle();
+
         const accepted: WorkspaceInfo = {
           id:   invite.workspace_id as string,
-          name: (wsExists as { name: string }).name,
+          name: wsData?.name ?? "Workspace",
           role: (invite.role ?? "agent") as WorkspaceInfo["role"],
         };
         setWorkspaces([accepted]);
