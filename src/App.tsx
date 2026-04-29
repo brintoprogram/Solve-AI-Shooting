@@ -107,7 +107,6 @@ function AppRoutes() {
       <Route element={<AppLayout />}>
         <Route path="/"                       element={<Dashboard />} />
         <Route path="/shooting"               element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Shooting & Campanhas"><ShootingPage /></PR>} />
-        <Route path="/shooting/history"       element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Histórico de Campanhas"><ShootingPage /></PR>} />
         <Route path="/shooting/new"           element={<PR permission="can_manage_campaigns" feature="Nova Campanha"><CampaignWizard /></PR>} />
         <Route path="/shooting/campaigns/:id" element={<PR permission={["can_shoot","can_manage_campaigns"]} feature="Detalhe da Campanha"><CampaignDetail /></PR>} />
         <Route path="/settings"               element={<PR permission="can_settings" feature="Configurações"><Settings /></PR>} />

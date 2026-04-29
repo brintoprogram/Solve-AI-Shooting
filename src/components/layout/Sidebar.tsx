@@ -1,7 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Send,
-  History,
   Settings,
   LayoutDashboard,
   Users,
@@ -30,7 +29,6 @@ interface NavItem {
 const BASE_NAV: NavItem[] = [
   { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
   { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
-  { to: "/shooting/history",  icon: History,         label: "Histórico",    subtitle: "Campanhas anteriores",  permission: ["can_shoot", "can_manage_campaigns"] },
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
   { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
   { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
