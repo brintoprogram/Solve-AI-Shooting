@@ -193,6 +193,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    // For PKCE invite flows: the invite link contains ?code=xxx in the URL.
+    // supabase-js exchanges the code automatically via detectSessionInUrl, but
+    // server-initiated invites have no stored PKCE verifier in the browser.
+    // Explicitly calling exchangeCodeForSession ensures the exchange is attempted
+    // even without a stored verifier (Supabase accepts this for invite flows).
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get("code");
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).catch(() => {
+        // Silently ignore — onAuthStateChange will fire (or not) based on the result
+      });
+    }
+
     // getSession only controls the initial loading state.
     // fetchProfile is driven exclusively by onAuthStateChange to avoid concurrent calls.
     supabase.auth.getSession().then(({ data: { session } }) => {
