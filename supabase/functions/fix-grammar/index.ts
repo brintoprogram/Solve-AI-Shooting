@@ -1,19 +1,16 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  const CORS = getCors(req);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
     const { text } = await req.json();
     if (!text?.trim()) {
-      return Response.json({ error: "text required" }, { status: 400, headers: cors });
+      return Response.json({ error: "text required" }, { status: 400, headers: CORS });
     }
 
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -50,9 +47,9 @@ Deno.serve(async (req) => {
     const data = await res.json();
     const corrected = (data.choices?.[0]?.message?.content as string | undefined)?.trim() ?? text;
 
-    return Response.json({ corrected }, { headers: cors });
+    return Response.json({ corrected }, { headers: CORS });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Erro ao corrigir";
-    return Response.json({ error: msg }, { status: 500, headers: cors });
+    return Response.json({ error: msg }, { status: 500, headers: CORS });
   }
 });

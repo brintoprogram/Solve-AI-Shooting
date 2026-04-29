@@ -7,25 +7,16 @@
 // then updates media_url in the DB (realtime subscription picks up the change).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 function mimeToExt(mime: string): string {
   const map: Record<string, string> = {
@@ -101,7 +92,11 @@ async function resolveMessage(
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   let body: { conversation_id?: string; message_id?: string };

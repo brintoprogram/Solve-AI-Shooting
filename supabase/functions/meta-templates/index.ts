@@ -19,10 +19,6 @@ import { decrypt } from "../_shared/crypto.ts";
 
 const META_BASE = "https://graph.facebook.com/v25.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -32,8 +28,12 @@ const supabase = createClient(
 // ── Router ───────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: CORS });
   }
 
   try {
@@ -281,9 +281,3 @@ async function syncToDb(
   }
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}

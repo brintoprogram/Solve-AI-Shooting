@@ -68,12 +68,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading]         = useState(true);
   const [setupType, setSetupType]     = useState<"invite" | "recovery" | null>(detectSetupType);
   const fetchingRef                   = useRef(false); // mutex — prevents concurrent fetchProfile calls
+  const setupTypeRef                  = useRef<"invite" | "recovery" | null>(detectSetupType());
+
+  function setSetupTypeWithRef(type: "invite" | "recovery" | null) {
+    setupTypeRef.current = type;
+    setSetupType(type);
+  }
 
   function updateProfile(patch: Partial<Pick<UserProfile, "full_name" | "description" | "avatar_url">>) {
     setProfile((prev) => prev ? { ...prev, ...patch } : prev);
   }
 
   function clearSetupType() {
+    setupTypeRef.current = null;
     setSetupType(null);
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -160,8 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // the user needs their session active to call updateUser({ password }).
         // After they set the password, clearSetupType() triggers a re-render and
         // fetchProfile runs again to pick up the workspace membership.
-        if (INITIAL_HASH.includes("type=invite") || INITIAL_HASH.includes("type=recovery")) {
-          console.warn("[auth] setup flow — no invite found yet, keeping session alive");
+        if (setupTypeRef.current !== null) {
+          console.warn("[auth] setup flow — keeping session alive for password setup");
           return;
         }
         console.warn("[auth] no workspace and no valid invite — access denied, signing out");
@@ -193,7 +200,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        // Detect setup flows via event — works for both PKCE and implicit
+        if (event === "PASSWORD_RECOVERY") {
+          setSetupTypeWithRef("recovery");
+        } else if (
+          event === "SIGNED_IN" &&
+          session?.user?.user_metadata?.workspace_invite_token
+        ) {
+          setSetupTypeWithRef("invite");
+        }
+
         setUser(session?.user ?? null);
         if (session?.user) {
           fetchProfile(session.user.id).finally(() => setLoading(false));

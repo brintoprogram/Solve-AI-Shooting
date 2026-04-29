@@ -18,10 +18,6 @@ const META_BASE            = "https://graph.facebook.com/v25.0";
 const BATCH_SIZE           = 20;
 const PRIVILEGED_ROLES     = ["admin", "manager"];
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
 // Service-role client for all DB operations
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -53,12 +49,6 @@ function writeAuditLog(
 
 // ── Helpers ───────────────────────────────────────────────
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -381,8 +371,12 @@ async function isCampaignActive(campaignId: string): Promise<boolean> {
 // ── Router ────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: CORS });
   }
 
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);

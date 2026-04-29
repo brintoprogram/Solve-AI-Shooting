@@ -8,6 +8,7 @@ export const supabase: SupabaseClient<Database> = createClient<Database>(
   url,
   key,
   {
+    auth: { detectSessionInUrl: true },
     realtime: { params: { eventsPerSecond: 10 } },
   }
 );

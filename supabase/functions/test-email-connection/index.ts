@@ -1,20 +1,11 @@
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 // Supabase Edge Function — test-email-connection
 // POST body (SMTP):  { provider:"smtp",  host, port, secure, username, password, from_name, from_email }
 // POST body (Graph): { provider:"graph", tenant_id, client_id, password (=client_secret), from_name, from_email }
 
 import nodemailer from "npm:nodemailer@6";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 // ── Microsoft Graph helpers ───────────────────────────────────────
 
@@ -111,7 +102,11 @@ async function sendViaGraph(
 // ── Handler ───────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ error: "Method not allowed" }, 405);
 
   let body: Record<string, unknown>;

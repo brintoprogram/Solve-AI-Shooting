@@ -10,6 +10,7 @@
 // After error:   redirects to {frontend_url}/settings?ms_oauth_error={desc}
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,9 +20,7 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
+    return new Response("ok", { headers: getCors(req) });
   }
 
   const url     = new URL(req.url);

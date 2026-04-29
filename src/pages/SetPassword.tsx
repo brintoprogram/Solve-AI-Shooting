@@ -44,11 +44,26 @@ export function SetPassword() {
     }
 
     setLoading(true);
-    const { error: err } = await supabase.auth.updateUser({ password });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setLoading(false);
+      setError("Link expirado ou já utilizado. Solicite um novo convite ao administrador.");
+      return;
+    }
+
+    const { error: err } = await supabase.auth.updateUser({
+      password,
+      data: { workspace_invite_token: null },
+    });
     setLoading(false);
 
     if (err) {
-      setError(err.message);
+      if (err.message.toLowerCase().includes("session") || err.message.toLowerCase().includes("authenticated")) {
+        setError("Link expirado ou já utilizado. Solicite um novo convite ao administrador.");
+      } else {
+        setError("Não foi possível definir a senha. Tente novamente.");
+      }
       return;
     }
 

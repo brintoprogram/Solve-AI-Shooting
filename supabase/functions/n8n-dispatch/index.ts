@@ -6,27 +6,22 @@
 // Authorization: Bearer <user_access_token>
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WEBHOOK_SECRET  = Deno.env.get("WEBHOOK_CALLBACK_SECRET") ?? "";
-const N8N_WEBHOOK     = "https://n8n.solveai.consulting/webhook/f03bd652-7164-483f-80cf-b871ff671ae6";
+const N8N_WEBHOOK     = Deno.env.get("N8N_WEBHOOK_URL");
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-const CORS = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
-}
 
 Deno.serve(async (req: Request) => {
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -77,6 +72,11 @@ Deno.serve(async (req: Request) => {
     callback_secret: WEBHOOK_SECRET, // nunca exposto no bundle do browser
     recipients,
   };
+
+  if (!N8N_WEBHOOK) {
+    console.error("[n8n-dispatch] N8N_WEBHOOK_URL não configurado");
+    return json({ error: "Configuração incompleta no servidor" }, 500);
+  }
 
   const n8nRes = await fetch(N8N_WEBHOOK, {
     method: "POST",

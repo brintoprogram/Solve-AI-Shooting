@@ -11,20 +11,15 @@
 //      c. Outros erros → retorna mensagem de erro
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders as getCors } from "../_shared/cors.ts";
 
-const CORS = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
-}
 
 Deno.serve(async (req: Request) => {
+  const CORS = getCors(req);
+  const json = (data: unknown, status = 200): Response =>
+    new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -110,9 +105,13 @@ Deno.serve(async (req: Request) => {
       }, isDuplicate ? 409 : 500);
     }
 
+    const appUrl = Deno.env.get("APP_URL") ?? "https://solve-ai-shooting.vercel.app";
     const { data: invited, error: inviteEmailErr } = await admin.auth.admin.inviteUserByEmail(
       normalizedEmail,
-      { data: { full_name: displayName, role, workspace_invite_token: invite.token } },
+      {
+        data: { full_name: displayName, role, workspace_invite_token: invite.token },
+        redirectTo: appUrl,
+      },
     );
 
     // ── 4a. Novo usuário — convite enviado com sucesso ────────────
