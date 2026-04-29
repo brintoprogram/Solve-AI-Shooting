@@ -1,26 +1,30 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-/**
- * Fetches all user_profiles ordered by name.
- * Admin/manager see everyone (RLS allows it).
- * Agents see only themselves — the dropdown simply won't render for them.
- */
 export function useTeamMembers(): UserProfile[] {
+  const { workspaceId } = useAuth();
   const [members, setMembers] = useState<UserProfile[]>([]);
 
   useEffect(() => {
-    db.from("user_profiles")
-      .select("id, full_name, role")
-      .order("full_name", { ascending: true })
-      .then(({ data }: { data: UserProfile[] | null }) => {
-        setMembers(data ?? []);
+    if (!workspaceId) return;
+    db.from("workspace_members")
+      .select("role, user_profiles!inner(id, full_name)")
+      .eq("workspace_id", workspaceId)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }: { data: any[] | null }) => {
+        const profiles = (data ?? [])
+          .map((m: any) => ({ ...m.user_profiles, role: m.role }))
+          .sort((a: UserProfile, b: UserProfile) =>
+            (a.full_name ?? "").localeCompare(b.full_name ?? "")
+          );
+        setMembers(profiles);
       });
-  }, []);
+  }, [workspaceId]);
 
   return members;
 }
