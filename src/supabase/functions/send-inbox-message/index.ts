@@ -137,7 +137,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const wamid = (metaBody.messages as Array<{ id: string }>)?.[0]?.id ?? null;
-  console.log(`[send] mensagem enviada → ${contact.phone} wamid=${wamid}`);
+  console.log(`[send] mensagem enviada wamid=${wamid}`);
 
   // ── 6. Insert outbound inbox_message ──────────────────────────
   const now = new Date().toISOString();

@@ -1,6 +1,45 @@
 node_modules
-dist
+dist/
 .env
-.env.local
+.env.*
+!.env.example
 .DS_Store
+Thumbs.db
 *.log
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Backups e dumps
+*.bak
+*.backup
+*.dump
+*.sql
+
+# Bancos locais
+*.sqlite
+*.sqlite3
+*.db
+
+# Credenciais e segredos
+credentials/
+secrets/
+.aws/
+.gcp/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build e cache
+.cache/
+.parcel-cache/
+coverage/
+
