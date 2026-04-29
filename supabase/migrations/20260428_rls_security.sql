@@ -38,6 +38,15 @@ CREATE POLICY "profiles_select" ON user_profiles
     )
   );
 
+-- Cada usuário pode atualizar seu próprio perfil (nome, bio, avatar)
+DROP POLICY IF EXISTS "profiles_update_self" ON user_profiles;
+CREATE POLICY "profiles_update_self" ON user_profiles
+  FOR UPDATE USING (id = auth.uid());
+
+-- Admins podem atualizar perfis de membros do mesmo workspace
+-- IMPORTANTE: usa workspace_members.role, NÃO user_profiles.role —
+-- referenciar user_profiles dentro de uma policy em user_profiles
+-- causa "infinite recursion detected in policy for relation user_profiles".
 DROP POLICY IF EXISTS "profiles_update_admin_only" ON user_profiles;
 CREATE POLICY "profiles_update_admin_only" ON user_profiles
   FOR UPDATE USING (
@@ -45,10 +54,9 @@ CREATE POLICY "profiles_update_admin_only" ON user_profiles
       SELECT 1
       FROM workspace_members wm_caller
       JOIN workspace_members wm_target USING (workspace_id)
-      JOIN user_profiles    up_caller  ON up_caller.id = wm_caller.user_id
       WHERE wm_caller.user_id = auth.uid()
         AND wm_target.user_id = user_profiles.id
-        AND up_caller.role    = 'admin'
+        AND wm_caller.role    = 'admin'
     )
   );
 
