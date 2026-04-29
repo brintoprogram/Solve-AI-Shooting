@@ -459,24 +459,38 @@ export function Team() {
   async function handleRemoveMember() {
     if (!confirmRemove || !workspaceId) return;
     setRemoving(true);
-    const { error } = await db
-      .from("workspace_members")
-      .delete()
-      .eq("user_id", confirmRemove.id)
-      .eq("workspace_id", workspaceId);
-    if (error) {
-      toast({ title: "Erro ao remover membro", description: error.message, variant: "destructive" });
-    } else {
-      setMembers((prev) => prev.filter((m) => m.id !== confirmRemove.id));
-      toast({ title: "Membro removido", description: `${confirmRemove.full_name ?? confirmRemove.id} foi removido do workspace.`, variant: "success" });
-      db.from("audit_logs").insert({
-        workspace_id: workspaceId,
-        event_type:   "member_removed",
-        entity_type:  "user",
-        entity_id:    confirmRemove.id,
-        status:       "ok",
-        metadata:     { removed_by: myProfile.id, name: confirmRemove.full_name, role: confirmRemove.role },
-      });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/remove-user`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${session?.access_token ?? ""}`,
+            "apikey":        import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ user_id: confirmRemove.id, workspace_id: workspaceId }),
+        },
+      );
+      let resJson: { ok?: boolean; error?: string; fully_deleted?: boolean } = {};
+      try { resJson = await res.json(); } catch { /* ignore */ }
+
+      if (!res.ok) {
+        toast({ title: "Erro ao remover membro", description: resJson.error ?? `Erro HTTP ${res.status}`, variant: "destructive" });
+      } else {
+        setMembers((prev) => prev.filter((m) => m.id !== confirmRemove.id));
+        toast({
+          title: "Membro removido",
+          description: resJson.fully_deleted
+            ? `${confirmRemove.full_name ?? confirmRemove.id} foi removido da equipe e da plataforma.`
+            : `${confirmRemove.full_name ?? confirmRemove.id} foi removido deste workspace.`,
+          variant: "success",
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Erro ao remover membro", description: msg, variant: "destructive" });
     }
     setRemoving(false);
     setConfirmRemove(null);
