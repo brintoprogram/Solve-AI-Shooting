@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Lock, Eye, EyeOff, CheckCircle, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Lock, Eye, EyeOff, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
@@ -19,16 +19,31 @@ const COPY = {
 } as const;
 
 export function SetPassword() {
-  const { setupType, clearSetupType } = useAuth();
+  const { user, setupType, clearSetupType } = useAuth();
   const copy = COPY[setupType ?? "recovery"];
 
-  const [password, setPassword]       = useState("");
-  const [confirm, setConfirm]         = useState("");
-  const [showPass, setShowPass]       = useState(false);
-  const [showConf, setShowConf]       = useState(false);
-  const [loading, setLoading]         = useState(false);
-  const [done, setDone]               = useState(false);
-  const [error, setError]             = useState<string | null>(null);
+  // Track whether the auth session is ready, still loading, or expired
+  const [sessionState, setSessionState] = useState<"checking" | "ready" | "expired">("checking");
+
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm]   = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [showConf, setShowConf] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [done, setDone]         = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+
+  // Wait for the session to be confirmed via auth context.
+  // For PKCE invite flows the code exchange is async — we give it up to 8 seconds.
+  useEffect(() => {
+    if (user) {
+      setSessionState("ready");
+      return;
+    }
+
+    const timeout = setTimeout(() => setSessionState("expired"), 8000);
+    return () => clearTimeout(timeout);
+  }, [user]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,14 +59,6 @@ export function SetPassword() {
     }
 
     setLoading(true);
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      setLoading(false);
-      setError("Link expirado ou já utilizado. Solicite um novo convite ao administrador.");
-      return;
-    }
-
     const { error: err } = await supabase.auth.updateUser({
       password,
       data: { workspace_invite_token: null },
@@ -115,6 +122,20 @@ export function SetPassword() {
               <CheckCircle className="w-10 h-10 text-agro-green" />
               <p className="text-base font-semibold text-agro-text">Senha definida!</p>
               <p className="text-xs text-agro-muted">Redirecionando para o painel...</p>
+            </div>
+          ) : sessionState === "checking" ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <Loader2 className="w-8 h-8 text-agro-green animate-spin" />
+              <p className="text-sm text-agro-muted">Verificando seu link de acesso...</p>
+            </div>
+          ) : sessionState === "expired" ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-8 h-8 text-red-400" />
+              <p className="text-sm font-semibold text-agro-text">Link expirado</p>
+              <p className="text-xs text-agro-muted">
+                Este link de convite já foi utilizado ou expirou.
+                Solicite um novo convite ao administrador.
+              </p>
             </div>
           ) : (
             <>
