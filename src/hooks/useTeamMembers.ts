@@ -12,18 +12,37 @@ export function useTeamMembers(): UserProfile[] {
 
   useEffect(() => {
     if (!workspaceId) return;
-    db.from("workspace_members")
-      .select("role, user_profiles!inner(id, full_name)")
-      .eq("workspace_id", workspaceId)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data }: { data: any[] | null }) => {
-        const profiles = (data ?? [])
-          .map((m: any) => ({ ...m.user_profiles, role: m.role }))
-          .sort((a: UserProfile, b: UserProfile) =>
-            (a.full_name ?? "").localeCompare(b.full_name ?? "")
-          );
-        setMembers(profiles);
-      });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function load() {
+      const { data: wm } = await db
+        .from("workspace_members")
+        .select("user_id, role")
+        .eq("workspace_id", workspaceId);
+
+      if (!wm?.length) return;
+
+      const userIds = (wm as any[]).map((m: any) => m.user_id);
+      const { data: profiles } = await db
+        .from("user_profiles")
+        .select("id, full_name")
+        .in("id", userIds);
+
+      const result = (profiles ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((p: any) => ({
+          ...p,
+          // Use the workspace-specific role, not the global profile role
+          role: (wm as any[]).find((m: any) => m.user_id === p.id)?.role ?? "agent",
+        }))
+        .sort((a: UserProfile, b: UserProfile) =>
+          (a.full_name ?? "").localeCompare(b.full_name ?? "")
+        );
+
+      setMembers(result as UserProfile[]);
+    }
+
+    load();
   }, [workspaceId]);
 
   return members;
