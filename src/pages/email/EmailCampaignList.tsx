@@ -115,26 +115,40 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   }
 
   async function handleAction(id: string, action: "start" | "pause" | "resume" | "cancel") {
+    const campaign = campaigns.find((c) => c.id === id);
     setActionId(id);
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token ?? "";
-
-      const res  = await fetch(`${SUPABASE_URL}/functions/v1/email-engine`, {
-        method:  "POST",
-        headers: {
-          "Content-Type":  "application/json",
-          "Authorization": `Bearer ${token}`,
-          "apikey":        SUPABASE_ANON,
-        },
-        body: JSON.stringify({ action, campaign_id: id }),
-      });
-
-      let data: { ok?: boolean; error?: string; info?: string; processed?: number } = {};
-      try { data = await res.json(); } catch { /* empty body */ }
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error ?? `Erro HTTP ${res.status}`);
+      if (campaign?._source === "n8n") {
+        // N8N campaigns: update shooting_campaigns.status directly.
+        // N8N checks this status before processing each contact in its loop.
+        const statusMap: Record<string, string> = {
+          pause:  "paused",
+          resume: "sending",
+          cancel: "cancelled",
+        };
+        const newStatus = statusMap[action];
+        if (!newStatus) return;
+        const { error } = await supabase
+          .from("shooting_campaigns")
+          .update({ status: newStatus })
+          .eq("id", id);
+        if (error) throw new Error(error.message);
+      } else {
+        // SMTP campaigns: delegate to email-engine Edge Function
+        const { data: session } = await supabase.auth.getSession();
+        const token = session?.session?.access_token ?? "";
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/email-engine`, {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${token}`,
+            "apikey":        SUPABASE_ANON,
+          },
+          body: JSON.stringify({ action, campaign_id: id }),
+        });
+        let data: { ok?: boolean; error?: string; info?: string; processed?: number } = {};
+        try { data = await res.json(); } catch { /* empty body */ }
+        if (!res.ok || !data.ok) throw new Error(data.error ?? `Erro HTTP ${res.status}`);
       }
 
       const OK: Record<string, string> = {
@@ -147,11 +161,11 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
       await load();
     } catch (err) {
       toast({
-        title:       "Erro no disparo",
+        title:       "Erro",
         description: err instanceof Error ? err.message : "Erro desconhecido. Tente novamente.",
         variant:     "destructive",
       });
-      await load(); // reload to show updated status (e.g. "failed")
+      await load();
     } finally {
       setActionId(null);
     }
@@ -287,9 +301,9 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                           <p className="font-semibold text-agro-text text-sm group-hover:text-white transition-colors">{c.name}</p>
                           {isN8N && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold"
-                              style={{ background: "rgba(99,102,241,0.15)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.3)" }}
+                              style={{ background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.2)" }}
                             >
-                              N8N
+                              Auto
                             </span>
                           )}
                         </div>
@@ -300,7 +314,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-agro-muted text-xs max-w-[180px] truncate">
-                        {isN8N ? <span className="text-agro-muted-2 italic">via N8N</span> : c.subject}
+                        {isN8N ? <span className="text-agro-muted-2 italic">Automático</span> : c.subject}
                       </td>
                       <td className="px-4 py-3.5 text-agro-muted text-xs">
                         {format(new Date(c.created_at), "dd/MM/yyyy", { locale: ptBR })}
@@ -354,7 +368,27 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                             Retomar
                           </button>
                         )}
-                        {isN8N && (
+                        {isN8N && c.status === "sending" && (
+                          <button disabled={actionId === c.id}
+                            onClick={() => handleAction(c.id, "pause")}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                            style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", color: "#fbbf24" }}
+                          >
+                            {actionId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pause className="w-3 h-3" />}
+                            Pausar
+                          </button>
+                        )}
+                        {isN8N && c.status === "paused" && (
+                          <button disabled={actionId === c.id}
+                            onClick={() => handleAction(c.id, "resume")}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all disabled:opacity-50"
+                            style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+                          >
+                            {actionId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                            Retomar
+                          </button>
+                        )}
+                        {isN8N && !["sending","paused"].includes(c.status) && (
                           <a href={`/shooting/campaigns/${c.id}`}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-muted hover:text-agro-text transition-all"
                             style={{ border: "1px solid rgba(63,176,108,0.15)" }}
