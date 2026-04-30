@@ -1,33 +1,18 @@
 import { useState } from "react";
 import { Leaf, Mail, Loader2, AlertCircle, CheckCircle } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 export function AcceptInvite() {
-  const params    = new URLSearchParams(window.location.search);
-  const token     = params.get("token") ?? "";
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
-  const [done,    setDone]    = useState(false);
+  // The full Supabase confirmation URL is stored in the hash fragment.
+  // Hash fragments are never sent to the server, so email scanners can't follow them.
+  // The token is only consumed when the user clicks the button and the browser
+  // navigates to the actual Supabase verification endpoint.
+  const confirmationUrl = window.location.hash.slice(1); // strip leading #
+  const [accepting, setAccepting] = useState(false);
 
-  async function handleAccept() {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    const { error: err } = await supabase.auth.verifyOtp({
-      token_hash: token,
-      type:       "invite",
-    });
-    if (err) {
-      setError(
-        err.message.includes("expired") || err.message.includes("invalid")
-          ? "Este link de convite expirou ou já foi usado. Peça ao administrador para reenviar o convite."
-          : err.message,
-      );
-      setLoading(false);
-      return;
-    }
-    setDone(true);
-    // onAuthStateChange fires → setupType = "invite" → SetPassword renders
+  function handleAccept() {
+    if (!confirmationUrl) return;
+    setAccepting(true);
+    window.location.href = confirmationUrl;
   }
 
   return (
@@ -38,10 +23,10 @@ export function AcceptInvite() {
       <div
         className="w-full max-w-md rounded-2xl p-8 space-y-6"
         style={{
-          background:    "rgba(13,26,17,0.9)",
-          border:        "1px solid rgba(63,176,108,0.15)",
-          boxShadow:     "0 20px 60px rgba(0,0,0,0.5)",
-          backdropFilter:"blur(20px)",
+          background:     "rgba(13,26,17,0.9)",
+          border:         "1px solid rgba(63,176,108,0.15)",
+          boxShadow:      "0 20px 60px rgba(0,0,0,0.5)",
+          backdropFilter: "blur(20px)",
         }}
       >
         {/* Logo */}
@@ -55,19 +40,12 @@ export function AcceptInvite() {
           <p className="text-xl font-bold text-agro-text font-display">Solve AI</p>
         </div>
 
-        {!token ? (
+        {!confirmationUrl ? (
           <div className="flex items-start gap-3 p-4 rounded-xl"
             style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
           >
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <p className="text-sm text-red-400">Link inválido. Verifique se copiou o link completo do email.</p>
-          </div>
-        ) : done ? (
-          <div className="flex items-start gap-3 p-4 rounded-xl"
-            style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.2)" }}
-          >
-            <CheckCircle className="w-4 h-4 text-agro-green shrink-0 mt-0.5" />
-            <p className="text-sm text-agro-green">Convite aceito! Redirecionando para criar sua senha…</p>
           </div>
         ) : (
           <>
@@ -85,22 +63,13 @@ export function AcceptInvite() {
               </p>
             </div>
 
-            {error && (
-              <div className="flex items-start gap-3 p-4 rounded-xl"
-                style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
-              >
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-red-400">{error}</p>
-              </div>
-            )}
-
             <button
-              disabled={loading}
+              disabled={accepting}
               onClick={handleAccept}
               className="btn-agro w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-60"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-              {loading ? "Verificando…" : "Aceitar convite"}
+              {accepting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              {accepting ? "Redirecionando…" : "Aceitar convite"}
             </button>
           </>
         )}
