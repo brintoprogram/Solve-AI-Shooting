@@ -19,6 +19,7 @@ import { Contacts } from "@/pages/Contacts";
 import { Alerts }      from "@/pages/Alerts";
 import { Reports }     from "@/pages/Reports";
 import { SetPassword } from "@/pages/SetPassword";
+import { AcceptInvite } from "@/pages/AcceptInvite";
 
 // ── Error boundary — shows error message instead of blank screen ──
 class ErrorBoundary extends Component<
@@ -100,6 +101,10 @@ function AppRoutes() {
 
   if (loading)    return <FullScreenLoader />;
   if (setupType)  return <SetPassword />;
+
+  // Public route: scanner-proof invite landing page
+  if (window.location.pathname === "/convite") return <AcceptInvite />;
+
   if (!user)      return <Login />;
 
   return (
