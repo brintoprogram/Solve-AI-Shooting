@@ -102,8 +102,11 @@ function AppRoutes() {
   if (loading)    return <FullScreenLoader />;
   if (setupType)  return <SetPassword />;
 
-  // Public route: scanner-proof invite landing page
-  if (window.location.pathname === "/convite") return <AcceptInvite />;
+  // Public route: scanner-proof invite landing page (authenticated users go to dashboard)
+  if (window.location.pathname === "/convite") {
+    if (!user) return <AcceptInvite />;
+    return <Navigate to="/" replace />;
+  }
 
   if (!user)      return <Login />;
 
