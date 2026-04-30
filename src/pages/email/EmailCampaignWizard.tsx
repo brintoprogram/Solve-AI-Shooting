@@ -308,7 +308,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
         .update({ status: "sending", started_at: new Date().toISOString() })
         .eq("id", campaign.id);
 
-      toast({ title: "Campanha disparada!", description: `${state.totalRecipients} emails enviados ao N8N.`, variant: "success" });
+      toast({ title: "Campanha disparada!", description: `${state.totalRecipients} emails enviados com sucesso.`, variant: "success" });
       onCreated();
       onClose();
     } catch (err) {
@@ -416,9 +416,9 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
                     : "Revisão final antes do disparo"}
                 </h2>
                 <p className="text-sm text-agro-muted mt-0.5">
-                  {step === 1 ? (state.dispatchChannel === "n8n_email" ? "Defina o nome da campanha N8N" : "Defina o nome, conta SMTP e velocidade de envio")
+                  {step === 1 ? (state.dispatchChannel === "n8n_email" ? "Defina o nome da campanha" : "Defina o nome, conta SMTP e velocidade de envio")
                     : step === 2 ? "Contatos com email preenchido"
-                    : step === 3 && state.dispatchChannel === "n8n_email" ? "Revise e dispare imediatamente para o N8N"
+                    : step === 3 && state.dispatchChannel === "n8n_email" ? "Revise e dispare imediatamente"
                     : step === 3 ? "Assunto, corpo HTML e configurações de CC"
                     : "Revise todos os detalhes antes de criar a campanha"}
                 </p>
@@ -510,7 +510,7 @@ function Step1({ state, emailConns, onChange }: {
                   {ch === "smtp" ? <Mail className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm">{ch === "smtp" ? "Email via SMTP" : "Email via N8N"}</p>
+                  <p className="font-semibold text-sm">{ch === "smtp" ? "Email via SMTP" : "Email Automatizado"}</p>
                   <p className="text-agro-muted-2 text-xs mt-0.5">{ch === "smtp" ? "Conta configurada no app" : "Webhook externo"}</p>
                 </div>
               </button>
@@ -523,7 +523,7 @@ function Step1({ state, emailConns, onChange }: {
         <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1.5">Nome da campanha *</p>
         <input
           className="input-agro w-full"
-          placeholder={state.dispatchChannel === "n8n_email" ? "Ex: Cobrança Abril — Email N8N" : "Ex: Cobrança Março 2025"}
+          placeholder={state.dispatchChannel === "n8n_email" ? "Ex: Cobrança Abril" : "Ex: Cobrança Março 2025"}
           value={state.name}
           onChange={(e) => onChange({ name: e.target.value })}
         />
@@ -535,7 +535,7 @@ function Step1({ state, emailConns, onChange }: {
         >
           <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
           <p className="text-sm text-blue-400">
-            O template de email é gerenciado pelo N8N. Selecione os destinatários e o disparo acontece imediatamente via webhook.
+            O template de email é gerenciado externamente. Selecione os destinatários e o disparo acontece imediatamente.
           </p>
         </div>
       )}
@@ -672,7 +672,7 @@ function N8NEmailPreview({ state, workspaceId }: { state: WizardState; workspace
       >
         <span className="flex items-center gap-2">
           <Mail className="w-4 h-4" />
-          Pré-visualizar email N8N
+          Pré-visualizar email
         </span>
         <span className="text-agro-muted-2 text-xs">{open ? "▲ Fechar" : "▼ Abrir"}</span>
       </button>
@@ -825,7 +825,7 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
       >
         <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
         <p className="text-sm text-amber-400">
-          O disparo acontece imediatamente ao confirmar. Os emails serão processados pelo N8N e os status atualizados automaticamente.
+          O disparo acontece imediatamente ao confirmar. Os emails serão processados e os status atualizados automaticamente.
         </p>
       </div>
 
@@ -835,7 +835,7 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
         className="btn-agro w-full flex items-center justify-center gap-3 py-3.5 rounded-xl text-base font-semibold text-white disabled:opacity-60"
       >
         {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-        {submitting ? "Disparando…" : "Disparar via N8N"}
+        {submitting ? "Disparando…" : "Confirmar disparo"}
       </button>
     </div>
   );
