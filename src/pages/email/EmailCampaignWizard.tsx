@@ -594,6 +594,160 @@ function Step1({ state, emailConns, onChange }: {
   );
 }
 
+// ── N8N Email Preview ────────────────────────────────────────────
+
+const PREVIEW_STORAGE_KEY = (wsId: string) => `n8n_email_preview_${wsId}`;
+
+function buildPreviewData(state: WizardState): Record<string, unknown> {
+  const c = state.contacts[0];
+  if (!c) return {};
+  const invs = state.contactInvoices[c.id] ?? [];
+  const hasInv = invs.length > 0;
+  const valorTotal = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+  const proximoVenc = invs
+    .filter((inv) => inv.vencimento)
+    .sort((a, b) => a.vencimento!.localeCompare(b.vencimento!))
+    [0]?.vencimento ?? null;
+  return {
+    ...c,
+    nome:                  c.name,
+    email:                 c.email,
+    telefone:              c.phone ?? "",
+    empresa:               (c as Record<string, unknown>).empresa ?? "",
+    email_representante:   c.email_representante ?? "",
+    gerente1_nome:         c.gerente1_nome ?? "",
+    gerente1_email:        c.gerente1_email ?? "",
+    gerente2_nome:         c.gerente2_nome ?? "",
+    gerente2_email:        c.gerente2_email ?? "",
+    valor_total_pendente:  hasInv ? formatBRL(valorTotal) : "",
+    proximo_vencimento:    proximoVenc ? formatDateBR(proximoVenc) : "",
+  };
+}
+
+function N8NEmailPreview({ state, workspaceId }: { state: WizardState; workspaceId: string }) {
+  const storageKey = PREVIEW_STORAGE_KEY(workspaceId);
+  const [open, setOpen]           = useState(false);
+  const [editing, setEditing]     = useState(false);
+  const [draft, setDraft]         = useState("");
+  const [savedHtml, setSavedHtml] = useState(() => localStorage.getItem(storageKey) ?? "");
+  const iframeRef                 = useRef<HTMLIFrameElement>(null);
+
+  const previewData   = buildPreviewData(state);
+  const renderedHtml  = savedHtml ? interpolate(savedHtml, previewData) : "";
+
+  useEffect(() => {
+    if (!open || !savedHtml || editing) return;
+    const doc = iframeRef.current?.contentDocument;
+    if (doc) {
+      doc.open();
+      doc.write(renderedHtml);
+      doc.close();
+    }
+  }, [open, editing, renderedHtml]);
+
+  function handleSave() {
+    localStorage.setItem(storageKey, draft);
+    setSavedHtml(draft);
+    setEditing(false);
+  }
+
+  function handleEdit() {
+    setDraft(savedHtml);
+    setEditing(true);
+  }
+
+  function handleClear() {
+    localStorage.removeItem(storageKey);
+    setSavedHtml("");
+    setDraft("");
+    setEditing(false);
+  }
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.2)" }}>
+      <button
+        onClick={() => { setOpen((v) => !v); if (!open && !savedHtml) setEditing(true); }}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-blue-400 transition-colors hover:bg-white/5"
+        style={{ background: "rgba(59,130,246,0.06)" }}
+      >
+        <span className="flex items-center gap-2">
+          <Mail className="w-4 h-4" />
+          Pré-visualizar email N8N
+        </span>
+        <span className="text-agro-muted-2 text-xs">{open ? "▲ Fechar" : "▼ Abrir"}</span>
+      </button>
+
+      {open && (
+        <div className="p-4 space-y-3" style={{ background: "rgba(10,20,14,0.6)" }}>
+          {editing ? (
+            <>
+              <p className="text-xs text-agro-muted-2">
+                Cole o HTML do email abaixo. Use <code className="text-blue-400">{`{{nome}}`}</code>, <code className="text-blue-400">{`{{valor_total_pendente}}`}</code>, etc. para variáveis.
+              </p>
+              <textarea
+                className="input-agro w-full font-mono text-xs"
+                rows={12}
+                placeholder="<html>...</html>"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <button
+                  disabled={!draft.trim()}
+                  onClick={handleSave}
+                  className="btn-agro px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  Salvar e visualizar
+                </button>
+                {savedHtml && (
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-colors"
+                    style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {state.contacts.length > 0 && (
+                <p className="text-xs text-agro-muted-2">
+                  Preview com dados de <span className="text-agro-text font-medium">{state.contacts[0].name || state.contacts[0].email}</span>
+                </p>
+              )}
+              <iframe
+                ref={iframeRef}
+                className="w-full rounded-lg"
+                style={{ height: 420, border: "1px solid rgba(63,176,108,0.1)", background: "#fff" }}
+                sandbox="allow-same-origin"
+                title="Email preview"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleEdit}
+                  className="px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-colors"
+                  style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                >
+                  Editar template
+                </button>
+                <button
+                  onClick={handleClear}
+                  className="px-4 py-2 rounded-xl text-sm text-red-400 hover:text-red-300 transition-colors"
+                  style={{ border: "1px solid rgba(239,68,68,0.2)" }}
+                >
+                  Limpar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── N8N Confirmation Step ────────────────────────────────────────
 
 function N8NConfirmationStep({ state, onSubmit, submitting }: {
@@ -601,6 +755,7 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
   onSubmit: () => void;
   submitting: boolean;
 }) {
+  const { workspaceId } = useAuth();
   const hasInvoices = Object.keys(state.contactInvoices).length > 0;
   const totalValor  = hasInvoices
     ? state.contacts.reduce((sum, c) => {
@@ -662,6 +817,8 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
           );
         })}
       </div>
+
+      <N8NEmailPreview state={state} workspaceId={workspaceId ?? ""} />
 
       <div className="flex items-start gap-3 p-4 rounded-xl"
         style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
