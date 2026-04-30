@@ -131,6 +131,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
   const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading,   setLoading]   = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [status,    setStatus]    = useState<CampStatus>("all");
 
@@ -161,32 +162,145 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
   const totalRecip     = campaigns.reduce((a, c) => a + (c.total_recipients ?? 0), 0);
   const deliveryRate   = totalRecip > 0 ? Math.round((totalDelivered / totalRecip) * 100) : 0;
 
-  function exportXlsx() {
-    const rows = campaigns.map((c) => {
-      const sent = c.sent_count ?? 0;
-      const del  = effectiveDelivered(c);
-      const rate = effectiveRate(c) ?? 0;
-      return {
+  async function exportXlsx() {
+    setExporting(true);
+    try {
+      // Fetch all rows paginated (Supabase caps at 1000/request)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async function fetchAll(baseQuery: any): Promise<any[]> {
+        const PAGE = 1000;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const all: any[] = [];
+        let offset = 0;
+        while (true) {
+          const { data } = await baseQuery.range(offset, offset + PAGE - 1);
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < PAGE) break;
+          offset += PAGE;
+        }
+        return all;
+      }
+
+      const campNameMap = Object.fromEntries(campaigns.map((c) => [c.id, c.name]));
+
+      // ── Aba 1: Resumo campanhas ──────────────────────────────────
+      const summaryRows = campaigns.map((c) => ({
         "Nome":             c.name,
-        "Canal":            isEmailCamp(c) ? "Email via N8N" : "WhatsApp",
+        "Canal":            isEmailCamp(c) ? "Email Automático" : "WhatsApp",
         "Template":         c.meta_templates?.template_name ?? "",
         "Status":           CAMP_STATUS[c.status]?.label ?? c.status,
         "Destinatários":    c.total_recipients ?? 0,
-        "Enviadas":         sent,
-        "Entregues":        del,
+        "Enviadas":         c.sent_count ?? 0,
+        "Entregues":        effectiveDelivered(c),
         "Lidas":            isEmailCamp(c) ? "" : (c.read_count ?? 0),
         "Respondidas":      isEmailCamp(c) ? "" : (c.replied_count ?? 0),
         "Falhas":           c.failed_count ?? 0,
-        "Taxa entrega (%)": rate,
+        "Taxa entrega (%)": effectiveRate(c) ?? 0,
         "Criada em":        format(new Date(c.created_at), "dd/MM/yyyy HH:mm"),
         "Iniciada em":      c.started_at   ? format(new Date(c.started_at),   "dd/MM/yyyy HH:mm") : "",
         "Concluída em":     c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy HH:mm") : "",
-      };
-    });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Campanhas");
-    XLSX.writeFile(wb, `relatorio_campanhas_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    toast({ title: "Relatório exportado com sucesso" });
+      }));
+
+      // ── Aba 2: WhatsApp — mensagens individuais ──────────────────
+      const waCampIds = campaigns.filter((c) => !isEmailCamp(c)).map((c) => c.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let waRows: Record<string, any>[] = [];
+      if (waCampIds.length > 0) {
+        const msgs = await fetchAll(
+          db.from("shooting_messages")
+            .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,created_at,sent_at,delivered_at,read_at")
+            .in("campaign_id", waCampIds)
+            .order("campaign_id,created_at", { ascending: true }),
+        );
+        waRows = msgs.map((m) => ({
+          "Campanha":           campNameMap[m.campaign_id] ?? m.campaign_id,
+          "Nome":               m.recipient_name ?? "",
+          "Telefone":           m.recipient_phone ?? "",
+          "Email":              m.recipient_data?.email ?? "",
+          "Empresa":            m.recipient_data?.empresa ?? "",
+          "Valor Pendente":     m.recipient_data?.valor_total_pendente ?? "",
+          "Próx. Vencimento":   m.recipient_data?.proximo_vencimento ?? "",
+          "Status":             m.status ?? "",
+          "Erro":               m.error_message ?? "",
+          "Criada em":          m.created_at  ? format(new Date(m.created_at),  "dd/MM/yyyy HH:mm") : "",
+          "Enviada em":         m.sent_at     ? format(new Date(m.sent_at),     "dd/MM/yyyy HH:mm") : "",
+          "Entregue em":        m.delivered_at ? format(new Date(m.delivered_at),"dd/MM/yyyy HH:mm") : "",
+          "Lida em":            m.read_at     ? format(new Date(m.read_at),     "dd/MM/yyyy HH:mm") : "",
+        }));
+      }
+
+      // ── Aba 3: Email — automático (shooting_messages) + SMTP (email_messages) ──
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let emailRows: Record<string, any>[] = [];
+
+      const n8nCampIds = campaigns.filter((c) => isEmailCamp(c)).map((c) => c.id);
+      if (n8nCampIds.length > 0) {
+        const msgs = await fetchAll(
+          db.from("shooting_messages")
+            .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,created_at")
+            .in("campaign_id", n8nCampIds)
+            .order("campaign_id,created_at", { ascending: true }),
+        );
+        emailRows.push(...msgs.map((m) => ({
+          "Campanha":         campNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":            "Automático",
+          "Nome":             m.recipient_name ?? "",
+          "Email":            m.recipient_data?.email ?? m.recipient_phone ?? "",
+          "Empresa":          m.recipient_data?.empresa ?? "",
+          "Valor Pendente":   m.recipient_data?.valor_total_pendente ?? "",
+          "Próx. Vencimento": m.recipient_data?.proximo_vencimento ?? "",
+          "Status":           m.status ?? "",
+          "Erro":             m.error_message ?? "",
+          "Enviada em":       m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
+        })));
+      }
+
+      const { data: smtpCamps } = await supabase
+        .from("email_campaigns")
+        .select("id,name")
+        .eq("workspace_id", workspaceId);
+      const smtpNameMap = Object.fromEntries((smtpCamps ?? []).map((c) => [c.id, c.name]));
+      const smtpCampIds = (smtpCamps ?? []).map((c) => c.id);
+      if (smtpCampIds.length > 0) {
+        const msgs = await fetchAll(
+          supabase.from("email_messages")
+            .select("campaign_id,recipient_name,recipient_email,status,error_message,created_at,sent_at")
+            .in("campaign_id", smtpCampIds)
+            .order("campaign_id,created_at", { ascending: true }),
+        );
+        emailRows.push(...msgs.map((m) => ({
+          "Campanha":         smtpNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":            "SMTP",
+          "Nome":             m.recipient_name ?? "",
+          "Email":            m.recipient_email ?? "",
+          "Empresa":          "",
+          "Valor Pendente":   "",
+          "Próx. Vencimento": "",
+          "Status":           m.status ?? "",
+          "Erro":             m.error_message ?? "",
+          "Enviada em":       m.sent_at     ? format(new Date(m.sent_at),     "dd/MM/yyyy HH:mm")
+                            : m.created_at  ? format(new Date(m.created_at),  "dd/MM/yyyy HH:mm") : "",
+        })));
+      }
+
+      // ── Montar workbook ──────────────────────────────────────────
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows.length ? summaryRows : [{}]), "Campanhas");
+      if (waRows.length > 0)    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(waRows),    "WhatsApp");
+      if (emailRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emailRows), "Email");
+
+      XLSX.writeFile(wb, `relatorio_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast({
+        title:       "Relatório exportado!",
+        description: `${waRows.length} msgs WhatsApp · ${emailRows.length} msgs Email`,
+        variant:     "success",
+      });
+    } catch (err) {
+      toast({ title: "Erro ao exportar", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
   }
 
   const DATE_OPTS: { id: DateRange; label: string }[] = [
@@ -244,11 +358,12 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
         </button>
 
-        <button onClick={exportXlsx} disabled={!campaigns.length || loading}
+        <button onClick={exportXlsx} disabled={!campaigns.length || loading || exporting}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#3fb06c] hover:bg-[#1e2e22] disabled:opacity-40 transition-colors"
           style={{ border: "1px solid rgba(63,176,108,0.25)" }}
         >
-          <Download className="w-3.5 h-3.5" /> Exportar XLSX
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          {exporting ? "Exportando…" : "Exportar XLSX"}
         </button>
       </div>
 
