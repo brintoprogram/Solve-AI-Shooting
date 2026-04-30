@@ -230,7 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === "PASSWORD_RECOVERY") {
           setSetupTypeWithRef("recovery");
         } else if (
-          event === "SIGNED_IN" &&
+          (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
           session?.user?.user_metadata?.workspace_invite_token
         ) {
           setSetupTypeWithRef("invite");
