@@ -218,7 +218,6 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           "Nome":               m.recipient_name ?? "",
           "Telefone":           m.recipient_phone ?? "",
           "Email":              m.recipient_data?.email ?? "",
-          "Empresa":            m.recipient_data?.empresa ?? "",
           "Valor Pendente":     m.recipient_data?.valor_total_pendente ?? "",
           "Próx. Vencimento":   m.recipient_data?.proximo_vencimento ?? "",
           "Status":             m.status ?? "",
@@ -243,16 +242,18 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             .order("campaign_id,created_at", { ascending: true }),
         );
         emailRows.push(...msgs.map((m) => ({
-          "Campanha":         campNameMap[m.campaign_id] ?? m.campaign_id,
-          "Canal":            "Automático",
-          "Nome":             m.recipient_name ?? "",
-          "Email":            m.recipient_data?.email ?? m.recipient_phone ?? "",
-          "Empresa":          m.recipient_data?.empresa ?? "",
-          "Valor Pendente":   m.recipient_data?.valor_total_pendente ?? "",
-          "Próx. Vencimento": m.recipient_data?.proximo_vencimento ?? "",
-          "Status":           m.status ?? "",
-          "Erro":             m.error_message ?? "",
-          "Enviada em":       m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
+          "Campanha":              campNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":                 "Automático",
+          "Nome":                  m.recipient_name ?? "",
+          "Email":                 m.recipient_data?.email ?? m.recipient_phone ?? "",
+          "Email Representante":   m.recipient_data?.email_representante ?? "",
+          "Email Gerente 1":       m.recipient_data?.gerente1_email ?? "",
+          "Email Gerente 2":       m.recipient_data?.gerente2_email ?? "",
+          "Valor Pendente":        m.recipient_data?.valor_total_pendente ?? "",
+          "Próx. Vencimento":      m.recipient_data?.proximo_vencimento ?? "",
+          "Status":                m.status ?? "",
+          "Erro":                  m.error_message ?? "",
+          "Enviada em":            m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
         })));
       }
 
@@ -270,17 +271,19 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             .order("campaign_id,created_at", { ascending: true }),
         );
         emailRows.push(...msgs.map((m) => ({
-          "Campanha":         smtpNameMap[m.campaign_id] ?? m.campaign_id,
-          "Canal":            "SMTP",
-          "Nome":             m.recipient_name ?? "",
-          "Email":            m.recipient_email ?? "",
-          "Empresa":          "",
-          "Valor Pendente":   "",
-          "Próx. Vencimento": "",
-          "Status":           m.status ?? "",
-          "Erro":             m.error_message ?? "",
-          "Enviada em":       m.sent_at     ? format(new Date(m.sent_at),     "dd/MM/yyyy HH:mm")
-                            : m.created_at  ? format(new Date(m.created_at),  "dd/MM/yyyy HH:mm") : "",
+          "Campanha":              smtpNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":                 "SMTP",
+          "Nome":                  m.recipient_name ?? "",
+          "Email":                 m.recipient_email ?? "",
+          "Email Representante":   "",
+          "Email Gerente 1":       "",
+          "Email Gerente 2":       "",
+          "Valor Pendente":        "",
+          "Próx. Vencimento":      "",
+          "Status":                m.status ?? "",
+          "Erro":                  m.error_message ?? "",
+          "Enviada em":            m.sent_at    ? format(new Date(m.sent_at),    "dd/MM/yyyy HH:mm")
+                                 : m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
         })));
       }
 
