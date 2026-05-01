@@ -19,6 +19,7 @@ export type {
 export interface WizardState {
   step: 1 | 2 | 3 | 4;
   // Step 1
+  channel: "meta" | "z_api";
   dataSource: "contacts" | "xlsx_upload" | null;
   campaignName: string;
   connectionId: string;
@@ -28,16 +29,19 @@ export interface WizardState {
   // Step 2
   selectedContacts: string[];
   uploadId: string | null;
-  // Step 3
+  // Step 3 — Meta
   templateId: string;
   columnMapping: ColumnMapping;
   previewIndex: number;
+  // Step 3 — Z-API
+  messageBody: string;
   // Derived
   totalRecipients: number;
 }
 
 export const initialWizardState: WizardState = {
   step: 1,
+  channel: "meta",
   dataSource: null,
   campaignName: "",
   connectionId: "",
@@ -49,6 +53,7 @@ export const initialWizardState: WizardState = {
   templateId: "",
   columnMapping: { phone_column: "" },
   previewIndex: 0,
+  messageBody: "",
   totalRecipients: 0,
 };
 

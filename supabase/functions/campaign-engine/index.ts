@@ -16,6 +16,7 @@ import { corsHeaders as getCors } from "../_shared/cors.ts";
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY          = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const META_BASE            = "https://graph.facebook.com/v25.0";
+const Z_API_BASE           = "https://api.z-api.io/instances";
 const BATCH_SIZE           = 20;
 const PRIVILEGED_ROLES     = ["admin", "manager"];
 
@@ -132,6 +133,103 @@ async function sendTemplate(
     return { wamid: msgs?.[0]?.id ?? "" };
   } catch (err) {
     return { error: String(err), code: "NETWORK_ERROR" };
+  }
+}
+
+// ── Z-API ─────────────────────────────────────────────────
+
+interface ZApiConnection {
+  id:           string;
+  instance_id:  string;
+  token:        string;        // decrypted
+  client_token: string;        // decrypted
+}
+
+interface ZApiSendResult {
+  zaapId?:   string;
+  error?:    string;
+  retryable?: boolean;
+}
+
+async function sendZApiMessage(
+  instanceId:  string,
+  token:       string,
+  clientToken: string,
+  phone:       string,
+  message:     string,
+): Promise<ZApiSendResult> {
+  const cleanPhone = phone.replace(/\D/g, "");
+  try {
+    const res = await fetch(`${Z_API_BASE}/${instanceId}/token/${token}/send-text`, {
+      method:  "POST",
+      headers: { "Client-Token": clientToken, "Content-Type": "application/json" },
+      body:    JSON.stringify({ phone: cleanPhone, message }),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) {
+      return { error: String(data.error ?? data.message ?? `HTTP ${res.status}`), retryable: res.status >= 500 };
+    }
+    const id = String(data.zaapId ?? data.messageId ?? data.id ?? "");
+    if (id) return { zaapId: id };
+    return { error: String(data.error ?? data.message ?? "Unknown Z-API response"), retryable: false };
+  } catch (err) {
+    return { error: String(err), retryable: true };
+  }
+}
+
+function buildZApiText(
+  body:        string,
+  mapping:     Record<string, unknown>,
+  contactData: Record<string, unknown>,
+): string {
+  const bodyVars = (mapping.body_variables ?? {}) as Record<string, string>;
+  let text = body;
+  for (const [idx, col] of Object.entries(bodyVars)) {
+    text = text.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
+  }
+  return text;
+}
+
+async function processZApiMessage(
+  msg:         Message,
+  zConn:       ZApiConnection,
+  messageBody: string,
+  mapping:     Record<string, unknown>,
+  campaignId:  string,
+  workspaceId: string,
+): Promise<void> {
+  const text   = buildZApiText(messageBody, mapping, msg.recipient_data ?? {});
+  const result = await sendZApiMessage(zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, text);
+  const now    = new Date().toISOString();
+
+  if (result.zaapId) {
+    await db.from("shooting_messages")
+      .update({ status: "sent", wamid: result.zaapId, sent_at: now })
+      .eq("id", msg.id);
+    await db.rpc("increment_campaign_counters", { p_campaign_id: campaignId, p_counter_name: "sent_count" });
+    writeAuditLog(workspaceId, "message_sent", msg.id, "shooting_message", "success", null, {
+      phone: msg.recipient_phone, campaign_id: campaignId, zaap_id: result.zaapId,
+    });
+  } else {
+    const retryCount = (msg.retry_count ?? 0) + 1;
+    const canRetry   = (result.retryable ?? false) && retryCount < (msg.max_retries ?? 3);
+    if (canRetry) {
+      await db.from("shooting_messages")
+        .update({ retry_count: retryCount, error_message: result.error })
+        .eq("id", msg.id);
+      writeAuditLog(workspaceId, "message_retry", msg.id, "shooting_message", "warning", result.error, {
+        phone: msg.recipient_phone, campaign_id: campaignId, retry_count: retryCount,
+      });
+    } else {
+      await db.from("shooting_messages")
+        .update({ status: "failed", failed_at: now, error_message: result.error, retry_count: retryCount })
+        .eq("id", msg.id);
+      await db.rpc("increment_campaign_counters", { p_campaign_id: campaignId, p_counter_name: "failed_count" });
+      writeAuditLog(workspaceId, "message_failed", msg.id, "shooting_message", "error", result.error, {
+        phone: msg.recipient_phone, campaign_id: campaignId,
+      });
+    }
+    console.warn(`[engine] z-api msg ${msg.id} → ${canRetry ? "retry" : "failed"}: ${result.error}`);
   }
 }
 
@@ -447,7 +545,7 @@ Deno.serve(async (req: Request) => {
     // ── START ──────────────────────────────────────────────────
     const { data: campaign, error: campErr } = await db
       .from("shooting_campaigns")
-      .select("*, meta_connections(*), meta_templates(*)")
+      .select("*, meta_connections(*), meta_templates(*), z_api_connections(*)")
       .eq("id", campaign_id)
       .single();
 
@@ -456,17 +554,6 @@ Deno.serve(async (req: Request) => {
     if (!["draft", "paused"].includes(campaign.status)) {
       return json({ error: `Campanha não pode ser iniciada no status "${campaign.status}"` }, 409);
     }
-
-    const rawConn    = campaign.meta_connections as Connection | null;
-    const template   = campaign.meta_templates   as Template   | null;
-
-    if (!rawConn) return json({ error: "Conexão WhatsApp não encontrada" }, 400);
-    if (!template) return json({ error: "Template não encontrado" }, 400);
-
-    const connection: Connection = {
-      ...rawConn,
-      access_token: await decrypt(rawConn.access_token),
-    };
 
     // Mark as sending immediately so the UI updates
     await db.from("shooting_campaigns")
@@ -487,8 +574,24 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, processed: 0, message: "Nenhuma mensagem pendente" });
     }
 
-    // Run the send loop and await it (edge fn stays alive until done)
-    await startSendLoop(campaign_id, connection, template, campaign);
+    if (campaign.dispatch_channel === "z_api") {
+      const rawZApi = campaign.z_api_connections as (ZApiConnection & { token: string; client_token: string }) | null;
+      if (!rawZApi) return json({ error: "Conexão Z-API não encontrada" }, 400);
+      if (!campaign.message_body) return json({ error: "Mensagem da campanha não configurada" }, 400);
+      const zApiConn: ZApiConnection = {
+        ...rawZApi,
+        token:        await decrypt(rawZApi.token),
+        client_token: await decrypt(rawZApi.client_token),
+      };
+      await startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, String(campaign.message_body));
+    } else {
+      const rawConn  = campaign.meta_connections as Connection | null;
+      const template = campaign.meta_templates   as Template   | null;
+      if (!rawConn)  return json({ error: "Conexão WhatsApp não encontrada" }, 400);
+      if (!template) return json({ error: "Template não encontrado" }, 400);
+      const connection: Connection = { ...rawConn, access_token: await decrypt(rawConn.access_token) };
+      await startSendLoop(campaign_id, connection, template, campaign);
+    }
 
     return json({ ok: true, processed: pendingCount });
 
@@ -502,44 +605,53 @@ Deno.serve(async (req: Request) => {
 // ── Send loop ─────────────────────────────────────────────
 
 async function startSendLoop(
-  campaignId:  string,
-  conn?:       Connection,
-  tpl?:        Template,
-  campaign?:   Record<string, unknown>,
+  campaignId:   string,
+  conn?:        Connection,
+  tpl?:         Template,
+  campaign?:    Record<string, unknown>,
+  zApiConn?:    ZApiConnection,
+  messageBody?: string,
 ): Promise<void> {
   // Fetch fresh data if not provided (used by resume)
-  if (!conn || !tpl || !campaign) {
+  if (!campaign) {
     const { data } = await db
       .from("shooting_campaigns")
-      .select("*, meta_connections(*), meta_templates(*)")
+      .select("*, meta_connections(*), meta_templates(*), z_api_connections(*)")
       .eq("id", campaignId)
       .single();
     if (!data) return;
-    const rawConn2 = data.meta_connections as Connection;
-    conn     = { ...rawConn2, access_token: await decrypt(rawConn2.access_token) };
-    tpl      = data.meta_templates as Template;
     campaign = data;
+
+    if (data.dispatch_channel === "z_api") {
+      const rawZ = data.z_api_connections as (ZApiConnection & { token: string; client_token: string }) | null;
+      if (rawZ) {
+        zApiConn    = { ...rawZ, token: await decrypt(rawZ.token), client_token: await decrypt(rawZ.client_token) };
+        messageBody = String(data.message_body ?? "");
+      }
+    } else if (!conn || !tpl) {
+      const rawConn2 = data.meta_connections as Connection;
+      conn = { ...rawConn2, access_token: await decrypt(rawConn2.access_token) };
+      tpl  = data.meta_templates as Template;
+    }
   }
 
+  const isZApi           = String(campaign.dispatch_channel ?? "whatsapp") === "z_api";
   const mapping          = (campaign.column_mapping ?? {}) as Record<string, unknown>;
   const workspaceId      = String(campaign.workspace_id     ?? "");
   const connectionId     = String(campaign.meta_connection_id ?? "");
-  const sendingSpeed     = Number(campaign.sending_speed ?? 80); // msg/min
-  // Target interval per message so throughput matches user setting regardless of send latency
+  const sendingSpeed     = Number(campaign.sending_speed ?? 80);
   const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
 
-  console.log(`[engine] starting campaign ${campaignId} speed=${sendingSpeed}msg/min interval=${targetIntervalMs}ms/msg`);
+  console.log(`[engine] starting campaign ${campaignId} channel=${isZApi ? "z_api" : "meta"} speed=${sendingSpeed}msg/min`);
   writeAuditLog(workspaceId, "campaign_started", campaignId, "campaign", "info", null, { sending_speed: sendingSpeed });
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    // Stop if paused or cancelled
     if (!await isCampaignActive(campaignId)) {
       console.log(`[engine] campaign ${campaignId} stopped (status change)`);
       break;
     }
 
-    // Fetch next batch of pending messages
     const { data: batch } = await db
       .from("shooting_messages")
       .select("id, recipient_phone, recipient_data, retry_count, max_retries")
@@ -552,17 +664,20 @@ async function startSendLoop(
 
     console.log(`[engine] batch size=${batch.length}`);
 
-    // Process messages sequentially with per-message interval
     for (const msg of batch as Message[]) {
       if (!await isCampaignActive(campaignId)) break;
 
       const t0 = Date.now();
-      await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
+      if (isZApi && zApiConn && messageBody) {
+        await processZApiMessage(msg, zApiConn, messageBody, mapping, campaignId, workspaceId);
+      } else {
+        await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
+      }
       const remaining = targetIntervalMs - (Date.now() - t0);
       if (remaining > 50) await sleep(remaining);
     }
 
-    if (batch.length < BATCH_SIZE) break; // last batch — done
+    if (batch.length < BATCH_SIZE) break;
   }
 
   // Final status — only update if still "sending" (wasn't cancelled mid-way)

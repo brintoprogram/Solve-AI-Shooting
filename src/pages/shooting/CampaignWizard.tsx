@@ -5,8 +5,10 @@ import { Topbar } from "@/components/layout/Topbar";
 import { StepScope } from "./components/StepScope";
 import { StepRecipients } from "./components/StepRecipients";
 import { StepMessage } from "./components/StepMessage";
+import { StepZApiMessage } from "./components/StepZApiMessage";
 import { StepConfirmation } from "./components/StepConfirmation";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
+import { useZApiConnections } from "@/hooks/useZApiConnections";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { supabase } from "@/lib/supabase";
@@ -33,7 +35,8 @@ export function CampaignWizard() {
   const [submitting, setSubmitting] = useState(false);
 
   const { connections } = useMetaConnections(WORKSPACE_ID);
-  const { approvedTemplates } = useMetaTemplates(WORKSPACE_ID, state.connectionId || undefined);
+  const { connections: zApiConnections } = useZApiConnections(WORKSPACE_ID);
+  const { approvedTemplates } = useMetaTemplates(WORKSPACE_ID, state.channel === "meta" ? state.connectionId || undefined : undefined);
   const { createCampaign } = useCampaigns(WORKSPACE_ID);
 
   function patch(p: Partial<WizardState>) {
@@ -45,11 +48,18 @@ export function CampaignWizard() {
   function canProceed(): boolean {
     if (step === 1) {
       if (!state.dataSource) return false;
-      if (connections.length > 0 && !state.connectionId) return false;
+      if (!state.connectionId) return false;
       return true;
     }
     if (step === 2) return state.totalRecipients > 0;
     if (step === 3) {
+      if (state.channel === "z_api") {
+        if (!state.messageBody.trim()) return false;
+        if (!state.columnMapping.phone_column) return false;
+        const varIndices = [...new Set((state.messageBody.match(/\{\{(\d+)\}\}/g) ?? []).map((m) => m.replace(/\{\{|\}\}/g, "")))];
+        return varIndices.every((i) => !!state.columnMapping.body_variables?.[i]);
+      }
+      // Meta
       if (!state.templateId) return false;
       const tpl = approvedTemplates.find((t) => t.id === state.templateId);
       if (!tpl) return false;
@@ -68,22 +78,26 @@ export function CampaignWizard() {
       const name = state.campaignName ||
         `Campanha ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 
+      const isZApi = state.channel === "z_api";
       const campaign = await createCampaign({
-        workspace_id:       WORKSPACE_ID,
-        meta_connection_id: state.connectionId,
+        workspace_id:        WORKSPACE_ID,
+        meta_connection_id:  isZApi ? null : state.connectionId,
+        z_api_connection_id: isZApi ? state.connectionId : null,
         name,
-        template_id:        state.templateId,
-        data_source:        state.dataSource!,
-        column_mapping:     state.columnMapping,
-        filters:            {},
-        total_recipients:   state.totalRecipients,
-        status:             state.scheduleMode === "later" ? "scheduled" : "draft",
-        scheduled_at:       state.scheduledAt?.toISOString() ?? null,
-        started_at:         null,
-        completed_at:       null,
-        sending_speed:      state.sendingSpeed,
-        created_by:         null,
-        error_summary:      {},
+        template_id:         isZApi ? null : state.templateId,
+        message_body:        isZApi ? state.messageBody : null,
+        dispatch_channel:    isZApi ? "z_api" : "whatsapp",
+        data_source:         state.dataSource!,
+        column_mapping:      state.columnMapping,
+        filters:             {},
+        total_recipients:    state.totalRecipients,
+        status:              state.scheduleMode === "later" ? "scheduled" : "draft",
+        scheduled_at:        state.scheduledAt?.toISOString() ?? null,
+        started_at:          null,
+        completed_at:        null,
+        sending_speed:       state.sendingSpeed,
+        created_by:          null,
+        error_summary:       {},
       });
 
       if (state.dataSource === "xlsx_upload" && xlsxResult) {
@@ -274,7 +288,7 @@ export function CampaignWizard() {
           {/* Step body */}
           <div className="px-8 py-8">
             <div key={step} className="animate-scale-in">
-              {step === 1 && <StepScope state={state} connections={connections} onChange={patch} />}
+              {step === 1 && <StepScope state={state} connections={connections} zApiConnections={zApiConnections} onChange={patch} />}
               {step === 2 && (
                 <StepRecipients
                   state={state}
@@ -284,7 +298,14 @@ export function CampaignWizard() {
                   onXlsxClear={() => setXlsxResult(null)}
                 />
               )}
-              {step === 3 && (
+              {step === 3 && state.channel === "z_api" && (
+                <StepZApiMessage
+                  state={state}
+                  xlsxResult={xlsxResult}
+                  onChange={patch}
+                />
+              )}
+              {step === 3 && state.channel !== "z_api" && (
                 <StepMessage
                   state={state}
                   templates={approvedTemplates}
