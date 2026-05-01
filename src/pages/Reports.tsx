@@ -193,9 +193,9 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         "Destinatários":    c.total_recipients ?? 0,
         "Enviadas":         c.sent_count ?? 0,
         "Entregues":        effectiveDelivered(c),
+        "Falhas":           c.failed_count ?? 0,
         "Lidas":            isEmailCamp(c) ? "" : (c.read_count ?? 0),
         "Respondidas":      isEmailCamp(c) ? "" : (c.replied_count ?? 0),
-        "Falhas":           c.failed_count ?? 0,
         "Taxa entrega (%)": effectiveRate(c) ?? 0,
         "Criada em":        format(new Date(c.created_at), "dd/MM/yyyy HH:mm"),
         "Iniciada em":      c.started_at   ? format(new Date(c.started_at),   "dd/MM/yyyy HH:mm") : "",
@@ -375,7 +375,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
-              {["Campanha", "Status", "Destinatários", "Enviadas", "Entregues", "Lidas", "Entrega %", "Data"].map((h) => (
+              {["Campanha", "Status", "Destinatários", "Enviadas", "Entregues", "Falhas", "Lidas", "Entrega %", "Data"].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -384,7 +384,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: 9 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className="h-4 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.06)", width: j === 0 ? "70%" : "50%" }} />
                     </td>
@@ -393,13 +393,14 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
               ))
             ) : campaigns.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-14 text-center text-[#6b7f6e]">Nenhuma campanha encontrada para os filtros selecionados</td>
+                <td colSpan={9} className="px-4 py-14 text-center text-[#6b7f6e]">Nenhuma campanha encontrada para os filtros selecionados</td>
               </tr>
             ) : campaigns.map((c, i) => {
-              const sent = c.sent_count ?? 0;
-              const del  = effectiveDelivered(c);
-              const rate = effectiveRate(c);
-              const st   = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
+              const sent   = c.sent_count ?? 0;
+              const del    = effectiveDelivered(c);
+              const failed = c.failed_count ?? 0;
+              const rate   = effectiveRate(c);
+              const st     = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
               return (
                 <tr key={c.id} className="hover:bg-white/[0.02] transition-colors"
                   style={{ borderBottom: i < campaigns.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none" }}
@@ -419,6 +420,11 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
                   <td className="px-4 py-3 text-[#8faf9a]">{(c.total_recipients ?? 0).toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3 text-[#8faf9a]">{sent.toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3 text-[#3fb06c]">{del.toLocaleString("pt-BR")}</td>
+                  <td className="px-4 py-3">
+                    {failed > 0
+                      ? <span className="font-semibold" style={{ color: "#f87171" }}>{failed.toLocaleString("pt-BR")}</span>
+                      : <span className="text-[#6b7f6e]">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-[#fbbf24]">{isEmailCamp(c) ? <span className="text-[#6b7f6e]">—</span> : (c.read_count ?? 0).toLocaleString("pt-BR")}</td>
                   <td className="px-4 py-3">
                     {rate !== null ? (

@@ -86,6 +86,10 @@ Deno.serve(async (req: Request) => {
     const normalizedEmail = email.trim().toLowerCase();
     const displayName = full_name?.trim() ?? null;
 
+    // Derive app URL from caller's origin so redirect_to always points to the right domain
+    const origin = req.headers.get("origin") ?? req.headers.get("referer")?.split("/").slice(0, 3).join("/");
+    const appUrl = Deno.env.get("APP_URL") ?? origin ?? "https://system.solveai.consulting";
+
     // ── 4. Tentar enviar convite (detecta se usuário já existe) ───
     // Insere workspace_invite primeiro para ter o token disponível no email
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
@@ -105,7 +109,6 @@ Deno.serve(async (req: Request) => {
       }, isDuplicate ? 409 : 500);
     }
 
-    const appUrl = Deno.env.get("APP_URL") ?? "https://solve-ai-shooting.vercel.app";
     const { data: invited, error: inviteEmailErr } = await admin.auth.admin.inviteUserByEmail(
       normalizedEmail,
       {
@@ -168,7 +171,6 @@ Deno.serve(async (req: Request) => {
       // Notificar o usuário existente via magic link (link de acesso à plataforma)
       // Usamos resetPasswordForEmail para que o Supabase envie um email com link de login.
       // O redirectTo aponta para o app — ao clicar o usuário cai direto no painel.
-      const appUrl = Deno.env.get("APP_URL") ?? "https://solve-ai-shooting.vercel.app";
       const anonClient = createClient(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_ANON_KEY")!,

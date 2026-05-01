@@ -18,6 +18,7 @@ import { Templates } from "@/pages/Templates";
 import { Contacts } from "@/pages/Contacts";
 import { Alerts }      from "@/pages/Alerts";
 import { Reports }     from "@/pages/Reports";
+import { Support }     from "@/pages/Support";
 import { SetPassword } from "@/pages/SetPassword";
 import { AcceptInvite } from "@/pages/AcceptInvite";
 
@@ -125,6 +126,7 @@ function AppRoutes() {
         <Route path="/templates"              element={<Templates />} />
         <Route path="/alerts"                 element={<Alerts />} />
         <Route path="/reports"                element={<Reports />} />
+        <Route path="/support"                element={<Support />} />
         <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}

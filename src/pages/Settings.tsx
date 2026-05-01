@@ -360,6 +360,31 @@ export function Settings() {
   const [emailSaving,  setEmailSaving]    = useState(false);
   const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
 
+  // ── Support email state ───────────────────────────────────────────
+  const [supportEmail,        setSupportEmail]        = useState("");
+  const [supportEmailSaving,  setSupportEmailSaving]  = useState(false);
+
+  useEffect(() => {
+    if (!WORKSPACE_ID) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from("workspaces").select("support_email").eq("id", WORKSPACE_ID).maybeSingle()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }: any) => { if (data?.support_email) setSupportEmail(data.support_email); });
+  }, [WORKSPACE_ID]);
+
+  async function handleSupportEmailSave() {
+    if (!WORKSPACE_ID || !supportEmail.trim()) return;
+    setSupportEmailSaving(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).from("workspaces").update({ support_email: supportEmail.trim() }).eq("id", WORKSPACE_ID);
+    if (error) {
+      toast({ title: "Não foi possível salvar o email de suporte", variant: "destructive" });
+    } else {
+      toast({ title: "Email de suporte salvo!", variant: "success" });
+    }
+    setSupportEmailSaving(false);
+  }
+
   // ── AI Provider state ─────────────────────────────────────────────
   const [aiProvider,       setAiProvider]       = useState<"anthropic" | "openai">("anthropic");
   const [anthropicKey,     setAnthropicKey]     = useState("");
@@ -1645,6 +1670,47 @@ CREATE POLICY "avatars_delete" ON storage.objects
               </div>
             </DarkCard>
           </div>
+
+        {/* ── Suporte ──────────────────────────── */}
+        <div className="animate-fade-up-delay-1">
+          <DarkCard
+            title="Suporte"
+            subtitle="Email que receberá as notificações quando usuários abrirem ou responderem tickets"
+          >
+            <div className="space-y-4">
+              <div>
+                <FieldLabel>Email de recebimento de tickets</FieldLabel>
+                <input
+                  className="input-agro w-full"
+                  type="email"
+                  placeholder="brunoaraujo@solveai.consulting"
+                  value={supportEmail}
+                  onChange={(e) => setSupportEmail(e.target.value)}
+                />
+                <p className="text-xs text-agro-muted mt-1.5">
+                  Tickets abertos por usuários e suas respostas serão enviados para este endereço.
+                </p>
+              </div>
+              <div
+                className="flex items-start gap-2 p-3 rounded-xl text-xs text-agro-muted"
+                style={{ background: "rgba(63,176,108,0.04)", border: "1px solid rgba(63,176,108,0.08)" }}
+              >
+                <Mail className="w-3.5 h-3.5 text-agro-green shrink-0 mt-0.5" />
+                <span>
+                  Os emails são enviados via <strong className="text-agro-text">Resend API</strong>. Certifique-se de que <code className="text-agro-green">RESEND_API_KEY</code> está configurado nos secrets do Supabase e que o domínio <code className="text-agro-green">solveai.consulting</code> está verificado no painel do Resend.
+                </span>
+              </div>
+              <button
+                onClick={handleSupportEmailSave}
+                disabled={supportEmailSaving || !supportEmail.trim()}
+                className="btn-agro flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {supportEmailSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {supportEmailSaving ? "Salvando…" : "Salvar email de suporte"}
+              </button>
+            </div>
+          </DarkCard>
+        </div>
 
         {/* ── Webhook Meta ─────────────────────── */}
         <div className="animate-fade-up-delay-1">

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Mail, Lock, AlertCircle, Eye, EyeOff, CheckCircle } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
 export function Login() {
@@ -33,13 +32,19 @@ export function Login() {
     e.preventDefault();
     setResetLoading(true);
     setError(null);
-    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/`,
-    });
-    if (err) {
-      setError(err.message);
-    } else {
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reset-password`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
+          body: JSON.stringify({ email: email.trim() }),
+        },
+      );
+      if (!res.ok) throw new Error("Erro ao enviar email");
       setResetSent(true);
+    } catch {
+      setError("Não foi possível enviar o email. Tente novamente.");
     }
     setResetLoading(false);
   }
