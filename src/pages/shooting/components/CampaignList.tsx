@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { MoreHorizontal, Eye, Copy, Trash2, Search, Play, Pause, XCircle, Loader2 } from "lucide-react";
+import { MoreHorizontal, Eye, Copy, Trash2, Search, Play, Pause, XCircle, Loader2, Wifi, Smartphone, Mail } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +23,33 @@ import {
 import type { CampaignWithTemplate, CampaignStatus } from "@/types/shooting";
 import { STATUS_LABELS } from "@/types/shooting";
 import { calcPercent } from "@/lib/utils";
+
+const CHANNEL_CONFIG = {
+  z_api:     { Icon: Smartphone, label: "Z-API",      bg: "rgba(139,92,246,0.1)",  color: "#a78bfa", border: "rgba(139,92,246,0.25)" },
+  whatsapp:  { Icon: Wifi,       label: "Meta API",   bg: "rgba(59,130,246,0.1)",  color: "#60a5fa", border: "rgba(59,130,246,0.25)" },
+  n8n_email: { Icon: Mail,       label: "Email N8N",  bg: "rgba(14,165,233,0.1)",  color: "#38bdf8", border: "rgba(14,165,233,0.25)" },
+};
+
+function ChannelBadge({ campaign }: { campaign: CampaignWithTemplate }) {
+  const ch  = CHANNEL_CONFIG[campaign.dispatch_channel as keyof typeof CHANNEL_CONFIG] ?? CHANNEL_CONFIG.whatsapp;
+  const sub = campaign.dispatch_channel === "z_api"
+    ? "Texto livre"
+    : campaign.dispatch_channel === "n8n_email"
+    ? ""
+    : (campaign.meta_templates?.template_name ?? "—");
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold w-fit"
+        style={{ background: ch.bg, color: ch.color, border: `1px solid ${ch.border}` }}
+      >
+        <ch.Icon className="w-2.5 h-2.5" />
+        {ch.label}
+      </span>
+      {sub && <span className="text-[11px] text-agro-muted truncate max-w-[140px]">{sub}</span>}
+    </div>
+  );
+}
 
 const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: string }> = {
   draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
@@ -105,7 +132,7 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
             <thead>
               <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Campanha</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Template</th>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Canal</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Data</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Status</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Métricas</th>
@@ -126,8 +153,8 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
                     <td className="px-4 py-3.5 font-semibold text-agro-text text-sm group-hover:text-white transition-colors">
                       {c.name}
                     </td>
-                    <td className="px-4 py-3.5 text-agro-muted text-xs">
-                      {c.meta_templates?.template_name ?? "—"}
+                    <td className="px-4 py-3.5">
+                      <ChannelBadge campaign={c} />
                     </td>
                     <td className="px-4 py-3.5 text-agro-muted text-xs">
                       {format(new Date(c.created_at), "dd/MM/yyyy", { locale: ptBR })}

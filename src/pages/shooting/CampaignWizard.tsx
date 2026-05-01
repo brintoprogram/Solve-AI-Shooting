@@ -10,6 +10,7 @@ import { StepConfirmation } from "./components/StepConfirmation";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { useZApiConnections } from "@/hooks/useZApiConnections";
 import { useMetaTemplates } from "@/hooks/useMetaTemplates";
+import { useZApiTemplates } from "@/hooks/useZApiTemplates";
 import { useCampaigns } from "@/hooks/useCampaign";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -37,6 +38,7 @@ export function CampaignWizard() {
   const { connections } = useMetaConnections(WORKSPACE_ID);
   const { connections: zApiConnections } = useZApiConnections(WORKSPACE_ID);
   const { approvedTemplates } = useMetaTemplates(WORKSPACE_ID, state.channel === "meta" ? state.connectionId || undefined : undefined);
+  const { templates: zApiTemplates } = useZApiTemplates(WORKSPACE_ID);
   const { createCampaign } = useCampaigns(WORKSPACE_ID);
 
   function patch(p: Partial<WizardState>) {
@@ -83,6 +85,7 @@ export function CampaignWizard() {
         workspace_id:        WORKSPACE_ID,
         meta_connection_id:  isZApi ? null : state.connectionId,
         z_api_connection_id: isZApi ? state.connectionId : null,
+        z_api_template_id:   isZApi ? (state.zApiTemplateId ?? null) : null,
         name,
         template_id:         isZApi ? null : state.templateId,
         message_body:        isZApi ? state.messageBody : null,
@@ -136,8 +139,10 @@ export function CampaignWizard() {
     }
   }
 
-  const selectedTemplate   = approvedTemplates.find((t) => t.id === state.templateId);
-  const selectedConnection = connections.find((c) => c.id === state.connectionId);
+  const selectedTemplate       = approvedTemplates.find((t) => t.id === state.templateId);
+  const selectedConnection     = connections.find((c) => c.id === state.connectionId);
+  const selectedZApiConnection = zApiConnections.find((c) => c.id === state.connectionId);
+  const selectedZApiTemplate   = state.zApiTemplateId ? zApiTemplates.find((t) => t.id === state.zApiTemplateId) : undefined;
 
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
@@ -302,6 +307,7 @@ export function CampaignWizard() {
                 <StepZApiMessage
                   state={state}
                   xlsxResult={xlsxResult}
+                  templates={zApiTemplates}
                   onChange={patch}
                 />
               )}
@@ -318,6 +324,8 @@ export function CampaignWizard() {
                   state={state}
                   template={selectedTemplate}
                   connection={selectedConnection}
+                  zApiConnection={selectedZApiConnection}
+                  zApiTemplate={selectedZApiTemplate}
                   onSubmit={handleSubmit}
                   submitting={submitting}
                 />

@@ -109,11 +109,30 @@ export interface TemplateButton {
   phone_number?: string;
 }
 
+export interface ZApiTemplateButton {
+  id: string;
+  label: string;
+}
+
+export interface ZApiTemplate {
+  id: string;
+  workspace_id: string;
+  name: string;
+  message_type: "text" | "button_list";
+  header_text: string | null;
+  body: string;
+  footer: string | null;
+  buttons: ZApiTemplateButton[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ShootingCampaign {
   id: string;
   workspace_id: string;
   meta_connection_id: string | null;
   z_api_connection_id: string | null;
+  z_api_template_id: string | null;
   name: string;
   template_id: string | null;
   message_body: string | null;

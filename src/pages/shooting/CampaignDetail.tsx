@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2, Pencil, Check, X, Wifi, Smartphone, Mail } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { ShootingMessage } from "@/types/shooting";
@@ -527,10 +527,28 @@ export function CampaignDetail() {
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-agro-muted flex-wrap">
-                {campaign.dispatch_channel === "n8n_email" ? (
-                  <span className="font-medium text-blue-400">Email via N8N</span>
+                {campaign.dispatch_channel === "z_api" ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
+                    style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.25)" }}
+                  >
+                    <Smartphone className="w-2.5 h-2.5" />
+                    Z-API · Texto livre
+                  </span>
+                ) : campaign.dispatch_channel === "n8n_email" ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
+                    style={{ background: "rgba(14,165,233,0.1)", color: "#38bdf8", border: "1px solid rgba(14,165,233,0.25)" }}
+                  >
+                    <Mail className="w-2.5 h-2.5" />
+                    Email via N8N
+                  </span>
                 ) : (
-                  <span>Template: <span className="font-medium text-agro-text">{campaign.meta_templates?.template_name ?? "—"}</span></span>
+                  <span className="inline-flex items-center gap-1">
+                    <Wifi className="w-3 h-3 text-blue-400" />
+                    <span className="text-blue-400 font-medium">Meta API</span>
+                    {campaign.meta_templates?.template_name && (
+                      <><span className="text-agro-muted-2">·</span><span className="font-medium text-agro-text">{campaign.meta_templates.template_name}</span></>
+                    )}
+                  </span>
                 )}
                 <span className="text-agro-muted-2">·</span>
                 <span>{campaign.total_recipients.toLocaleString("pt-BR")} destinatários</span>

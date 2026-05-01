@@ -1,21 +1,22 @@
 import { useMemo } from "react";
+import { LayoutTemplate, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
+import type { ZApiTemplate } from "@/types/database";
 
 interface StepZApiMessageProps {
   state:      WizardState;
   xlsxResult: XlsxValidationResult | null;
+  templates:  ZApiTemplate[];
   onChange:   (patch: Partial<WizardState>) => void;
 }
 
-// Extract {{N}} variable indices from message text
 function extractVarIndices(text: string): string[] {
   const matches = text.match(/\{\{(\d+)\}\}/g) ?? [];
   const indices = [...new Set(matches.map((m) => m.replace(/\{\{|\}\}/g, "")))];
   return indices.sort((a, b) => Number(a) - Number(b));
 }
 
-// Build preview by replacing {{N}} with contact data
 function buildPreview(
   text: string,
   bodyVars: Record<string, string>,
@@ -28,18 +29,36 @@ function buildPreview(
   return result;
 }
 
-export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessageProps) {
+export function StepZApiMessage({ state, xlsxResult, templates, onChange }: StepZApiMessageProps) {
   const availableColumns = xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"];
   const sampleRow        = xlsxResult?.validRows?.[0] ?? { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/04/2025" };
+
+  const selectedTemplate = templates.find((t) => t.id === state.zApiTemplateId) ?? null;
 
   const varIndices = useMemo(() => extractVarIndices(state.messageBody), [state.messageBody]);
   const bodyVars   = state.columnMapping.body_variables ?? {};
 
-  const preview = buildPreview(state.messageBody, bodyVars, sampleRow as Record<string, unknown>);
-  const charCount = state.messageBody.length;
+  const bodyPreview   = buildPreview(state.messageBody, bodyVars, sampleRow as Record<string, unknown>);
+  const charCount     = state.messageBody.length;
+
+  function selectTemplate(tpl: ZApiTemplate | null) {
+    if (!tpl) {
+      onChange({ zApiTemplateId: null, messageBody: "", columnMapping: { ...state.columnMapping, body_variables: {} } });
+      return;
+    }
+    const newIndices = new Set(extractVarIndices(tpl.body));
+    const pruned: Record<string, string> = {};
+    for (const [k, v] of Object.entries(bodyVars)) {
+      if (newIndices.has(k)) pruned[k] = v;
+    }
+    onChange({
+      zApiTemplateId: tpl.id,
+      messageBody: tpl.body,
+      columnMapping: { ...state.columnMapping, body_variables: pruned },
+    });
+  }
 
   function handleBodyChange(text: string) {
-    // When text changes, remove mappings for variables no longer present
     const newIndices = new Set(extractVarIndices(text));
     const pruned: Record<string, string> = {};
     for (const [k, v] of Object.entries(bodyVars)) {
@@ -68,8 +87,8 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
     const nextIdx = varIndices.length > 0 ? String(Math.max(...varIndices.map(Number)) + 1) : "1";
     const textarea = document.getElementById("zapi-body") as HTMLTextAreaElement | null;
     if (textarea) {
-      const start = textarea.selectionStart ?? state.messageBody.length;
-      const end   = textarea.selectionEnd   ?? state.messageBody.length;
+      const start   = textarea.selectionStart ?? state.messageBody.length;
+      const end     = textarea.selectionEnd   ?? state.messageBody.length;
       const newText = state.messageBody.slice(0, start) + `{{${nextIdx}}}` + state.messageBody.slice(end);
       handleBodyChange(newText);
     } else {
@@ -84,7 +103,73 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
       {/* ── Left: compose ─────────────────────── */}
-      <div className="space-y-6">
+      <div className="space-y-5">
+
+        {/* Template picker */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+            Template Z-API
+          </p>
+          {templates.length === 0 ? (
+            <p className="text-xs text-agro-muted">
+              Nenhum template criado ainda. Crie em <strong className="text-agro-text">Configurações → Templates Z-API</strong>.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <select
+                className="input-agro w-full"
+                value={state.zApiTemplateId ?? ""}
+                onChange={(e) => {
+                  const tpl = templates.find((t) => t.id === e.target.value) ?? null;
+                  selectTemplate(tpl);
+                }}
+              >
+                <option value="">— Texto livre (sem template) —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} · {t.message_type === "button_list" ? "Com botões" : "Texto simples"}
+                  </option>
+                ))}
+              </select>
+
+              {selectedTemplate && (
+                <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-xl"
+                  style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.2)" }}
+                >
+                  <LayoutTemplate className="w-3 h-3 shrink-0" style={{ color: "#a78bfa" }} />
+                  {selectedTemplate.header_text && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
+                    >
+                      Header: {selectedTemplate.header_text}
+                    </span>
+                  )}
+                  {selectedTemplate.footer && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
+                    >
+                      Footer
+                    </span>
+                  )}
+                  {selectedTemplate.message_type === "button_list" && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
+                    >
+                      {selectedTemplate.buttons.length} botão{selectedTemplate.buttons.length !== 1 ? "es" : ""}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => selectTemplate(null)}
+                    className="ml-auto text-agro-muted-2 hover:text-red-400 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Phone column */}
         <div className="space-y-2">
@@ -170,7 +255,7 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
           </div>
         )}
 
-        {/* Validation hint */}
+        {/* Validation hints */}
         {!phoneColSet && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
             style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", color: "#fbbf24" }}>
@@ -214,14 +299,38 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
 
               {/* Chat area */}
               <div className="rounded-2xl min-h-[180px] p-3 flex flex-col gap-2"
-                style={{ background: "#0b141a", backgroundImage: "radial-gradient(circle at 50% 50%, rgba(63,176,108,0.03) 0%, transparent 70%)" }}>
+                style={{ background: "#0b141a" }}>
 
                 {/* Message bubble */}
-                <div className="max-w-[85%] self-end">
-                  <div className="rounded-2xl rounded-br-sm px-3 py-2 shadow-sm"
+                <div className="max-w-[90%] self-end">
+                  <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
                     style={{ background: "#005c4b" }}>
-                    <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">{preview || "Sua mensagem aparecerá aqui..."}</p>
-                    <div className="flex items-center justify-end gap-1 mt-1">
+
+                    {/* Header */}
+                    {selectedTemplate?.header_text && (
+                      <div className="px-3 pt-2.5 pb-1">
+                        <p className="text-[11px] font-bold text-white">{selectedTemplate.header_text}</p>
+                      </div>
+                    )}
+
+                    {/* Body */}
+                    <div className={cn("px-3 py-2", selectedTemplate?.header_text && "pt-0")}>
+                      <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
+                        {bodyPreview || "Sua mensagem aparecerá aqui..."}
+                      </p>
+                    </div>
+
+                    {/* Footer */}
+                    {selectedTemplate?.footer && (
+                      <div className="px-3 pb-2">
+                        <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                          {selectedTemplate.footer}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Timestamp */}
+                    <div className="flex items-center justify-end gap-1 px-3 pb-1.5">
                       <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
                       <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
                         <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
@@ -229,6 +338,20 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
                       </svg>
                     </div>
                   </div>
+
+                  {/* Buttons (outside bubble, below) */}
+                  {selectedTemplate?.message_type === "button_list" && selectedTemplate.buttons.length > 0 && (
+                    <div className="mt-1 space-y-1">
+                      {selectedTemplate.buttons.map((btn) => (
+                        <div key={btn.id}
+                          className="flex items-center justify-center py-1.5 rounded-lg text-[10px] font-semibold"
+                          style={{ background: "rgba(0,92,75,0.7)", border: "1px solid rgba(0,92,75,0.9)", color: "#53bdeb" }}
+                        >
+                          {btn.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -236,9 +359,7 @@ export function StepZApiMessage({ state, xlsxResult, onChange }: StepZApiMessage
             {/* Mapping status */}
             <div className={cn(
               "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full",
-              allVarsMapped && phoneColSet
-                ? "text-agro-green"
-                : "text-amber-400"
+              allVarsMapped && phoneColSet ? "text-agro-green" : "text-amber-400",
             )} style={{ background: allVarsMapped && phoneColSet ? "rgba(63,176,108,0.1)" : "rgba(245,158,11,0.1)" }}>
               <div className={cn("w-1.5 h-1.5 rounded-full", allVarsMapped && phoneColSet ? "bg-agro-green" : "bg-amber-400")} />
               {allVarsMapped && phoneColSet ? "Mensagem pronta para envio" : "Complete o mapeamento"}

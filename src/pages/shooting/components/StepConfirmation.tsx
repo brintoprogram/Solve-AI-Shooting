@@ -6,25 +6,34 @@ import {
 } from "lucide-react";
 import { estimateDuration } from "@/lib/utils";
 import type { WizardState, MetaTemplate, MetaConnection } from "@/types/shooting";
+import type { ZApiTemplate } from "@/types/database";
+import type { ZApiConnection } from "@/hooks/useZApiConnections";
 import { cn } from "@/lib/utils";
 
 interface StepConfirmationProps {
   state: WizardState;
   template: MetaTemplate | undefined;
   connection: MetaConnection | undefined;
+  zApiConnection?: ZApiConnection;
+  zApiTemplate?: ZApiTemplate;
   onSubmit: () => void;
   submitting: boolean;
 }
 
-export function StepConfirmation({ state, template, connection, onSubmit, submitting }: StepConfirmationProps) {
+export function StepConfirmation({ state, template, connection, zApiConnection, zApiTemplate, onSubmit, submitting }: StepConfirmationProps) {
   const [consented, setConsented] = useState(false);
+  const isZApi = state.channel === "z_api";
 
   const summaryCards = [
     {
       icon: MessageSquare,
       label: "Template",
-      value: template?.template_name ?? "—",
-      sub: template ? `${template.category} · ${template.language}` : "",
+      value: isZApi
+        ? (zApiTemplate?.name ?? "Texto livre")
+        : (template?.template_name ?? "—"),
+      sub: isZApi
+        ? (zApiTemplate ? (zApiTemplate.message_type === "button_list" ? "Z-API · Botões" : "Z-API · Texto") : "Z-API")
+        : (template ? `${template.category} · ${template.language}` : ""),
     },
     {
       icon: Users,
@@ -35,8 +44,12 @@ export function StepConfirmation({ state, template, connection, onSubmit, submit
     {
       icon: Wifi,
       label: "Conexão",
-      value: connection?.display_phone ?? "—",
-      sub: connection?.business_name ?? "",
+      value: isZApi
+        ? (zApiConnection?.phone ?? zApiConnection?.name ?? "—")
+        : (connection?.display_phone ?? "—"),
+      sub: isZApi
+        ? (zApiConnection?.name ?? "")
+        : (connection?.business_name ?? ""),
     },
     {
       icon: Calendar,

@@ -145,6 +145,15 @@ interface ZApiConnection {
   client_token: string;        // decrypted
 }
 
+interface ZApiTemplateData {
+  id:           string;
+  message_type: "text" | "button_list";
+  header_text:  string | null;
+  body:         string;
+  footer:       string | null;
+  buttons:      Array<{ id: string; label: string }>;
+}
+
 interface ZApiSendResult {
   zaapId?:   string;
   error?:    string;
@@ -177,15 +186,61 @@ async function sendZApiMessage(
   }
 }
 
+async function sendZApiButtonList(
+  instanceId:  string,
+  token:       string,
+  clientToken: string,
+  phone:       string,
+  message:     string,
+  title:       string | null,
+  footer:      string | null,
+  buttons:     Array<{ id: string; label: string }>,
+): Promise<ZApiSendResult> {
+  const cleanPhone = phone.replace(/\D/g, "");
+  try {
+    const body: Record<string, unknown> = {
+      phone: cleanPhone,
+      message,
+      buttonList: { buttons },
+    };
+    if (title)  body.title  = title;
+    if (footer) body.footer = footer;
+
+    const res = await fetch(`${Z_API_BASE}/${instanceId}/token/${token}/send-button-list`, {
+      method:  "POST",
+      headers: { "Client-Token": clientToken, "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) {
+      return { error: String(data.error ?? data.message ?? `HTTP ${res.status}`), retryable: res.status >= 500 };
+    }
+    const id = String(data.zaapId ?? data.messageId ?? data.id ?? "");
+    if (id) return { zaapId: id };
+    return { error: String(data.error ?? data.message ?? "Unknown Z-API response"), retryable: false };
+  } catch (err) {
+    return { error: String(err), retryable: true };
+  }
+}
+
 function buildZApiText(
   body:        string,
   mapping:     Record<string, unknown>,
   contactData: Record<string, unknown>,
+  tpl?:        ZApiTemplateData | null,
 ): string {
   const bodyVars = (mapping.body_variables ?? {}) as Record<string, string>;
   let text = body;
   for (const [idx, col] of Object.entries(bodyVars)) {
     text = text.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
+  }
+  // For plain text type with header/footer: embed them in the message
+  if (tpl && tpl.message_type === "text") {
+    const parts: string[] = [];
+    if (tpl.header_text) parts.push(`*${tpl.header_text}*`);
+    parts.push(text);
+    if (tpl.footer) parts.push(`_${tpl.footer}_`);
+    return parts.join("\n\n");
   }
   return text;
 }
@@ -197,9 +252,19 @@ async function processZApiMessage(
   mapping:     Record<string, unknown>,
   campaignId:  string,
   workspaceId: string,
+  tpl?:        ZApiTemplateData | null,
 ): Promise<void> {
-  const text   = buildZApiText(messageBody, mapping, msg.recipient_data ?? {});
-  const result = await sendZApiMessage(zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, text);
+  const text = buildZApiText(messageBody, mapping, msg.recipient_data ?? {}, tpl);
+
+  let result: ZApiSendResult;
+  if (tpl?.message_type === "button_list" && tpl.buttons.length > 0) {
+    result = await sendZApiButtonList(
+      zConn.instance_id, zConn.token, zConn.client_token,
+      msg.recipient_phone, text, tpl.header_text, tpl.footer, tpl.buttons,
+    );
+  } else {
+    result = await sendZApiMessage(zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, text);
+  }
   const now    = new Date().toISOString();
 
   if (result.zaapId) {
@@ -577,13 +642,22 @@ Deno.serve(async (req: Request) => {
     if (campaign.dispatch_channel === "z_api") {
       const rawZApi = campaign.z_api_connections as (ZApiConnection & { token: string; client_token: string }) | null;
       if (!rawZApi) return json({ error: "Conexão Z-API não encontrada" }, 400);
-      if (!campaign.message_body) return json({ error: "Mensagem da campanha não configurada" }, 400);
+      if (!campaign.message_body && !campaign.z_api_template_id) return json({ error: "Mensagem ou template da campanha não configurado" }, 400);
+
       const zApiConn: ZApiConnection = {
         ...rawZApi,
         token:        await decrypt(rawZApi.token),
         client_token: await decrypt(rawZApi.client_token),
       };
-      await startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, String(campaign.message_body));
+
+      let zApiTpl: ZApiTemplateData | null = null;
+      if (campaign.z_api_template_id) {
+        const { data: fetchedTpl } = await db.from("z_api_templates").select("*").eq("id", campaign.z_api_template_id).single();
+        zApiTpl = (fetchedTpl as ZApiTemplateData) ?? null;
+      }
+
+      const msgBody = zApiTpl?.body ?? String(campaign.message_body ?? "");
+      await startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, msgBody, zApiTpl);
     } else {
       const rawConn  = campaign.meta_connections as Connection | null;
       const template = campaign.meta_templates   as Template   | null;
@@ -611,6 +685,7 @@ async function startSendLoop(
   campaign?:    Record<string, unknown>,
   zApiConn?:    ZApiConnection,
   messageBody?: string,
+  zApiTpl?:     ZApiTemplateData | null,
 ): Promise<void> {
   // Fetch fresh data if not provided (used by resume)
   if (!campaign) {
@@ -625,8 +700,12 @@ async function startSendLoop(
     if (data.dispatch_channel === "z_api") {
       const rawZ = data.z_api_connections as (ZApiConnection & { token: string; client_token: string }) | null;
       if (rawZ) {
-        zApiConn    = { ...rawZ, token: await decrypt(rawZ.token), client_token: await decrypt(rawZ.client_token) };
-        messageBody = String(data.message_body ?? "");
+        zApiConn = { ...rawZ, token: await decrypt(rawZ.token), client_token: await decrypt(rawZ.client_token) };
+        if (data.z_api_template_id) {
+          const { data: fetchedTpl } = await db.from("z_api_templates").select("*").eq("id", data.z_api_template_id).single();
+          zApiTpl = (fetchedTpl as ZApiTemplateData) ?? null;
+        }
+        messageBody = zApiTpl?.body ?? String(data.message_body ?? "");
       }
     } else if (!conn || !tpl) {
       const rawConn2 = data.meta_connections as Connection;
@@ -669,7 +748,7 @@ async function startSendLoop(
 
       const t0 = Date.now();
       if (isZApi && zApiConn && messageBody) {
-        await processZApiMessage(msg, zApiConn, messageBody, mapping, campaignId, workspaceId);
+        await processZApiMessage(msg, zApiConn, messageBody, mapping, campaignId, workspaceId, zApiTpl);
       } else {
         await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
       }

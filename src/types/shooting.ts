@@ -35,6 +35,7 @@ export interface WizardState {
   previewIndex: number;
   // Step 3 — Z-API
   messageBody: string;
+  zApiTemplateId: string | null;
   // Derived
   totalRecipients: number;
 }
@@ -54,6 +55,7 @@ export const initialWizardState: WizardState = {
   columnMapping: { phone_column: "" },
   previewIndex: 0,
   messageBody: "",
+  zApiTemplateId: null,
   totalRecipients: 0,
 };
 
