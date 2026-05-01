@@ -4,10 +4,13 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
+  QrCode, Smartphone,
 } from "lucide-react";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
+import { useZApiConnections }  from "@/hooks/useZApiConnections";
+import type { ZApiConnection } from "@/hooks/useZApiConnections";
 import type { MetaConnection }  from "@/types/shooting";
 import { getPhoneNumberInfo }  from "@/services/metaApi";
 import { useToast }            from "@/hooks/use-toast";
@@ -241,6 +244,223 @@ function ReconnectModal({ conn, onClose, onSaved }: {
   );
 }
 
+// ── Z-API Add/Edit Modal ──────────────────────────────────────────
+
+function ZApiAddModal({ workspaceId, onClose, onSaved }: {
+  workspaceId: string;
+  onClose:     () => void;
+  onSaved:     () => void;
+}) {
+  const { toast }                      = useToast();
+  const [name,        setName]         = useState("");
+  const [instanceId,  setInstanceId]   = useState("");
+  const [token,       setToken]        = useState("");
+  const [clientToken, setClientToken]  = useState("");
+  const [saving,      setSaving]       = useState(false);
+
+  async function handleSave() {
+    if (!name || !instanceId || !token || !clientToken) return;
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("z-api-proxy", {
+        body: { action: "save", workspace_id: workspaceId, name, instance_id: instanceId, token, client_token: clientToken },
+      });
+      if (error || !data?.ok) throw new Error(data?.error ?? error?.message ?? "Erro ao salvar");
+      toast({ title: "Conexão Z-API salva!", variant: "success" });
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast({ title: "Não foi possível salvar", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 space-y-4"
+        style={{ background: "#0d1710", border: "1px solid rgba(63,176,108,0.2)", boxShadow: "0 32px 80px rgba(0,0,0,0.7)" }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.2)" }}>
+              <Smartphone className="w-4 h-4 text-agro-green" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-agro-text">Adicionar Conexão Z-API</h2>
+              <p className="text-[11px] text-agro-muted-2">Insira as credenciais da instância</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-text hover:bg-white/5 transition-colors">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <FieldLabel>Nome da conexão *</FieldLabel>
+            <input className="input-agro w-full" placeholder="Ex: Meu Número Principal" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <FieldLabel>Instance ID *</FieldLabel>
+            <input className="input-agro w-full font-mono" placeholder="3D14B9F66E30" value={instanceId} onChange={(e) => setInstanceId(e.target.value)} />
+          </div>
+          <div>
+            <FieldLabel>Token *</FieldLabel>
+            <input className="input-agro w-full font-mono" type="password" placeholder="xxxxxxxxxxxxxxx" value={token} onChange={(e) => setToken(e.target.value)} />
+          </div>
+          <div>
+            <FieldLabel>Client-Token *</FieldLabel>
+            <input className="input-agro w-full font-mono" type="password" placeholder="Fxxxxxxxxxxxxxxx" value={clientToken} onChange={(e) => setClientToken(e.target.value)} />
+            <p className="text-xs text-agro-muted mt-1.5">Encontre esses valores no painel da Z-API em "Instâncias".</p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors" style={{ border: "1px solid rgba(63,176,108,0.15)" }}>
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!name || !instanceId || !token || !clientToken || saving}
+            className="flex-1 btn-agro flex items-center justify-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving ? "Salvando…" : "Salvar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Z-API QR Code Modal ───────────────────────────────────────────
+
+function ZApiQrModal({ conn, onClose, onConnected }: {
+  conn:        ZApiConnection;
+  onClose:     () => void;
+  onConnected: () => void;
+}) {
+  const { toast }                                = useToast();
+  const [qrcode,   setQrcode]                   = useState<string | null>(null);
+  const [loadingQr, setLoadingQr]               = useState(false);
+  const [polling,   setPolling]                 = useState(false);
+
+  async function fetchQr() {
+    setLoadingQr(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("z-api-proxy", {
+        body: { action: "qrcode", connection_id: conn.id },
+      });
+      if (error || !data?.ok) throw new Error(data?.error ?? error?.message ?? "Erro ao buscar QR");
+      setQrcode(data.qrcode as string);
+    } catch (err) {
+      toast({ title: "Não foi possível carregar o QR Code", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setLoadingQr(false);
+    }
+  }
+
+  async function checkStatus(): Promise<boolean> {
+    try {
+      const { data } = await supabase.functions.invoke("z-api-proxy", {
+        body: { action: "status", connection_id: conn.id },
+      });
+      return data?.connected === true;
+    } catch {
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    fetchQr();
+    setPolling(true);
+
+    const interval = setInterval(async () => {
+      const connected = await checkStatus();
+      if (connected) {
+        clearInterval(interval);
+        setPolling(false);
+        toast({ title: "WhatsApp conectado!", variant: "success" });
+        onConnected();
+        onClose();
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      setPolling(false);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn.id]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl p-6 space-y-4"
+        style={{ background: "#0d1710", border: "1px solid rgba(63,176,108,0.2)", boxShadow: "0 32px 80px rgba(0,0,0,0.7)" }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.2)" }}>
+              <QrCode className="w-4 h-4 text-agro-green" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-agro-text">Escanear QR Code</h2>
+              <p className="text-[11px] text-agro-muted-2">{conn.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-text hover:bg-white/5 transition-colors">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div
+          className="flex items-center justify-center rounded-xl overflow-hidden"
+          style={{ background: "rgba(255,255,255,0.96)", aspectRatio: "1", minHeight: 240 }}
+        >
+          {loadingQr ? (
+            <Loader2 className="w-8 h-8 text-agro-green animate-spin" />
+          ) : qrcode ? (
+            <img src={`data:image/png;base64,${qrcode}`} alt="QR Code WhatsApp" className="w-full h-full object-contain p-2" />
+          ) : (
+            <p className="text-sm text-gray-400">QR Code indisponível</p>
+          )}
+        </div>
+
+        <div className="text-center space-y-2">
+          {polling && (
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-agro-green animate-pulse" />
+              <p className="text-xs text-agro-muted">Aguardando conexão…</p>
+            </div>
+          )}
+          <p className="text-[11px] text-agro-muted-2">Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo</p>
+        </div>
+
+        <button
+          onClick={fetchQr}
+          disabled={loadingQr}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-50"
+          style={{ border: "1px solid rgba(63,176,108,0.2)" }}
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", loadingQr && "animate-spin")} />
+          Atualizar QR Code
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Settings page ─────────────────────────────────────────────────
 
 export function Settings() {
@@ -384,6 +604,12 @@ export function Settings() {
     }
     setSupportEmailSaving(false);
   }
+
+  // ── Z-API connections state ───────────────────────────────────────
+  const { connections: zApiConnections, deleteConnection: deleteZApiConnection, refetch: refetchZApi } =
+    useZApiConnections(WORKSPACE_ID);
+  const [showZApiAdd,  setShowZApiAdd]  = useState(false);
+  const [zApiQrTarget, setZApiQrTarget] = useState<ZApiConnection | null>(null);
 
   // ── AI Provider state ─────────────────────────────────────────────
   const [aiProvider,       setAiProvider]       = useState<"anthropic" | "openai">("anthropic");
@@ -1095,6 +1321,77 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
+        {/* ── Conexões Z-API ───────────────────── */}
+        <div className="animate-fade-up-delay-1">
+          <DarkCard title="Conexões Z-API" subtitle="WhatsApp via API não-oficial (texto livre, sem templates)">
+
+            {/* List */}
+            {zApiConnections.length > 0 && (
+              <div className="space-y-2">
+                {zApiConnections.map((conn) => {
+                  const statusColor =
+                    conn.status === "connected"    ? { bg: "rgba(63,176,108,0.1)",  text: "#3fb06c",  dot: "#3fb06c"  } :
+                    conn.status === "banned"       ? { bg: "rgba(239,68,68,0.1)",   text: "#f87171",  dot: "#f87171"  } :
+                                                    { bg: "rgba(245,158,11,0.1)",   text: "#fbbf24",  dot: "#fbbf24"  };
+                  const statusLabel =
+                    conn.status === "connected"    ? "Conectado"    :
+                    conn.status === "banned"       ? "Banido"       :
+                                                    "Desconectado";
+                  return (
+                    <div
+                      key={conn.id}
+                      className="flex items-center gap-3 p-3 rounded-xl"
+                      style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.08)" }}
+                    >
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.15)" }}>
+                        <Smartphone className="w-3.5 h-3.5 text-agro-green" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-agro-text truncate">{conn.name}</p>
+                        <p className="text-[11px] text-agro-muted-2 truncate">{conn.phone ?? conn.instance_id}</p>
+                      </div>
+                      <span
+                        className="flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                        style={{ background: statusColor.bg, color: statusColor.text }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: statusColor.dot }} />
+                        {statusLabel}
+                      </span>
+                      <button
+                        onClick={() => setZApiQrTarget(conn)}
+                        title="Escanear QR Code"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-green hover:bg-agro-green/10 transition-colors shrink-0"
+                        style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await deleteZApiConnection(conn.id);
+                          toast({ title: "Conexão removida" });
+                        }}
+                        title="Remover conexão"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-colors shrink-0"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowZApiAdd(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-agro-green hover:text-white hover:bg-agro-green/20 transition-colors"
+              style={{ border: "1px solid rgba(63,176,108,0.25)" }}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              {zApiConnections.length > 0 ? "Adicionar outra conexão" : "Adicionar conexão Z-API"}
+            </button>
+          </DarkCard>
+        </div>
+
         {/* ── Deploy & Storage ────────────────── */}
         <div className="animate-fade-up-delay-1">
           <div
@@ -1792,6 +2089,22 @@ CREATE POLICY "avatars_delete" ON storage.objects
           conn={reconnectTarget}
           onClose={() => setReconnectTarget(null)}
           onSaved={() => refetchConnections()}
+        />
+      )}
+
+      {showZApiAdd && (
+        <ZApiAddModal
+          workspaceId={WORKSPACE_ID}
+          onClose={() => setShowZApiAdd(false)}
+          onSaved={() => refetchZApi()}
+        />
+      )}
+
+      {zApiQrTarget && (
+        <ZApiQrModal
+          conn={zApiQrTarget}
+          onClose={() => setZApiQrTarget(null)}
+          onConnected={() => { refetchZApi(); setZApiQrTarget(null); }}
         />
       )}
     </div>
