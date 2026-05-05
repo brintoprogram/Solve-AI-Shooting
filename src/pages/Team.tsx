@@ -822,21 +822,22 @@ export function Team() {
             <span className="ml-auto">{members.length} membro{members.length !== 1 ? "s" : ""} no total</span>
           </div>
         )}
-      </div>
 
-      {/* ── Setores ────────────────────────────────── */}
-      {isAdmin && (
-        <div className="animate-fade-up-delay-1 max-w-2xl space-y-4">
-          <div>
-            <h2 className="font-display text-lg font-bold text-agro-text flex items-center gap-2">
-              <GitBranch className="w-5 h-5 text-agro-green" />
-              Setores
-            </h2>
-            <p className="text-sm text-agro-muted mt-0.5">Configure os departamentos e o roteamento automático de conversas</p>
+        {/* ── Setores ────────────────────────────────── */}
+        {isAdmin && (
+          <div className="animate-fade-up-delay-1 max-w-2xl space-y-4">
+            <div>
+              <h2 className="font-display text-lg font-bold text-agro-text flex items-center gap-2">
+                <GitBranch className="w-5 h-5 text-agro-green" />
+                Setores
+              </h2>
+              <p className="text-sm text-agro-muted mt-0.5">Configure os departamentos e o roteamento automático de conversas</p>
+            </div>
+            <SettingsDepartments workspaceId={workspaceId ?? ""} />
           </div>
-          <SettingsDepartments workspaceId={workspaceId ?? ""} />
-        </div>
-      )}
+        )}
+
+      </div>
 
       {/* ── Modals ──────────────────────────────────── */}
       {showInvite && (
