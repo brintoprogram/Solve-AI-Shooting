@@ -14,6 +14,7 @@ import {
 } from "@/context/AuthContext";
 import type { UserProfile, PermissionKey } from "@/context/AuthContext";
 import type { Department } from "@/types/inbox";
+import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
@@ -822,6 +823,20 @@ export function Team() {
           </div>
         )}
       </div>
+
+      {/* ── Setores ────────────────────────────────── */}
+      {isAdmin && (
+        <div
+          className="rounded-2xl p-6 space-y-5 animate-fade-up-delay-1"
+          style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(20px)", border: "1px solid rgba(63,176,108,0.1)" }}
+        >
+          <div>
+            <h2 className="text-base font-semibold text-agro-text">Setores</h2>
+            <p className="text-sm text-agro-muted mt-0.5">Configure os departamentos e o roteamento automático de conversas</p>
+          </div>
+          <SettingsDepartments workspaceId={workspaceId ?? ""} />
+        </div>
+      )}
 
       {/* ── Modals ──────────────────────────────────── */}
       {showInvite && (

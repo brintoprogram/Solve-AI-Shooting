@@ -502,7 +502,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"setores">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado">("perfil");
 
   const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
   const [testing,  setTesting]    = useState(false);
@@ -1062,7 +1062,6 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "email",     label: "Email",     icon: Mail       },
             { id: "ia",        label: "IA",        icon: Zap        },
             { id: "avancado",  label: "Avançado",  icon: Terminal   },
-            { id: "setores",   label: "Setores",   icon: GitBranch  },
           ];
           return (
             <div
@@ -2172,21 +2171,6 @@ CREATE POLICY "avatars_delete" ON storage.objects
         </div>
 
         </> /* end Avançado tab */}
-
-        {/* ══ Tab: Setores ═══════════════════════════════════ */}
-        {settingsTab === "setores" && <>
-
-        {/* ── Setores ─────────────────────────── */}
-        <div className="animate-fade-up-delay-3">
-          <DarkCard
-            title="Setores"
-            subtitle="Configure os departamentos e o roteamento automático de conversas"
-          >
-            <SettingsDepartments workspaceId={WORKSPACE_ID} />
-          </DarkCard>
-        </div>
-
-        </> /* end Setores tab */}
 
         </>) : (
           <div
