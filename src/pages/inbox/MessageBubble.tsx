@@ -146,7 +146,7 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           {senderLabel}
         </span>
       )}
-      <div className={`relative max-w-[72%]`}>
+      <div className="relative max-w-[72%] min-w-[80px]">
         {/* Delete button — outbound only */}
         {!isInbound && onDelete && (
           <DeleteButton
@@ -160,12 +160,12 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           className={`rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
           style={isTemplate ? { background: "transparent" } : (
             isInbound
-              ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)" }
-              : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)" }
+              ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
+              : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
           )}
         >
           <MessageContent message={message} />
-          <div className={`flex items-center justify-end gap-1 mt-1 select-none ${isTemplate ? "px-1" : ""}`}>
+          <div className={`flex items-center justify-end gap-1 mt-1 select-none opacity-65 ${isTemplate ? "px-1" : ""}`}>
             <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
             {!isInbound && <StatusTicks message={message} />}
           </div>

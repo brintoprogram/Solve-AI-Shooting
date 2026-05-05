@@ -825,7 +825,7 @@ export function Team() {
 
         {/* ── Setores ────────────────────────────────── */}
         {isAdmin && (
-          <div className="animate-fade-up-delay-1 max-w-2xl space-y-4">
+          <div className="animate-fade-up-delay-1 space-y-4">
             <div>
               <h2 className="font-display text-lg font-bold text-agro-text flex items-center gap-2">
                 <GitBranch className="w-5 h-5 text-agro-green" />

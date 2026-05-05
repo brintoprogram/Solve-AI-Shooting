@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, MessageSquareDashed, Clock, User, List, Pin, Archive, GitBranch } from "lucide-react";
+import { Search, MessageSquareDashed, Clock, User, List, Archive } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useAuth, initials as profileInitials, ROLE_STYLE } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
@@ -36,7 +36,6 @@ export function ConversationList({
   const myId           = profile?.id ?? "";
   const isAdminManager = profile ? ["admin", "manager"].includes(profile.role) : false;
 
-  // ── Tab filtering ──────────────────────────────────
   const tabs: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: "waiting",  label: "Aguardando",  icon: Clock   },
     { id: "mine",     label: "Minhas",      icon: User    },
@@ -46,10 +45,10 @@ export function ConversationList({
 
   const active = conversations.filter((c) => !c.archived);
   const byTab = (activeTab === "archived" ? conversations.filter((c) => c.archived) : active).filter((c) => {
-    if (activeTab === "waiting") return c.assigned_to === null;
-    if (activeTab === "mine")    return c.assigned_to === myId;
+    if (activeTab === "waiting")  return c.assigned_to === null;
+    if (activeTab === "mine")     return c.assigned_to === myId;
     if (activeTab === "archived") return true;
-    return true; // "all"
+    return true;
   });
 
   const byDept = activeDept === "__central"
@@ -68,14 +67,12 @@ export function ConversationList({
       const q = search.toLowerCase();
       return name.includes(q) || c.inbox_contacts.phone.includes(q);
     })
-    // Pinned conversations float to the top
     .sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
       return 0;
     });
 
-  // Tab counts (from unfiltered conversations, ignoring search)
   const counts: Record<TabId, number> = {
     waiting:  active.filter((c) => c.assigned_to === null).length,
     mine:     active.filter((c) => c.assigned_to === myId).length,
@@ -83,17 +80,16 @@ export function ConversationList({
     archived: conversations.filter((c) => c.archived).length,
   };
 
-  // Member lookup map
   const memberMap = new Map(teamMembers.map((m) => [m.id, m]));
 
   return (
     <div
-      className="flex flex-col w-full md:w-[300px] md:shrink-0 overflow-hidden"
+      className="flex flex-col w-full md:w-[360px] md:shrink-0 overflow-hidden"
       style={{ borderRight: "1px solid rgba(63,176,108,0.1)" }}
     >
       {/* ── Header ──────────────────────────────────── */}
-      <div className="px-4 pt-4 pb-3" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
-        {/* Title */}
+      <div className="px-4 pt-4 pb-0" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+        {/* Title row */}
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display text-sm font-bold text-agro-text">Conversas</h2>
           {counts.waiting > 0 && (
@@ -106,40 +102,44 @@ export function ConversationList({
           )}
         </div>
 
-        {/* Filter tabs */}
-        <div
-          className="flex rounded-xl overflow-hidden p-0.5 mb-3"
-          style={{
-            background: "rgba(0,0,0,0.25)",
-            border: "1px solid rgba(63,176,108,0.08)",
-          }}
-        >
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-agro-muted-2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Buscar contato ou número..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input-agro w-full pl-8 text-xs h-9"
+            style={{ transition: "box-shadow 0.15s" }}
+            onFocus={(e) => { e.currentTarget.style.boxShadow = "0 0 0 2px rgba(63,176,108,0.2)"; }}
+            onBlur={(e) => { e.currentTarget.style.boxShadow = "none"; }}
+          />
+        </div>
+
+        {/* Tabs — underline style */}
+        <div className="flex">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-semibold transition-all duration-150"
+                className="flex-1 flex items-center justify-center gap-1 pb-2.5 pt-1 text-[10px] font-semibold transition-colors duration-150"
                 style={
                   isActive
-                    ? {
-                        background: "rgba(63,176,108,0.18)",
-                        color: "#3fb06c",
-                        border: "1px solid rgba(63,176,108,0.3)",
-                      }
-                    : { color: "#6b8a75", background: "transparent", border: "1px solid transparent" }
+                    ? { color: "#3fb06c", borderBottom: "2px solid #3fb06c" }
+                    : { color: "#4a6052", borderBottom: "2px solid transparent" }
                 }
               >
-                <tab.icon className="w-3 h-3 shrink-0" />
                 <span>{tab.label}</span>
                 {counts[tab.id] > 0 && (
                   <span
-                    className="ml-0.5 text-[8px] font-bold px-1 py-0.5 rounded-full"
+                    className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
                     style={
                       isActive
-                        ? { background: "rgba(63,176,108,0.3)", color: "#3fb06c" }
-                        : { background: "rgba(255,255,255,0.06)", color: "#6b8a75" }
+                        ? { background: "rgba(63,176,108,0.2)", color: "#3fb06c" }
+                        : { background: "rgba(255,255,255,0.05)", color: "#4a6052" }
                     }
                   >
                     {counts[tab.id]}
@@ -149,98 +149,87 @@ export function ConversationList({
             );
           })}
         </div>
+      </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-agro-muted-2 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Buscar contato ou número..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-agro w-full pl-8 text-xs h-9"
-          />
-        </div>
-
-        {/* Department filter chips */}
-        {departments.length > 0 && (
-          <div className="flex gap-1.5 flex-wrap pt-2">
-            <button
-              onClick={() => setActiveDept(null)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-              style={!activeDept
-                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
-                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-              }
-            >
-              Todos
-            </button>
-            <button
-              onClick={() => setActiveDept("__central")}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-              style={activeDept === "__central"
-                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
-                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-              }
-            >
-              Central
-            </button>
-            {departments.map((d) => (
+      {/* ── Chips de filtro ──────────────────────────── */}
+      {(departments.length > 0 || connections.length > 1) && (
+        <div className="px-4 py-2 flex flex-col gap-1.5" style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
+          {/* Department filter */}
+          {departments.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
               <button
-                key={d.id}
-                onClick={() => setActiveDept(d.id)}
+                onClick={() => setActiveDept(null)}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-                style={activeDept === d.id
-                  ? { background: `${d.color}30`, color: d.color, border: `1px solid ${d.color}60` }
+                style={!activeDept
+                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
                   : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
                 }
               >
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                {d.name}
+                Todos
               </button>
-            ))}
-          </div>
-        )}
-
-        {/* Connection filter chips — only visible when >1 connection */}
-        {connections.length > 1 && (
-          <div className="flex gap-1.5 flex-wrap pt-2">
-            <button
-              onClick={() => setActiveConn(null)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-              style={!activeConn
-                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
-                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-              }
-            >
-              Todos números
-            </button>
-            {connections.map((conn) => {
-              const isMeta   = conn.type === "meta";
-              const accent   = isMeta ? "#1877F2" : "#f59e0b";
-              const isActive = activeConn === conn.id;
-              return (
+              <button
+                onClick={() => setActiveDept("__central")}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                style={activeDept === "__central"
+                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                }
+              >
+                Central
+              </button>
+              {departments.map((d) => (
                 <button
-                  key={conn.id}
-                  onClick={() => setActiveConn(conn.id)}
+                  key={d.id}
+                  onClick={() => setActiveDept(d.id)}
                   className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-                  style={isActive
-                    ? { background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }
+                  style={activeDept === d.id
+                    ? { background: `${d.color}25`, color: d.color, border: `1px solid ${d.color}55` }
                     : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
                   }
                 >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: isActive ? accent : "#6b8a75" }}
-                  />
-                  <span>{isMeta ? "Meta" : "Z-API"}</span>
-                  <span className="opacity-70">· {shortPhone(conn.phone || conn.label)}</span>
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                  {d.name}
                 </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+
+          {/* Connection filter (only when >1) */}
+          {connections.length > 1 && (
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => setActiveConn(null)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                style={!activeConn
+                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                }
+              >
+                Todos números
+              </button>
+              {connections.map((conn) => {
+                const accent   = conn.type === "meta" ? "#1877F2" : "#f59e0b";
+                const isActive = activeConn === conn.id;
+                return (
+                  <button
+                    key={conn.id}
+                    onClick={() => setActiveConn(conn.id)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                    style={isActive
+                      ? { background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }
+                      : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                    }
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: isActive ? accent : "#6b8a75" }} />
+                    <span>{conn.type === "meta" ? "Meta" : "Z-API"}</span>
+                    <span className="opacity-70">· {shortPhone(conn.phone || conn.label)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── List ────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -277,15 +266,24 @@ export function ConversationList({
           const hasUnread   = conv.unread_count > 0;
           const assignee    = conv.assigned_to ? memberMap.get(conv.assigned_to) : null;
 
+          // Status bar color: urgente > aguardando atendente > ativo > arquivada
+          const statusColor = conv.archived
+            ? "#374151"
+            : conv.tags?.includes("urgente")
+            ? "#ef4444"
+            : conv.last_message_direction === "inbound"
+            ? "#f59e0b"
+            : "#3fb06c";
+
           return (
             <button
               key={conv.id}
               onClick={() => onSelect(conv)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left relative group transition-colors duration-100"
+              className="w-full flex items-start gap-3 px-4 py-3 text-left relative group transition-colors duration-100"
               style={
                 isSelected
-                  ? { background: "rgba(63,176,108,0.1)", borderLeft: "2px solid #3fb06c" }
-                  : { borderLeft: "2px solid transparent" }
+                  ? { background: "rgba(63,176,108,0.1)", borderLeft: `3px solid ${statusColor}` }
+                  : { borderLeft: `3px solid ${statusColor}` }
               }
             >
               {!isSelected && (
@@ -295,15 +293,14 @@ export function ConversationList({
                 />
               )}
 
-              {/* Contact avatar with optional assignee micro-badge */}
+              {/* Avatar — 44px */}
               <div className="relative shrink-0">
                 <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white select-none"
+                  className="w-11 h-11 rounded-full flex items-center justify-center text-xs font-bold text-white select-none"
                   style={{ background: hashColor(displayName) }}
                 >
                   {initials(displayName)}
                 </div>
-
                 {/* Online dot */}
                 <div
                   className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2"
@@ -312,26 +309,40 @@ export function ConversationList({
               </div>
 
               {/* Info */}
-              <div className="flex-1 min-w-0 relative">
-                <div className="flex items-baseline justify-between gap-1">
-                  <div className="flex items-center gap-1 min-w-0">
+              <div className="flex-1 min-w-0">
+                {/* Row 1: Name + time + unread */}
+                <div className="flex items-start justify-between gap-1 mb-0.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     {conv.pinned && (
-                      <Pin className="w-2.5 h-2.5 shrink-0 text-amber-400" style={{ transform: "rotate(45deg)" }} />
+                      <svg className="w-2.5 h-2.5 shrink-0 text-amber-400 fill-amber-400" viewBox="0 0 24 24">
+                        <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                      </svg>
                     )}
                     <p
-                      className={`text-sm truncate ${
-                        hasUnread ? "font-semibold text-agro-text" : "font-medium text-agro-text-2"
+                      className={`text-[13px] truncate leading-tight ${
+                        hasUnread ? "font-semibold text-white" : "font-medium text-agro-text-2"
                       }`}
                     >
                       {displayName}
                     </p>
                   </div>
-                  <p className="text-[10px] text-agro-muted-2 shrink-0">
-                    {formatTime(conv.last_message_at)}
-                  </p>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <p className="text-[10px] text-agro-muted-2 whitespace-nowrap">
+                      {formatTime(conv.last_message_at)}
+                    </p>
+                    {hasUnread && (
+                      <span
+                        className="min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold text-white px-1"
+                        style={{ background: "#3fb06c" }}
+                      >
+                        {conv.unread_count > 99 ? "99+" : conv.unread_count}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-1 mt-0.5">
+                {/* Row 2: Preview + assignee */}
+                <div className="flex items-center justify-between gap-1">
                   <p
                     className={`text-xs truncate flex items-center gap-1 ${
                       hasUnread ? "text-agro-muted" : "text-agro-muted-2"
@@ -343,25 +354,16 @@ export function ConversationList({
                     {conv.last_message_body ?? ""}
                   </p>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isAdminManager && (
-                      <AssigneeMini assignee={assignee} />
-                    )}
-                    {hasUnread && (
-                      <span
-                        className="min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white px-1"
-                        style={{ background: "#3fb06c" }}
-                      >
-                        {conv.unread_count > 99 ? "99+" : conv.unread_count}
-                      </span>
-                    )}
-                  </div>
+                  {/* Assignee — só mostra se atribuído e admin/manager */}
+                  {isAdminManager && assignee && (
+                    <AssigneeMini assignee={assignee} />
+                  )}
                 </div>
 
-                {/* Tag badges */}
-                {conv.tags?.length > 0 && (
-                  <div className="flex items-center gap-1 mt-1 flex-wrap">
-                    {conv.tags.map((tag) => {
+                {/* Row 3: Tags + dept + connection badges */}
+                {(conv.tags?.length > 0 || conv.departments || connections.length > 1) && (
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {conv.tags?.map((tag) => {
                       const cfg = CONVERSATION_TAGS[tag];
                       if (!cfg) return null;
                       return (
@@ -374,19 +376,13 @@ export function ConversationList({
                         </span>
                       );
                     })}
-                  </div>
-                )}
-
-                {/* Department + provider badges */}
-                {(conv.departments || connections.length > 1) && (
-                  <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {conv.departments && (
                       <span
                         className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex items-center gap-1"
                         style={{
                           color:      conv.departments.color,
-                          background: `${conv.departments.color}20`,
-                          border:     `1px solid ${conv.departments.color}50`,
+                          background: `${conv.departments.color}18`,
+                          border:     `1px solid ${conv.departments.color}45`,
                         }}
                       >
                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: conv.departments.color }} />
@@ -402,7 +398,7 @@ export function ConversationList({
                       return (
                         <span
                           className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
-                          style={{ color: accent, background: `${accent}18`, border: `1px solid ${accent}40` }}
+                          style={{ color: accent, background: `${accent}15`, border: `1px solid ${accent}35` }}
                         >
                           {connInfo.type === "meta" ? "Meta" : "Z-API"}
                         </span>
@@ -421,22 +417,7 @@ export function ConversationList({
 
 // ── Sub-components ─────────────────────────────────────────
 
-function AssigneeMini({ assignee }: { assignee: UserProfile | null | undefined }) {
-  if (!assignee) {
-    return (
-      <span
-        className="text-[9px] font-medium px-1.5 py-0.5 rounded-md shrink-0"
-        style={{
-          background: "rgba(255,255,255,0.03)",
-          color: "rgba(107,138,117,0.5)",
-          border: "1px dashed rgba(63,176,108,0.18)",
-        }}
-      >
-        livre
-      </span>
-    );
-  }
-
+function AssigneeMini({ assignee }: { assignee: UserProfile }) {
   const firstName = (assignee.full_name ?? "Agente").split(" ")[0];
   const label     = firstName.length > 8 ? firstName.slice(0, 7) + "…" : firstName;
 

@@ -305,36 +305,26 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         transition: "border-color 0.2s",
       }}
     >
-      {/* ── Mode tabs ──────────────────────────────────────── */}
-      <div className="flex gap-1 mb-2">
+      {/* ── Mode tabs — underline style ────────────────────── */}
+      <div className="flex mb-2" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
         <button
           onClick={() => setIsNote(false)}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all"
-          style={!isNote ? {
-            background: "rgba(63,176,108,0.15)",
-            color:      "#3fb06c",
-            border:     "1px solid rgba(63,176,108,0.3)",
-          } : {
-            background: "transparent",
-            color:      "#6b8a75",
-            border:     "1px solid rgba(63,176,108,0.08)",
-          }}
+          className="flex items-center gap-1.5 px-3 pb-2 pt-1 text-xs font-semibold transition-colors duration-150"
+          style={!isNote
+            ? { color: "#3fb06c", borderBottom: "2px solid #3fb06c", marginBottom: -1 }
+            : { color: "#4a6052", borderBottom: "2px solid transparent", marginBottom: -1 }
+          }
         >
           <MessageSquare className="w-3 h-3" />
           Mensagem
         </button>
         <button
           onClick={() => setIsNote(true)}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all"
-          style={isNote ? {
-            background: "rgba(245,158,11,0.15)",
-            color:      "#f59e0b",
-            border:     "1px solid rgba(245,158,11,0.3)",
-          } : {
-            background: "transparent",
-            color:      "#6b8a75",
-            border:     "1px solid rgba(63,176,108,0.08)",
-          }}
+          className="flex items-center gap-1.5 px-3 pb-2 pt-1 text-xs font-semibold transition-colors duration-150"
+          style={isNote
+            ? { color: "#f59e0b", borderBottom: "2px solid #f59e0b", marginBottom: -1 }
+            : { color: "#4a6052", borderBottom: "2px solid transparent", marginBottom: -1 }
+          }
         >
           <StickyNote className="w-3 h-3" />
           Nota interna
@@ -628,30 +618,30 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
           </div>
         )}
 
-        {/* Send */}
+        {/* Send — circular, proeminente */}
         <button
           onClick={handleSend}
           disabled={!canSend}
           title={isNote ? "Salvar nota (Enter)" : "Enviar (Enter)"}
-          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed ml-1"
+          className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed ml-1"
           style={canSend
             ? {
                 background: isNote
                   ? "linear-gradient(135deg, #f59e0b, #d97706)"
                   : "linear-gradient(135deg, #3fb06c, #16A34A)",
                 boxShadow: isNote
-                  ? "0 4px 14px rgba(245,158,11,0.35)"
-                  : "0 4px 14px rgba(63,176,108,0.35)",
+                  ? "0 2px 10px rgba(245,158,11,0.4)"
+                  : "0 2px 10px rgba(63,176,108,0.4)",
               }
             : {
                 background: "rgba(13,26,17,0.6)",
-                border:     `1px solid ${accentAlpha},0.1)`,
+                border:     `1px solid ${accentAlpha},0.12)`,
               }
           }
         >
           {sending
-            ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
-            : <Send className="w-3.5 h-3.5 text-white" />
+            ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+            : <Send className="w-4 h-4 text-white" />
           }
         </button>
       </div>
@@ -703,10 +693,10 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         </div>
       )}
 
-      <p className="text-[10px] text-agro-muted-2 mt-1.5 ml-1 select-none">
+      <p className="text-[10px] text-agro-muted-2 mt-1.5 text-right pr-1 select-none opacity-60">
         {isNote
           ? "Nota interna · visível apenas para a equipe"
-          : "Enter para enviar · Shift+Enter para nova linha"
+          : "Enter para enviar · Shift+Enter nova linha"
         }
       </p>
     </div>

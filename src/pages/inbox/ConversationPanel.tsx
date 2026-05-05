@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch, Info } from "lucide-react";
 import type { InboxConversation, Department } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
@@ -55,7 +55,9 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
   const { messages, loading, deleteMessage } = useInboxMessages(conversation.id);
   const bottomRef   = useRef<HTMLDivElement>(null);
   const resolvedRef = useRef<Set<string>>(new Set());
-  const [showHistory, setShowHistory] = useState(false);
+  const [showPanel, setShowPanel] = useState(() => {
+    try { return localStorage.getItem("inbox_panel_open") === "true"; } catch { return false; }
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -87,59 +89,60 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
           backdropFilter: "blur(8px)",
         }}
       >
-        {/* Row 1: avatar, name, status, menu */}
+        {/* Row 1: back button, avatar, name/phone, actions */}
         <div className="flex items-center gap-3">
           {onBack && (
             <button
               onClick={onBack}
-              className="md:hidden p-1.5 -ml-1 mr-0 rounded-lg text-agro-muted hover:text-agro-text transition-colors shrink-0"
+              className="md:hidden p-1.5 -ml-1 mr-0 rounded-lg text-agro-muted hover:text-agro-text hover:bg-white/5 transition-colors shrink-0"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
           )}
+
           <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 select-none"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 select-none"
             style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
           >
             {initials(displayName)}
           </div>
 
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-agro-text truncate leading-none">
+            <p className="text-sm font-semibold text-agro-text truncate leading-tight">
               {displayName}
             </p>
-            <p className="text-[11px] text-agro-muted font-mono mt-0.5">{contact.phone}</p>
+            <p className="text-[11px] text-agro-muted-2 font-mono mt-0.5">{contact.phone}</p>
           </div>
 
-          <StatusBadge status={conversation.status} />
+          {/* Actions cluster — right side */}
+          <div className="flex items-center gap-1 shrink-0">
+            <StatusBadge status={conversation.status} />
 
-          <img
-            src="/logo.png"
-            alt="Solve AI"
-            className="h-6 w-auto object-contain opacity-40"
-            style={{ filter: "drop-shadow(0 0 4px rgba(63,176,108,0.3))" }}
-          />
+            <button
+              onClick={() => {
+                const next = !showPanel;
+                setShowPanel(next);
+                try { localStorage.setItem("inbox_panel_open", String(next)); } catch { /* noop */ }
+              }}
+              title="Informações do contato"
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/5"
+              style={
+                showPanel
+                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                  : { color: "#6b8a75", border: "1px solid rgba(63,176,108,0.1)" }
+              }
+            >
+              <Info className="w-4 h-4" />
+            </button>
 
-          <button
-            onClick={() => setShowHistory((v) => !v)}
-            title="Histórico do cliente"
-            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-            style={
-              showHistory
-                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
-                : { color: "#6b8a75", border: "1px solid rgba(63,176,108,0.1)" }
-            }
-          >
-            <ClipboardList className="w-4 h-4" />
-          </button>
-
-          <ConversationActionsMenu
-            conversation={conversation}
-            onPin={onPin}
-            onArchive={onArchive}
-            onDelete={onDelete}
-            onUpdateTags={onUpdateTags}
-          />
+            <ConversationActionsMenu
+              conversation={conversation}
+              onPin={onPin}
+              onArchive={onArchive}
+              onDelete={onDelete}
+              onUpdateTags={onUpdateTags}
+            />
+          </div>
         </div>
 
         {/* Row 2: assignment bar */}
@@ -156,7 +159,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
 
       {/* ── Message list ───────────────────────────────────── */}
       <div
-        className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4"
+        className="flex-1 overflow-y-auto scrollbar-thin px-5 py-5"
         style={{ background: "rgba(8,14,10,0.6)" }}
       >
         {loading && (
@@ -206,39 +209,142 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
       </div>{/* end main column */}
 
       {/* ── History sidebar ─────────────────────────────────── */}
-      {showHistory && contact.phone && (
+      {showPanel && (
         <div
-          className="flex flex-col overflow-hidden shrink-0"
+          className="flex flex-col overflow-hidden shrink-0 lg:relative absolute inset-y-0 right-0 z-30"
           style={{
-            width: 280,
+            width: 300,
             borderLeft: "1px solid rgba(63,176,108,0.1)",
-            background: "rgba(8,14,10,0.7)",
+            background: "rgba(8,14,10,0.97)",
+            backdropFilter: "blur(12px)",
           }}
         >
-          {/* Sidebar header */}
+          {/* Panel header */}
           <div
             className="flex items-center justify-between px-4 py-3 shrink-0"
             style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
           >
             <div className="flex items-center gap-2">
-              <ClipboardList className="w-3.5 h-3.5 text-[#3fb06c]" />
-              <span className="text-xs font-semibold text-agro-text">Histórico</span>
+              <Info className="w-3.5 h-3.5 text-[#3fb06c]" />
+              <span className="text-xs font-semibold text-agro-text">Informações</span>
             </div>
             <button
-              onClick={() => setShowHistory(false)}
-              className="w-6 h-6 flex items-center justify-center rounded text-agro-muted hover:text-agro-text transition-colors"
+              onClick={() => {
+                setShowPanel(false);
+                try { localStorage.setItem("inbox_panel_open", "false"); } catch { /* noop */ }
+              }}
+              className="w-6 h-6 flex items-center justify-center rounded text-agro-muted hover:text-agro-text hover:bg-white/5 transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* History content */}
-          <div className="flex-1 overflow-hidden p-3">
-            <ContactHistory
-              phone={contact.phone}
-              contactName={contact.name ?? undefined}
-              workspaceId={workspaceId ?? ""}
-            />
+          {/* Panel body */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin divide-y" style={{ borderColor: "rgba(63,176,108,0.06)" }}>
+
+            {/* ── Contato ── */}
+            <div className="px-4 py-4">
+              <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider mb-3">Contato</p>
+              <div className="flex items-center gap-3 mb-2">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                  style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+                >
+                  {initials(displayName)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-agro-text truncate">{displayName}</p>
+                  <p className="text-[11px] text-agro-muted-2 font-mono">{contact.phone}</p>
+                </div>
+              </div>
+              {contact.first_seen_at && (
+                <p className="text-[10px] text-agro-muted-2">
+                  Cliente desde {format(new Date(contact.first_seen_at), "dd/MM/yyyy")}
+                </p>
+              )}
+            </div>
+
+            {/* ── Tags ── */}
+            <div className="px-4 py-4">
+              <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider mb-2.5">Tags</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(CONVERSATION_TAGS).map(([key, cfg]) => {
+                  const active = (conversation.tags ?? []).includes(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        const current = conversation.tags ?? [];
+                        const next = current.includes(key) ? current.filter((t) => t !== key) : [...current, key];
+                        onUpdateTags(next);
+                      }}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                      style={active
+                        ? { color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}` }
+                        : { color: "#4a6052", background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.08)" }
+                      }
+                    >
+                      {active && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cfg.color }} />}
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── Atribuição ── */}
+            <div className="px-4 py-4">
+              <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider mb-2.5">Atribuição</p>
+              {conversation.assigned_to ? (() => {
+                const assignee = teamMembers.find((m) => m.id === conversation.assigned_to);
+                return (
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                      style={{ background: ROLE_STYLE[assignee?.role ?? "agent"]?.color ?? "#6b7280" }}
+                    >
+                      {profileInitials(assignee?.full_name ?? "?").slice(0, 2)}
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-agro-text">{assignee?.full_name ?? "Agente"}</p>
+                      <p className="text-[10px] text-agro-muted-2">{ROLE_LABELS[assignee?.role ?? "agent"] ?? "Agente"}</p>
+                    </div>
+                  </div>
+                );
+              })() : (
+                <p className="text-xs text-agro-muted-2">Na fila · sem atribuição</p>
+              )}
+            </div>
+
+            {/* ── Setor ── */}
+            {conversation.departments && (
+              <div className="px-4 py-4">
+                <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider mb-2.5">Setor</p>
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                  style={{
+                    color: conversation.departments.color,
+                    background: `${conversation.departments.color}18`,
+                    border: `1px solid ${conversation.departments.color}45`,
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: conversation.departments.color }} />
+                  {conversation.departments.name}
+                </span>
+              </div>
+            )}
+
+            {/* ── Notas & Histórico ── */}
+            <div className="px-4 py-4">
+              <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider mb-3">Notas & Histórico</p>
+              {contact.phone && (
+                <ContactHistory
+                  phone={contact.phone}
+                  contactName={contact.name ?? undefined}
+                  workspaceId={workspaceId ?? ""}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -786,17 +892,18 @@ function DeptTransferDropdown({ conversation, departments, onTransfer, saving }:
 function DateSeparator({ date }: { date: string }) {
   const d = new Date(date);
   let label: string;
-  if (isToday(d))     label = "Hoje";
+  if (isToday(d))          label = "Hoje";
   else if (isYesterday(d)) label = "Ontem";
-  else label = format(d, "dd/MM/yyyy");
+  else                     label = format(d, "dd/MM/yyyy");
 
   return (
-    <div className="flex items-center gap-3 my-4">
-      <div className="flex-1 h-px" style={{ background: "rgba(63,176,108,0.07)" }} />
-      <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest px-1 whitespace-nowrap">
+    <div className="flex items-center justify-center my-5">
+      <span
+        className="text-[10px] font-medium text-agro-muted-2 px-3 py-1 rounded-full select-none"
+        style={{ background: "rgba(0,0,0,0.35)", border: "1px solid rgba(63,176,108,0.08)" }}
+      >
         {label}
-      </p>
-      <div className="flex-1 h-px" style={{ background: "rgba(63,176,108,0.07)" }} />
+      </span>
     </div>
   );
 }
