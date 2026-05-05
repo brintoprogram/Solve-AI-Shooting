@@ -502,6 +502,8 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"setores">("perfil");
+
   const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
   const [testing,  setTesting]    = useState(false);
   const [saving,   setSaving]     = useState(false);
@@ -1052,8 +1054,44 @@ CREATE POLICY "avatars_delete" ON storage.objects
           <p className="text-agro-muted mt-1 text-sm">Perfil, conexões e integrações</p>
         </div>
 
+        {/* ── Tab bar (admin only) ─────────────── */}
+        {hasPermission(profile, "can_settings") && (() => {
+          const TABS: { id: typeof settingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+            { id: "perfil",    label: "Perfil",    icon: User       },
+            { id: "whatsapp",  label: "WhatsApp",  icon: Smartphone },
+            { id: "email",     label: "Email",     icon: Mail       },
+            { id: "ia",        label: "IA",        icon: Zap        },
+            { id: "avancado",  label: "Avançado",  icon: Terminal   },
+            { id: "setores",   label: "Setores",   icon: GitBranch  },
+          ];
+          return (
+            <div
+              className="flex gap-1 p-1 rounded-2xl overflow-x-auto scrollbar-none"
+              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(63,176,108,0.1)" }}
+            >
+              {TABS.map((tab) => {
+                const isActive = settingsTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSettingsTab(tab.id)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0"
+                    style={isActive
+                      ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                      : { color: "#6b8a75", background: "transparent", border: "1px solid transparent" }
+                    }
+                  >
+                    <tab.icon className="w-3.5 h-3.5 shrink-0" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         {/* ── Meu Perfil ───────────────────────── */}
-        <div className="animate-fade-up">
+        {(settingsTab === "perfil" || !hasPermission(profile, "can_settings")) && <div className="animate-fade-up">
           <DarkCard title="Meu Perfil" subtitle="Informações da sua conta">
             <div className="space-y-5">
 
@@ -1146,10 +1184,13 @@ CREATE POLICY "avatars_delete" ON storage.objects
               </button>
             </div>
           </DarkCard>
-        </div>
+        </div>}
 
         {/* ── Sections visíveis apenas para admin ───────────── */}
         {hasPermission(profile, "can_settings") ? (<>
+
+        {/* ══ Tab: WhatsApp ══════════════════════════════════ */}
+        {settingsTab === "whatsapp" && <>
 
         {/* ── Conexões ativas ─────────────────── */}
         {connections.length > 0 && (
@@ -1435,6 +1476,11 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
+        </> /* end WhatsApp tab */}
+
+        {/* ══ Tab: Avançado (Deploy) ═════════════════════════ */}
+        {settingsTab === "avancado" && <>
+
         {/* ── Deploy & Storage ────────────────── */}
         <div className="animate-fade-up-delay-1">
           <div
@@ -1551,6 +1597,11 @@ CREATE POLICY "avatars_delete" ON storage.objects
             )}
           </div>
         </div>
+
+        </> /* end Avançado (Deploy) tab */}
+
+        {/* ══ Tab: Email ═════════════════════════════════════ */}
+        {settingsTab === "email" && <>
 
         {/* ── Conexões de Email ───────────────── */}
         <div className="animate-fade-up-delay-1">
@@ -1902,6 +1953,11 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
+        </> /* end Email tab */}
+
+        {/* ══ Tab: IA ═══════════════════════════════════════ */}
+        {settingsTab === "ia" && <>
+
         {/* ── Inteligência Artificial ──────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard
@@ -2052,6 +2108,11 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
+        </> /* end IA tab */}
+
+        {/* ══ Tab: Avançado ══════════════════════════════════ */}
+        {settingsTab === "avancado" && <>
+
         {/* ── Webhook Meta ─────────────────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard
@@ -2110,6 +2171,11 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
+        </> /* end Avançado tab */}
+
+        {/* ══ Tab: Setores ═══════════════════════════════════ */}
+        {settingsTab === "setores" && <>
+
         {/* ── Setores ─────────────────────────── */}
         <div className="animate-fade-up-delay-3">
           <DarkCard
@@ -2119,6 +2185,8 @@ CREATE POLICY "avatars_delete" ON storage.objects
             <SettingsDepartments workspaceId={WORKSPACE_ID} />
           </DarkCard>
         </div>
+
+        </> /* end Setores tab */}
 
         </>) : (
           <div
