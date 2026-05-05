@@ -1823,7 +1823,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
                     <FieldLabel>Nome do remetente *</FieldLabel>
                     <input
                       className="input-agro w-full"
-                      placeholder="Cobranças Nitro"
+                      placeholder="Ex: Notificações da Empresa"
                       value={emailForm.from_name}
                       onChange={(e) => setEmailForm({ ...emailForm, from_name: e.target.value })}
                     />
@@ -2078,7 +2078,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
                 <input
                   className="input-agro w-full"
                   type="email"
-                  placeholder="brunoaraujo@solveai.consulting"
+                  placeholder="suporte@suaempresa.com"
                   value={supportEmail}
                   onChange={(e) => setSupportEmail(e.target.value)}
                 />
@@ -2092,7 +2092,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
               >
                 <Mail className="w-3.5 h-3.5 text-agro-green shrink-0 mt-0.5" />
                 <span>
-                  Os emails são enviados via <strong className="text-agro-text">Resend API</strong>. Certifique-se de que <code className="text-agro-green">RESEND_API_KEY</code> está configurado nos secrets do Supabase e que o domínio <code className="text-agro-green">solveai.consulting</code> está verificado no painel do Resend.
+                  Os emails são enviados via <strong className="text-agro-text">Resend API</strong>. Certifique-se de que <code className="text-agro-green">RESEND_API_KEY</code> está configurado nos secrets do Supabase e que o domínio do seu email está verificado no painel do Resend.
                 </span>
               </div>
               <button
