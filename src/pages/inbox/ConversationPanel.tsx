@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft } from "lucide-react";
-import type { InboxConversation } from "@/types/inbox";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch } from "lucide-react";
+import type { InboxConversation, Department } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
 import { useInboxMessages } from "@/hooks/useInbox";
@@ -481,7 +481,8 @@ interface AssignmentBarProps {
 }
 
 function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarProps) {
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const isAdminManager = ["admin", "manager"].includes(myProfile.role);
   const assignedToMe   = conversation.assigned_to === myProfile.id;
   const unassigned     = conversation.assigned_to === null;
@@ -490,6 +491,14 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
     ? null
     : teamMembers.find((m) => m.id === conversation.assigned_to) ?? null;
 
+  useEffect(() => {
+    db.from("departments")
+      .select("*")
+      .eq("workspace_id", conversation.workspace_id)
+      .order("order_index", { ascending: true })
+      .then(({ data }: { data: Department[] | null }) => { if (data) setDepartments(data); });
+  }, [conversation.workspace_id]);
+
   async function patch(newAssignedTo: string | null) {
     setSaving(true);
     await db
@@ -497,7 +506,15 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
       .update({ assigned_to: newAssignedTo })
       .eq("id", conversation.id);
     setSaving(false);
-    // Realtime will fire and update the conversation in the parent
+  }
+
+  async function patchDept(deptId: string | null) {
+    setSaving(true);
+    await db
+      .from("inbox_conversations")
+      .update({ department_id: deptId, assigned_to: null })
+      .eq("id", conversation.id);
+    setSaving(false);
   }
 
   return (
@@ -562,13 +579,23 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
         </button>
       )}
 
-      {/* Transfer dropdown — admin/manager only */}
+      {/* Transfer to agent dropdown — admin/manager only */}
       {isAdminManager && teamMembers.length > 0 && (
         <TransferDropdown
           conversation={conversation}
           teamMembers={teamMembers}
           myId={myProfile.id}
           onTransfer={patch}
+          saving={saving}
+        />
+      )}
+
+      {/* Department badge + transfer — admin/manager only */}
+      {isAdminManager && departments.length > 0 && (
+        <DeptTransferDropdown
+          conversation={conversation}
+          departments={departments}
+          onTransfer={patchDept}
           saving={saving}
         />
       )}
@@ -668,6 +695,83 @@ function TransferDropdown({ conversation, teamMembers, myId, onTransfer, saving 
                 {isCurrentAssignee && (
                   <span className="text-[9px] text-agro-muted-2">atual</span>
                 )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DeptTransferDropdown ────────────────────────────────────
+
+interface DeptTransferProps {
+  conversation: InboxConversation;
+  departments:  Department[];
+  onTransfer:   (id: string | null) => void;
+  saving:       boolean;
+}
+
+function DeptTransferDropdown({ conversation, departments, onTransfer, saving }: DeptTransferProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const currentDept = conversation.departments ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        disabled={saving}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full transition-all disabled:opacity-50"
+        style={currentDept
+          ? { background: `${currentDept.color}20`, color: currentDept.color, border: `1px solid ${currentDept.color}50` }
+          : { background: "rgba(107,114,128,0.08)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.2)" }
+        }
+      >
+        <GitBranch className="w-3 h-3" />
+        {currentDept ? currentDept.name : "Setor"}
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-1 z-50 rounded-xl overflow-hidden"
+          style={{
+            background: "rgba(13,26,17,0.98)",
+            border: "1px solid rgba(63,176,108,0.2)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            minWidth: 180,
+          }}
+        >
+          <button
+            onClick={() => { onTransfer(null); setOpen(false); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs text-agro-muted hover:bg-white/5 transition-colors"
+            style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}
+          >
+            <X className="w-3.5 h-3.5 text-agro-muted-2" />
+            Sem setor (fila central)
+          </button>
+          {departments.map((dept) => {
+            const isCurrent = dept.id === conversation.department_id;
+            return (
+              <button
+                key={dept.id}
+                disabled={isCurrent}
+                onClick={() => { onTransfer(dept.id); setOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: dept.color }} />
+                <p className="text-xs text-agro-text flex-1">{dept.name}</p>
+                {isCurrent && <span className="text-[9px] text-agro-muted-2">atual</span>}
               </button>
             );
           })}

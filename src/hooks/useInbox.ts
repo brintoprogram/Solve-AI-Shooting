@@ -17,7 +17,7 @@ export function useInboxConversations(workspaceId?: string) {
     }
     const { data, error } = await db
       .from("inbox_conversations")
-      .select("*, inbox_contacts(*)")
+      .select("*, inbox_contacts(*), departments(*)")
       .eq("workspace_id", workspaceId)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     if (error) console.error("[useInbox] erro ao carregar conversas:", error.message);

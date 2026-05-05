@@ -319,11 +319,59 @@ async function processWebhook(body: Record<string, unknown>) {
         const contactId = await upsertContact(workspaceId, from, profileName, ts);
         if (!contactId) { console.error("[inbox] falhou contato:", from); continue; }
 
-        const shortBody      = buildShortBody(type, msg);
-        const conversationId = await upsertConversation(
+        // Detect routing reply before upsert so we can mark it internal immediately
+        let isRoutingReply = false;
+        let routingDeptId: string | null = null;
+        if (type === "interactive") {
+          const interactive = msg.interactive as Record<string, unknown>;
+          if ((interactive?.type as string) === "list_reply") {
+            const lr             = interactive.list_reply as Record<string, unknown>;
+            const candidateDeptId = lr?.id as string | undefined;
+            if (candidateDeptId) {
+              const { data: dept } = await supabase
+                .from("departments")
+                .select("id")
+                .eq("id", candidateDeptId)
+                .eq("workspace_id", workspaceId)
+                .maybeSingle();
+              if (dept) {
+                isRoutingReply = true;
+                routingDeptId  = candidateDeptId;
+              }
+            }
+          }
+        }
+
+        const shortBody = buildShortBody(type, msg);
+        const { id: conversationId, isNew } = await upsertConversation(
           workspaceId, connectionId, contactId, ts, shortBody
         );
         if (!conversationId) { console.error("[inbox] falhou conversa:", from); continue; }
+
+        // Fire auto-router for brand-new conversations (fire-and-forget)
+        if (isNew && !isRoutingReply) {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")             ?? "";
+          const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          fetch(`${supabaseUrl}/functions/v1/auto-router`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+            body: JSON.stringify({
+              conversation_id: conversationId,
+              workspace_id:    workspaceId,
+              connection_id:   connectionId,
+              contact_phone:   from,
+            }),
+          }).catch((e) => console.error("[auto-router] dispatch error:", e?.message));
+        }
+
+        // Route conversation to selected department
+        if (isRoutingReply && routingDeptId) {
+          await supabase
+            .from("inbox_conversations")
+            .update({ department_id: routingDeptId, status: "open" })
+            .eq("id", conversationId);
+          console.log(`[routing] ✓ conversation ${conversationId} → dept ${routingDeptId}`);
+        }
 
         const fields = extractMessageFields(type, msg);
 
@@ -348,6 +396,7 @@ async function processWebhook(body: Record<string, unknown>) {
             location_address: fields.location_address ?? null,
             reaction_emoji:   fields.reaction_emoji   ?? null,
             reaction_wamid:   fields.reaction_wamid   ?? null,
+            is_internal:      isRoutingReply,
             status:           "delivered",
             created_at:       ts,
           },
@@ -765,10 +814,10 @@ async function upsertContact(
 async function upsertConversation(
   workspaceId: string, connectionId: string,
   contactId: string, ts: string, lastBody: string,
-): Promise<string | null> {
+): Promise<{ id: string | null; isNew: boolean }> {
   const { data: existing, error: fetchErr } = await supabase
     .from("inbox_conversations")
-    .select("id, unread_count")
+    .select("id, unread_count, department_id")
     .eq("workspace_id", workspaceId)
     .eq("contact_id", contactId)
     .maybeSingle();
@@ -784,7 +833,7 @@ async function upsertConversation(
       last_message_direction:  "inbound",
       updated_at:              ts,
     }).eq("id", existing.id);
-    return existing.id as string;
+    return { id: existing.id as string, isNew: false };
   }
 
   const { data: created, error: insertErr } = await supabase
@@ -803,7 +852,7 @@ async function upsertConversation(
     .single();
 
   if (insertErr) console.error("[upsertConversation] insert:", insertErr.message);
-  return (created?.id as string) ?? null;
+  return { id: (created?.id as string) ?? null, isNew: true };
 }
 
 interface MessageFields {

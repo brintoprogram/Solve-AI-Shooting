@@ -13,6 +13,7 @@ import {
   DEFAULT_PERMISSIONS, hasPermission,
 } from "@/context/AuthContext";
 import type { UserProfile, PermissionKey } from "@/context/AuthContext";
+import type { Department } from "@/types/inbox";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
@@ -376,6 +377,9 @@ export function Team() {
   const { toast } = useToast();
   const [members,          setMembers]          = useState<UserProfile[]>([]);
   const [pendingInvites,   setPendingInvites]   = useState<PendingInvite[]>([]);
+  const [departments,      setDepartments]      = useState<Department[]>([]);
+  const [memberDepts,      setMemberDepts]      = useState<Record<string, string | null>>({});
+  const [updatingDept,     setUpdatingDept]     = useState<string | null>(null);
   const [loading,          setLoading]          = useState(true);
   const [updating,         setUpdating]         = useState<string | null>(null);
   const [revoking,         setRevoking]         = useState<string | null>(null);
@@ -393,10 +397,10 @@ export function Team() {
   const load = useCallback(async () => {
     if (!workspaceId) return;
 
-    const [membersRes, invitesRes] = await Promise.all([
+    const [membersRes, invitesRes, deptsRes] = await Promise.all([
       db
         .from("workspace_members")
-        .select("user_id, role, created_at")
+        .select("user_id, role, department_id, created_at")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true }),
       isAdmin
@@ -408,7 +412,14 @@ export function Team() {
             .gte("expires_at", new Date().toISOString())
             .order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
+      db
+        .from("departments")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .order("order_index", { ascending: true }),
     ]);
+
+    if (deptsRes.data) setDepartments(deptsRes.data as Department[]);
 
     if (membersRes.error) {
       console.error("[Team] load error:", membersRes.error.message);
@@ -432,6 +443,10 @@ export function Team() {
           })
           .filter(Boolean) as UserProfile[];
         setMembers(profiles);
+
+        const deptMap: Record<string, string | null> = {};
+        memberRows.forEach((row) => { deptMap[row.user_id] = row.department_id ?? null; });
+        setMemberDepts(deptMap);
       } else {
         setMembers([]);
       }
@@ -521,6 +536,22 @@ export function Team() {
       });
     }
     setUpdating(null);
+  }
+
+  async function handleDeptChange(memberId: string, deptId: string | null) {
+    if (!isAdmin) return;
+    setUpdatingDept(memberId);
+    const { error } = await db
+      .from("workspace_members")
+      .update({ department_id: deptId })
+      .eq("user_id", memberId)
+      .eq("workspace_id", workspaceId);
+    if (error) {
+      toast({ title: "Erro ao atualizar setor", description: error.message, variant: "destructive" });
+    } else {
+      setMemberDepts((prev) => ({ ...prev, [memberId]: deptId }));
+    }
+    setUpdatingDept(null);
   }
 
   return (
@@ -619,6 +650,25 @@ export function Team() {
                     <p className="text-[11px] text-agro-muted-2 mt-0.5">
                       Desde {format(new Date(member.created_at), "dd/MM/yyyy", { locale: ptBR })}
                     </p>
+                    {departments.length > 0 && isAdmin && (
+                      <select
+                        value={memberDepts[member.id] ?? ""}
+                        disabled={updatingDept === member.id}
+                        onChange={(e) => handleDeptChange(member.id, e.target.value || null)}
+                        className="mt-1 input-agro text-[11px] py-0.5 pl-1.5 pr-6 rounded-lg disabled:opacity-50 max-w-[9rem]"
+                        style={{ fontSize: "11px" }}
+                      >
+                        <option value="">Sem setor</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    {departments.length > 0 && !isAdmin && memberDepts[member.id] && (
+                      <span className="text-[11px] text-agro-muted-2 mt-0.5 block">
+                        {departments.find((d) => d.id === memberDepts[member.id])?.name ?? ""}
+                      </span>
+                    )}
                   </div>
 
                   {/* Role badge */}

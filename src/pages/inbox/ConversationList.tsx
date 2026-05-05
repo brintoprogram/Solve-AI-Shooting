@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Search, MessageSquareDashed, Clock, User, List, Pin, Archive } from "lucide-react";
+import { Search, MessageSquareDashed, Clock, User, List, Pin, Archive, GitBranch } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { useAuth, initials as profileInitials, ROLE_STYLE } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
-import type { InboxConversation } from "@/types/inbox";
+import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbox";
 
 type TabId = "waiting" | "mine" | "all" | "archived";
 
@@ -20,14 +20,18 @@ interface Props {
   selectedId: string | null;
   onSelect: (conv: InboxConversation) => void;
   teamMembers: UserProfile[];
+  departments?: Department[];
+  connections?: ConnectionInfo[];
 }
 
 export function ConversationList({
-  conversations, loading, selectedId, onSelect, teamMembers,
+  conversations, loading, selectedId, onSelect, teamMembers, departments = [], connections = [],
 }: Props) {
   const { profile } = useAuth();
-  const [search, setSearch]     = useState("");
-  const [activeTab, setActiveTab] = useState<TabId>("mine");
+  const [search, setSearch]         = useState("");
+  const [activeTab, setActiveTab]   = useState<TabId>("mine");
+  const [activeDept, setActiveDept] = useState<string | null>(null);
+  const [activeConn, setActiveConn] = useState<string | null>(null);
 
   const myId           = profile?.id ?? "";
   const isAdminManager = profile ? ["admin", "manager"].includes(profile.role) : false;
@@ -48,7 +52,17 @@ export function ConversationList({
     return true; // "all"
   });
 
-  const filtered = byTab
+  const byDept = activeDept === "__central"
+    ? byTab.filter((c) => c.department_id === null)
+    : activeDept
+    ? byTab.filter((c) => c.department_id === activeDept)
+    : byTab;
+
+  const byConn = activeConn
+    ? byDept.filter((c) => c.meta_connection_id === activeConn || c.z_api_connection_id === activeConn)
+    : byDept;
+
+  const filtered = byConn
     .filter((c) => {
       const name = (c.inbox_contacts.name ?? c.inbox_contacts.phone).toLowerCase();
       const q = search.toLowerCase();
@@ -147,6 +161,85 @@ export function ConversationList({
             className="input-agro w-full pl-8 text-xs h-9"
           />
         </div>
+
+        {/* Department filter chips */}
+        {departments.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap pt-2">
+            <button
+              onClick={() => setActiveDept(null)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+              style={!activeDept
+                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Todos
+            </button>
+            <button
+              onClick={() => setActiveDept("__central")}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+              style={activeDept === "__central"
+                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Central
+            </button>
+            {departments.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setActiveDept(d.id)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                style={activeDept === d.id
+                  ? { background: `${d.color}30`, color: d.color, border: `1px solid ${d.color}60` }
+                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                }
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                {d.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Connection filter chips — only visible when >1 connection */}
+        {connections.length > 1 && (
+          <div className="flex gap-1.5 flex-wrap pt-2">
+            <button
+              onClick={() => setActiveConn(null)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+              style={!activeConn
+                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Todos números
+            </button>
+            {connections.map((conn) => {
+              const isMeta   = conn.type === "meta";
+              const accent   = isMeta ? "#1877F2" : "#f59e0b";
+              const isActive = activeConn === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  onClick={() => setActiveConn(conn.id)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+                  style={isActive
+                    ? { background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }
+                    : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                  }
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: isActive ? accent : "#6b8a75" }}
+                  />
+                  <span>{isMeta ? "Meta" : "Z-API"}</span>
+                  <span className="opacity-70">· {shortPhone(conn.phone || conn.label)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── List ────────────────────────────────────── */}
@@ -283,6 +376,40 @@ export function ConversationList({
                     })}
                   </div>
                 )}
+
+                {/* Department + provider badges */}
+                {(conv.departments || connections.length > 1) && (
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    {conv.departments && (
+                      <span
+                        className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex items-center gap-1"
+                        style={{
+                          color:      conv.departments.color,
+                          background: `${conv.departments.color}20`,
+                          border:     `1px solid ${conv.departments.color}50`,
+                        }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: conv.departments.color }} />
+                        {conv.departments.name}
+                      </span>
+                    )}
+                    {connections.length > 1 && (() => {
+                      const connInfo = connections.find(
+                        (cn) => cn.id === conv.meta_connection_id || cn.id === conv.z_api_connection_id
+                      );
+                      if (!connInfo) return null;
+                      const accent = connInfo.type === "meta" ? "#1877F2" : "#f59e0b";
+                      return (
+                        <span
+                          className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                          style={{ color: accent, background: `${accent}18`, border: `1px solid ${accent}40` }}
+                        >
+                          {connInfo.type === "meta" ? "Meta" : "Z-API"}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </button>
           );
@@ -370,4 +497,12 @@ function hashColor(str: string): string {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
   return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
+}
+
+function shortPhone(phone: string): string {
+  const d = phone.replace(/\D/g, "");
+  const local = d.startsWith("55") && d.length > 11 ? d.slice(2) : d;
+  if (local.length === 11) return `${local.slice(0, 2)} ${local.slice(2, 7)}-${local.slice(7)}`;
+  if (local.length === 10) return `${local.slice(0, 2)} ${local.slice(2, 6)}-${local.slice(6)}`;
+  return phone;
 }

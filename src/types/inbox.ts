@@ -8,12 +8,31 @@ export interface InboxContact {
   last_seen_at: string;
 }
 
+export interface Department {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+  description: string | null;
+  order_index: number;
+  created_at: string;
+}
+
+export interface ConnectionInfo {
+  id: string;
+  type: "meta" | "zapi";
+  label: string;
+  phone: string;
+}
+
 export interface InboxConversation {
   id: string;
   workspace_id: string;
-  meta_connection_id: string;
+  meta_connection_id: string | null;
+  z_api_connection_id: string | null;
   contact_id: string;
   assigned_to: string | null;
+  department_id: string | null;
   status: "open" | "resolved" | "pending";
   pinned:   boolean;
   archived: boolean;
@@ -25,6 +44,7 @@ export interface InboxConversation {
   created_at: string;
   updated_at: string;
   inbox_contacts: InboxContact;
+  departments: Department | null;
 }
 
 export type MessageType =
@@ -38,6 +58,7 @@ export type MessageType =
   | "reaction"
   | "template"
   | "button_reply"
+  | "interactive"
   | "unsupported";
 
 export interface InboxMessage {

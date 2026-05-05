@@ -4,8 +4,9 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate,
+  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch,
 } from "lucide-react";
+import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
@@ -2106,6 +2107,16 @@ CREATE POLICY "avatars_delete" ON storage.objects
                 Abrir Meta for Developers
               </a>
             </div>
+          </DarkCard>
+        </div>
+
+        {/* ── Setores ─────────────────────────── */}
+        <div className="animate-fade-up-delay-3">
+          <DarkCard
+            title="Setores"
+            subtitle="Configure os departamentos e o roteamento automático de conversas"
+          >
+            <SettingsDepartments workspaceId={WORKSPACE_ID} />
           </DarkCard>
         </div>
 

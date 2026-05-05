@@ -7,7 +7,8 @@ import { useInboxConversations } from "@/hooks/useInbox";
 import { useTeamMembers } from "@/hooks/useTeamMembers";
 import { ConversationList } from "./inbox/ConversationList";
 import { ConversationPanel } from "./inbox/ConversationPanel";
-import type { InboxConversation } from "@/types/inbox";
+import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbox";
+import { supabase } from "@/lib/supabase";
 
 export function Inbox() {
   const workspaceId = useAuth().workspaceId ?? "";
@@ -17,6 +18,44 @@ export function Inbox() {
   } = useInboxConversations(workspaceId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
+  const [departments,  setDepartments]  = useState<Department[]>([]);
+  const [connections,  setConnections]  = useState<ConnectionInfo[]>([]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const db = supabase as any;
+
+    db.from("departments")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("order_index", { ascending: true })
+      .then(({ data }: { data: Department[] | null }) => {
+        if (data) setDepartments(data);
+      });
+
+    Promise.all([
+      db.from("meta_connections")
+        .select("id, display_phone_number, phone_number_id")
+        .eq("workspace_id", workspaceId),
+      db.from("z_api_connections")
+        .select("id, phone, name")
+        .eq("workspace_id", workspaceId),
+    ]).then(([metaRes, zapiRes]) => {
+      const meta: ConnectionInfo[] = (metaRes.data ?? []).map((c: any) => ({
+        id:    c.id,
+        type:  "meta" as const,
+        label: c.display_phone_number ?? c.phone_number_id ?? "Meta",
+        phone: c.display_phone_number ?? c.phone_number_id ?? "",
+      }));
+      const zapi: ConnectionInfo[] = (zapiRes.data ?? []).map((c: any) => ({
+        id:    c.id,
+        type:  "zapi" as const,
+        label: c.name ?? c.phone ?? "Z-API",
+        phone: c.phone ?? "",
+      }));
+      setConnections([...meta, ...zapi]);
+    });
+  }, [workspaceId]);
   const [searchParams] = useSearchParams();
   const targetConvId = searchParams.get("conversation");
   const autoSelectedRef = useRef(false);
@@ -67,6 +106,8 @@ export function Inbox() {
             selectedId={selectedConv?.id ?? null}
             onSelect={handleSelect}
             teamMembers={teamMembers}
+            departments={departments}
+            connections={connections}
           />
         </div>
 
