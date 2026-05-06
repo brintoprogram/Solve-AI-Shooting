@@ -43,13 +43,13 @@ function TemplateContent({ preview }: { preview: TemplatePreview }) {
           </div>
         ) : preview.header.text ? (
           <div className="px-3 pt-3 pb-1">
-            <p className="text-sm font-bold text-agro-text leading-snug">{renderWhatsApp(preview.header.text)}</p>
+            <p className="text-sm font-bold text-agro-text leading-snug break-words">{renderWhatsApp(preview.header.text)}</p>
           </div>
         ) : null
       )}
       {preview.body && (
         <div className="px-3 py-2">
-          <p className="text-sm text-agro-text whitespace-pre-wrap leading-relaxed">{renderWhatsApp(preview.body)}</p>
+          <p className="text-sm text-agro-text whitespace-pre-wrap leading-relaxed break-words">{renderWhatsApp(preview.body)}</p>
         </div>
       )}
       {preview.footer && (
@@ -147,7 +147,7 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           {senderLabel}
         </span>
       )}
-      <div className="relative max-w-[72%] min-w-[80px]">
+      <div className={`relative min-w-[80px] ${isTemplate ? "max-w-[60%]" : "max-w-[72%]"}`}>
         {!isInbound && onDelete && (
           <DeleteButton
             confirmDelete={confirmDelete}
