@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Search, MessageSquareDashed, Clock, User, List, Archive } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
-import { useAuth, initials as profileInitials, ROLE_STYLE } from "@/context/AuthContext";
+import { useAuth } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
 import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbox";
 
@@ -151,83 +151,137 @@ export function ConversationList({
         </div>
       </div>
 
-      {/* ── Chips de filtro ──────────────────────────── */}
-      {(departments.length > 0 || connections.length > 1) && (
-        <div className="px-4 py-2 flex flex-col gap-1.5" style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
-          {/* Department filter */}
-          {departments.length > 0 && (
-            <div className="flex gap-1.5 flex-wrap">
-              <button
-                onClick={() => setActiveDept(null)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+      {/* ── Filtro de Setor ──────────────────────────── */}
+      {departments.length > 0 && (
+        <div className="px-4 pt-3 pb-2.5" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+          <p className="text-[9px] font-bold uppercase tracking-widest mb-2.5" style={{ color: "#4a6052" }}>
+            Setor
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {/* Todos */}
+            <button
+              onClick={() => setActiveDept(null)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
+              style={!activeDept
+                ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.35)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Todos
+              <span
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md min-w-[20px] text-center"
                 style={!activeDept
-                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
-                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                  ? { background: "rgba(63,176,108,0.25)", color: "#3fb06c" }
+                  : { background: "rgba(255,255,255,0.06)", color: "#4a6052" }
                 }
               >
-                Todos
-              </button>
-              <button
-                onClick={() => setActiveDept("__central")}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-                style={activeDept === "__central"
-                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
-                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-                }
-              >
-                Central
-              </button>
-              {departments.map((d) => (
+                {byTab.length}
+              </span>
+            </button>
+
+            {/* Cada departamento */}
+            {departments.map((d) => {
+              const isActive = activeDept === d.id;
+              const count    = byTab.filter((c) => c.department_id === d.id).length;
+              return (
                 <button
                   key={d.id}
-                  onClick={() => setActiveDept(d.id)}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-                  style={activeDept === d.id
-                    ? { background: `${d.color}25`, color: d.color, border: `1px solid ${d.color}55` }
+                  onClick={() => setActiveDept(isActive ? null : d.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
+                  style={isActive
+                    ? { background: `${d.color}22`, color: d.color, border: `1px solid ${d.color}55` }
                     : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
                   }
                 >
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: isActive ? d.color : "#4a6052" }}
+                  />
                   {d.name}
+                  {count > 0 && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-md min-w-[20px] text-center"
+                      style={isActive
+                        ? { background: `${d.color}30`, color: d.color }
+                        : { background: "rgba(255,255,255,0.06)", color: "#4a6052" }
+                      }
+                    >
+                      {count}
+                    </span>
+                  )}
                 </button>
-              ))}
-            </div>
-          )}
+              );
+            })}
 
-          {/* Connection filter (only when >1) */}
-          {connections.length > 1 && (
-            <div className="flex gap-1.5 flex-wrap">
-              <button
-                onClick={() => setActiveConn(null)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
-                style={!activeConn
-                  ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
-                  : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-                }
-              >
-                Todos números
-              </button>
-              {connections.map((conn) => {
-                const accent   = conn.type === "meta" ? "#1877F2" : "#f59e0b";
-                const isActive = activeConn === conn.id;
-                return (
-                  <button
-                    key={conn.id}
-                    onClick={() => setActiveConn(conn.id)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors"
+            {/* Central (sem setor) — só mostra se houver */}
+            {(() => {
+              const count = byTab.filter((c) => c.department_id === null).length;
+              if (count === 0) return null;
+              const isActive = activeDept === "__central";
+              return (
+                <button
+                  onClick={() => setActiveDept(isActive ? null : "__central")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
+                  style={isActive
+                    ? { background: "rgba(107,114,128,0.2)", color: "#9ca3af", border: "1px solid rgba(107,114,128,0.4)" }
+                    : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                  }
+                >
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: isActive ? "#9ca3af" : "#4a6052" }} />
+                  Sem setor
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-md min-w-[20px] text-center"
                     style={isActive
-                      ? { background: `${accent}22`, color: accent, border: `1px solid ${accent}55` }
-                      : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                      ? { background: "rgba(107,114,128,0.25)", color: "#9ca3af" }
+                      : { background: "rgba(255,255,255,0.06)", color: "#4a6052" }
                     }
                   >
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: isActive ? accent : "#6b8a75" }} />
-                    <span>{conn.type === "meta" ? "Meta" : "Z-API"}</span>
-                    <span className="opacity-70">· {shortPhone(conn.phone || conn.label)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    {count}
+                  </span>
+                </button>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ── Filtro de número (só quando >1 conexão) ─── */}
+      {connections.length > 1 && (
+        <div className="px-4 pt-2.5 pb-2" style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
+          <p className="text-[9px] font-bold uppercase tracking-widest mb-2" style={{ color: "#4a6052" }}>
+            Número
+          </p>
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              onClick={() => setActiveConn(null)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+              style={!activeConn
+                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Todos
+            </button>
+            {connections.map((conn) => {
+              const accent   = conn.type === "meta" ? "#1877F2" : "#f59e0b";
+              const isActive = activeConn === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  onClick={() => setActiveConn(conn.id)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                  style={isActive
+                    ? { background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }
+                    : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                  }
+                >
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: isActive ? accent : "#6b8a75" }} />
+                  {conn.type === "meta" ? "Meta" : "Z-API"}
+                  <span className="opacity-60 text-[10px]">· {shortPhone(conn.phone || conn.label)}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
