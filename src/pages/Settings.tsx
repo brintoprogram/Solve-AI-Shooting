@@ -1462,15 +1462,29 @@ CREATE POLICY "avatars_delete" ON storage.objects
               {zApiConnections.length > 0 ? "Adicionar outra conexão" : "Adicionar conexão Z-API"}
             </button>
 
-            {/* Webhook URL */}
-            <div className="mt-5 space-y-2">
-              <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
-                URL do Webhook (entregas)
-              </p>
-              <p className="text-xs text-agro-muted">
-                Configure esta URL no painel Z-API → <strong className="text-agro-text">Webhooks → Delivery Callback</strong> para receber confirmações de entrega e leitura.
-              </p>
-              <ZApiWebhookUrlBox supabaseRef={SUPABASE_REF} />
+            {/* Webhook URLs */}
+            <div className="mt-5 space-y-3">
+              <div>
+                <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-1">
+                  URLs de Webhook
+                </p>
+                <p className="text-xs text-agro-muted">
+                  Cole estas URLs no painel da Z-API → <strong className="text-agro-text">sua instância → Webhooks</strong>. Use a mesma URL nos três campos abaixo.
+                </p>
+              </div>
+              {[
+                { label: "Ao Receber", hint: "Mensagens recebidas do cliente" },
+                { label: "Ao Receber Status da Mensagem", hint: "Entregue, lido, falhou" },
+                { label: "Ao Enviar", hint: "Confirmação de envio" },
+              ].map(({ label, hint }) => (
+                <div key={label}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <p className="text-[11px] font-semibold text-agro-text">{label}</p>
+                    <span className="text-[10px] text-agro-muted-2">· {hint}</span>
+                  </div>
+                  <ZApiWebhookUrlBox supabaseRef={SUPABASE_REF} />
+                </div>
+              ))}
             </div>
           </DarkCard>
         </div>
