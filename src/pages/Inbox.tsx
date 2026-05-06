@@ -18,7 +18,7 @@ export function Inbox() {
 
   const {
     conversations, loading, markAsRead,
-    pinConversation, archiveConversation, deleteConversation, updateTags,
+    pinConversation, archiveConversation, deleteConversation, updateTags, refresh,
   } = useInboxConversations(wsId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
@@ -114,15 +114,16 @@ export function Inbox() {
     setSelectedConv(null);
   }
 
-  function handleConversationCreated(convId: string) {
+  async function handleConversationCreated(convId: string) {
     setShowNewConv(false);
-    // Wait for Realtime to push the new conversation, then select it
-    const check = () => {
-      const found = conversations.find((c) => c.id === convId);
-      if (found) { handleSelect(found); }
-    };
-    setTimeout(check, 800);
-    setTimeout(check, 2000);
+    // Force reload and fetch the new conversation directly (don't rely on Realtime or stale closure)
+    await refresh();
+    const { data } = await (supabase as any)
+      .from("inbox_conversations")
+      .select("*, inbox_contacts(*), departments(*)")
+      .eq("id", convId)
+      .single();
+    if (data) handleSelect(data as InboxConversation);
   }
 
   const visibleConversations = isAdmin || myDeptIds === null

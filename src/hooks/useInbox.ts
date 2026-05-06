@@ -77,7 +77,7 @@ export function useInboxConversations(workspaceId?: string) {
       .eq("id", id).eq("workspace_id", workspaceId);
   }
 
-  return { conversations, loading, markAsRead, pinConversation, archiveConversation, deleteConversation, updateTags };
+  return { conversations, loading, markAsRead, pinConversation, archiveConversation, deleteConversation, updateTags, refresh: load };
 }
 
 export function useInboxMessages(conversationId: string | null) {
