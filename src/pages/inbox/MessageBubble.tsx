@@ -113,7 +113,7 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
             />
           )}
           <div
-            className="rounded-2xl rounded-tr-sm px-3 py-2"
+            className="rounded-2xl rounded-br-sm px-3 py-2"
             style={{
               background: "rgba(30, 20, 0, 0.85)",
               border: "1px solid rgba(245,158,11,0.3)",
@@ -157,7 +157,7 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           />
         )}
         <div
-          className={`rounded-2xl ${isInbound ? "rounded-tl-sm" : "rounded-tr-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
+          className={`rounded-2xl ${isInbound ? "rounded-bl-sm" : "rounded-br-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
           style={isTemplate ? { background: "transparent" } : (
             isInbound
               ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
