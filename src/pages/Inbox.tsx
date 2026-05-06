@@ -42,7 +42,7 @@ export function Inbox() {
 
     Promise.all([
       db.from("meta_connections")
-        .select("id, display_phone_number, phone_number_id")
+        .select("id, display_phone, phone_number_id")
         .eq("workspace_id", wsId),
       db.from("z_api_connections")
         .select("id, phone, name")
@@ -51,8 +51,8 @@ export function Inbox() {
       const meta: ConnectionInfo[] = (metaRes.data ?? []).map((c: any) => ({
         id:    c.id,
         type:  "meta" as const,
-        label: c.display_phone_number ?? c.phone_number_id ?? "Meta",
-        phone: c.display_phone_number ?? c.phone_number_id ?? "",
+        label: c.display_phone ?? c.phone_number_id ?? "Meta",
+        phone: c.display_phone ?? c.phone_number_id ?? "",
       }));
       const zapi: ConnectionInfo[] = (zapiRes.data ?? []).map((c: any) => ({
         id:    c.id,
