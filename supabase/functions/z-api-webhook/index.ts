@@ -346,6 +346,7 @@ async function upsertZApiConversation(
     .select("id, unread_count")
     .eq("workspace_id", workspaceId)
     .eq("contact_id", contactId)
+    .eq("z_api_connection_id", connectionId)
     .maybeSingle();
 
   if (existing) {

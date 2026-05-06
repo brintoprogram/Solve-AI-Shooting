@@ -103,12 +103,13 @@ Deno.serve(async (req: Request) => {
     contactId = newContact.id as string;
   }
 
-  // ── 4. Upsert conversa (não duplicar se já existe) ────────────
+  // ── 4. Upsert conversa (segrega por conexão — mesmo contato pode ter Meta e Z-API separados) ──
   const { data: existingConv } = await supabase
     .from("inbox_conversations")
     .select("id")
     .eq("workspace_id", workspace_id)
     .eq("contact_id", contactId)
+    .eq("z_api_connection_id", z_api_connection_id)
     .maybeSingle();
 
   let conversationId: string;
