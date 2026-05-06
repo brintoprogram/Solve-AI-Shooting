@@ -162,8 +162,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
         className="flex-1 overflow-y-auto scrollbar-thin py-5"
         style={{ background: "rgba(8,14,10,0.6)" }}
       >
-        {/* Central max-width wrapper — prevents messages from stretching on wide screens */}
-        <div className="max-w-[720px] mx-auto px-4">
+        <div className="px-4">
           {loading && (
             <div className="flex justify-center py-10">
               <div className="w-5 h-5 rounded-full border-2 border-agro-green border-t-transparent animate-spin" />
