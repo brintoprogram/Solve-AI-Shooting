@@ -11,23 +11,30 @@ import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbo
 import { supabase } from "@/lib/supabase";
 
 export function Inbox() {
-  const workspaceId = useAuth().workspaceId ?? "";
+  const { workspaceId, profile } = useAuth();
+  const wsId = workspaceId ?? "";
+  const isAdmin = profile?.role === "admin";
+
   const {
     conversations, loading, markAsRead,
     pinConversation, archiveConversation, deleteConversation, updateTags,
-  } = useInboxConversations(workspaceId);
+  } = useInboxConversations(wsId);
   const teamMembers = useTeamMembers();
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
   const [departments,  setDepartments]  = useState<Department[]>([]);
   const [connections,  setConnections]  = useState<ConnectionInfo[]>([]);
+  // IDs dos setores do usuário atual (vazio = sem restrição para admins)
+  const [myDeptIds,    setMyDeptIds]    = useState<string[] | null>(null);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
 
   useEffect(() => {
-    if (!workspaceId) return;
-    const db = supabase as any;
+    if (!wsId) return;
 
     db.from("departments")
       .select("*")
-      .eq("workspace_id", workspaceId)
+      .eq("workspace_id", wsId)
       .order("order_index", { ascending: true })
       .then(({ data }: { data: Department[] | null }) => {
         if (data) setDepartments(data);
@@ -36,11 +43,11 @@ export function Inbox() {
     Promise.all([
       db.from("meta_connections")
         .select("id, display_phone_number, phone_number_id")
-        .eq("workspace_id", workspaceId),
+        .eq("workspace_id", wsId),
       db.from("z_api_connections")
         .select("id, phone, name")
-        .eq("workspace_id", workspaceId),
-    ]).then(([metaRes, zapiRes]) => {
+        .eq("workspace_id", wsId),
+    ]).then(([metaRes, zapiRes]: any[]) => {
       const meta: ConnectionInfo[] = (metaRes.data ?? []).map((c: any) => ({
         id:    c.id,
         type:  "meta" as const,
@@ -55,7 +62,23 @@ export function Inbox() {
       }));
       setConnections([...meta, ...zapi]);
     });
-  }, [workspaceId]);
+
+    // Admins veem tudo — não precisamos carregar setores do usuário
+    if (isAdmin) {
+      setMyDeptIds([]); // [] = sem filtro
+      return;
+    }
+
+    if (profile?.id) {
+      db.from("department_members")
+        .select("department_id")
+        .eq("user_id", profile.id)
+        .eq("workspace_id", wsId)
+        .then(({ data }: { data: { department_id: string }[] | null }) => {
+          setMyDeptIds((data ?? []).map((r) => r.department_id));
+        });
+    }
+  }, [wsId, profile?.id, isAdmin]);
   const [searchParams] = useSearchParams();
   const targetConvId = searchParams.get("conversation");
   const autoSelectedRef = useRef(false);
@@ -91,6 +114,13 @@ export function Inbox() {
     setSelectedConv(null);
   }
 
+  // Filtro por setor: admins veem tudo; demais veem apenas seu(s) setor(es) + fila central
+  const visibleConversations = isAdmin || myDeptIds === null
+    ? conversations
+    : conversations.filter(
+        (c) => c.department_id === null || myDeptIds.includes(c.department_id)
+      );
+
   return (
     <div
       className="flex flex-col overflow-hidden pb-16 md:pb-0"
@@ -101,7 +131,7 @@ export function Inbox() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className={selectedConv ? "hidden md:flex" : "flex w-full md:w-auto"}>
           <ConversationList
-            conversations={conversations}
+            conversations={visibleConversations}
             loading={loading}
             selectedId={selectedConv?.id ?? null}
             onSelect={handleSelect}
