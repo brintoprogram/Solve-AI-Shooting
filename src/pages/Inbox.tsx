@@ -235,6 +235,12 @@ export function Inbox() {
         zapiConnections={zapiConnections}
         workspaceId={wsId}
         onCreated={handleConversationCreated}
+        initialConnId={
+          // Se o chip ativo no header for Z-API, pré-selecionar; senão, usar a primeira Z-API disponível
+          (activeConn && zapiConnections.some((c) => c.id === activeConn) ? activeConn : null)
+          ?? zapiConnections[0]?.id
+          ?? ""
+        }
       />
     </div>
   );

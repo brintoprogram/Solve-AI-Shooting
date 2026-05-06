@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Send, Phone, MessageSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -10,11 +10,21 @@ interface Props {
   zapiConnections: ConnectionInfo[];
   workspaceId: string;
   onCreated: (conversationId: string) => void;
+  initialConnId?: string;
 }
 
-export function NewConversationDialog({ open, onClose, zapiConnections, workspaceId, onCreated }: Props) {
+export function NewConversationDialog({ open, onClose, zapiConnections, workspaceId, onCreated, initialConnId = "" }: Props) {
   const { profile } = useAuth();
-  const [selectedConn, setSelectedConn] = useState<string>(zapiConnections[0]?.id ?? "");
+  const [selectedConn, setSelectedConn] = useState<string>(initialConnId);
+
+  // Sync when connections load async or initialConnId changes
+  useEffect(() => {
+    if (initialConnId) {
+      setSelectedConn(initialConnId);
+    } else if (zapiConnections.length > 0) {
+      setSelectedConn(zapiConnections[0].id);
+    }
+  }, [initialConnId, zapiConnections]);
   const [phone,        setPhone]        = useState("");
   const [message,      setMessage]      = useState("");
   const [sending,      setSending]      = useState(false);
@@ -107,8 +117,8 @@ export function NewConversationDialog({ open, onClose, zapiConnections, workspac
 
         {/* Body */}
         <div className="px-5 py-4 space-y-4">
-          {/* Connection selector — only when multiple Z-API */}
-          {zapiConnections.length > 1 && (
+          {/* Connection selector — only when multiple Z-API and none pre-selected from header */}
+          {zapiConnections.length > 1 && !initialConnId && (
             <div>
               <label className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 block mb-1.5">
                 Conexão Z-API
