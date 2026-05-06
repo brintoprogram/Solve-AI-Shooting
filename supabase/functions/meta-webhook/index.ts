@@ -820,6 +820,7 @@ async function upsertConversation(
     .select("id, unread_count, department_id")
     .eq("workspace_id", workspaceId)
     .eq("contact_id", contactId)
+    .eq("meta_connection_id", connectionId)
     .maybeSingle();
 
   if (fetchErr) console.error("[upsertConversation] fetch:", fetchErr.message);
