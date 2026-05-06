@@ -81,11 +81,11 @@ async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "text ou media_url é obrigatório" }, 400);
   }
 
-  // 1. Conversation → contact_id + meta_connection_id + workspace_id
+  // 1. Conversation → contact_id + connection IDs + workspace_id
   // workspace_id é derivado do banco, nunca do request body — evita spoofing.
   const { data: conv, error: convErr } = await supabase
     .from("inbox_conversations")
-    .select("contact_id, meta_connection_id, workspace_id")
+    .select("contact_id, meta_connection_id, z_api_connection_id, workspace_id")
     .eq("id", conversation_id)
     .single();
 
@@ -120,6 +120,19 @@ async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Contato não encontrado" }, 404);
   }
 
+  const msgType     = media_url ? (type as string) : "text";
+  const captionText = media_url ? (text?.trim() ?? null) : null;
+  const bodyText    = !media_url ? (text?.trim() ?? null) : null;
+  const now         = new Date().toISOString();
+
+  // ── Roteamento por tipo de conexão ─────────────────────────────
+  if (conv.z_api_connection_id) {
+    return await sendViaZApi({
+      conv, contact, conversation_id, workspace_id,
+      sent_by: sent_by ?? null, msgType, bodyText, now,
+    });
+  }
+
   // 3. Meta connection → phone_number_id + access_token
   const { data: conn, error: connErr } = await supabase
     .from("meta_connections")
@@ -134,16 +147,11 @@ async function handleRequest(req: Request): Promise<Response> {
 
   conn.access_token = await decrypt(conn.access_token);
 
-  // 4. Build payload
-  const msgType     = media_url ? (type as string) : "text";
-  const captionText = media_url ? (text?.trim() ?? null) : null;
-  const bodyText    = !media_url ? (text?.trim() ?? null) : null;
-
+  // 4. Build and send Meta payload
   const metaPayload = buildMetaPayload(
     contact.phone, msgType, bodyText, media_url ?? null, media_filename ?? null, captionText,
   );
 
-  // 5. Send via Meta Graph API
   const metaRes = await fetch(`${META_API}/${conn.phone_number_id}/messages`, {
     method: "POST",
     headers: {
@@ -161,16 +169,10 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   const wamid = (metaBody.messages as Array<{ id: string }>)?.[0]?.id ?? null;
+  if (!wamid) console.warn("[send] ATENÇÃO: Meta não retornou wamid:", JSON.stringify(metaBody));
+  else        console.log(`[send] ✓ Meta → ${contact.phone} wamid=${wamid}`);
 
-  if (!wamid) {
-    console.warn("[send] ATENÇÃO: Meta não retornou wamid. Resposta:", JSON.stringify(metaBody));
-  } else {
-    console.log(`[send] ✓ enviado → ${contact.phone} wamid=${wamid}`);
-  }
-
-  // 6. Save outbound message
-  const now = new Date().toISOString();
-
+  // 5. Save outbound message
   const { data: inserted, error: insertErr } = await supabase.from("inbox_messages").insert({
     workspace_id,
     conversation_id,
@@ -194,7 +196,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   console.log(`[send] ✓ inbox_message salva id=${inserted?.id} wamid=${wamid} status=sending`);
 
-  // 7. Update conversation preview
+  // 6. Update conversation preview
   await supabase
     .from("inbox_conversations")
     .update({
@@ -204,6 +206,83 @@ async function handleRequest(req: Request): Promise<Response> {
       updated_at:             now,
     })
     .eq("id", conversation_id);
+
+  return json({ ok: true, wamid });
+}
+
+async function sendViaZApi(params: {
+  conv:            Record<string, unknown>;
+  contact:         { phone: string };
+  conversation_id: string;
+  workspace_id:    string;
+  sent_by:         string | null;
+  msgType:         string;
+  bodyText:        string | null;
+  now:             string;
+}): Promise<Response> {
+  const { conv, contact, conversation_id, workspace_id, sent_by, msgType, bodyText, now } = params;
+  const json = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+
+  const { data: zapiConn, error: zapiErr } = await supabase
+    .from("z_api_connections")
+    .select("instance_id, token, client_token")
+    .eq("id", conv.z_api_connection_id)
+    .single();
+
+  if (zapiErr || !zapiConn) {
+    console.error("[send/zapi] conexão Z-API não encontrada:", zapiErr?.message);
+    return json({ error: "Conexão Z-API não encontrada" }, 404);
+  }
+
+  const instanceId   = zapiConn.instance_id  as string;
+  const token        = await decrypt(zapiConn.token        as string);
+  const clientToken  = await decrypt(zapiConn.client_token as string);
+
+  const zapiRes = await fetch(
+    `https://api.z-api.io/instances/${instanceId}/token/${token}/send-text`,
+    {
+      method:  "POST",
+      headers: { "Client-Token": clientToken, "Content-Type": "application/json" },
+      body:    JSON.stringify({ phone: contact.phone, message: bodyText ?? "" }),
+    }
+  );
+
+  const zapiBody = await zapiRes.json() as Record<string, unknown>;
+
+  if (!zapiRes.ok) {
+    console.error("[send/zapi] Z-API error:", JSON.stringify(zapiBody));
+    return json({ error: "Z-API rejeitou a mensagem", details: zapiBody }, 502);
+  }
+
+  const wamid = (zapiBody.zaapId ?? zapiBody.messageId ?? null) as string | null;
+  console.log(`[send/zapi] ✓ Z-API → ${contact.phone} wamid=${wamid}`);
+
+  const { error: insertErr } = await supabase.from("inbox_messages").insert({
+    workspace_id,
+    conversation_id,
+    contact_id:   conv.contact_id,
+    wamid,
+    direction:    "outbound",
+    message_type: msgType,
+    body:         bodyText,
+    sent_by,
+    is_internal:  false,
+    status:       "sent",
+    created_at:   now,
+  });
+
+  if (insertErr) {
+    console.error("[send/zapi] erro ao salvar mensagem:", insertErr.message);
+    return json({ error: `Mensagem enviada mas não salva: ${insertErr.message}` }, 500);
+  }
+
+  await supabase.from("inbox_conversations").update({
+    last_message_at:        now,
+    last_message_body:      bodyText ?? mediaLabel(msgType),
+    last_message_direction: "outbound",
+    updated_at:             now,
+  }).eq("id", conversation_id);
 
   return json({ ok: true, wamid });
 }

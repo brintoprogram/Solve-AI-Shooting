@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Plus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +7,7 @@ import { useInboxConversations } from "@/hooks/useInbox";
 import { useTeamMembers } from "@/hooks/useTeamMembers";
 import { ConversationList } from "./inbox/ConversationList";
 import { ConversationPanel } from "./inbox/ConversationPanel";
+import { NewConversationDialog } from "./inbox/NewConversationDialog";
 import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbox";
 import { supabase } from "@/lib/supabase";
 
@@ -23,8 +24,9 @@ export function Inbox() {
   const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
   const [departments,  setDepartments]  = useState<Department[]>([]);
   const [connections,  setConnections]  = useState<ConnectionInfo[]>([]);
-  // IDs dos setores do usuário atual (vazio = sem restrição para admins)
   const [myDeptIds,    setMyDeptIds]    = useState<string[] | null>(null);
+  const [activeConn,   setActiveConn]   = useState<string | null>(null);
+  const [showNewConv,  setShowNewConv]  = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
@@ -63,9 +65,8 @@ export function Inbox() {
       setConnections([...meta, ...zapi]);
     });
 
-    // Admins veem tudo — não precisamos carregar setores do usuário
     if (isAdmin) {
-      setMyDeptIds([]); // [] = sem filtro
+      setMyDeptIds([]);
       return;
     }
 
@@ -79,20 +80,19 @@ export function Inbox() {
         });
     }
   }, [wsId, profile?.id, isAdmin]);
+
   const [searchParams] = useSearchParams();
   const targetConvId = searchParams.get("conversation");
   const autoSelectedRef = useRef(false);
 
-  // Keep selected conversation in sync when Realtime refreshes the list
   useEffect(() => {
     if (!selectedConv) return;
     const updated = conversations.find((c) => c.id === selectedConv.id);
     if (updated) setSelectedConv(updated);
-    else setSelectedConv(null); // deleted
+    else setSelectedConv(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations]);
 
-  // Auto-select conversation when navigated from Alerts with ?conversation=
   useEffect(() => {
     if (!targetConvId || loading || autoSelectedRef.current) return;
     const conv = conversations.find((c) => c.id === targetConvId);
@@ -114,12 +114,30 @@ export function Inbox() {
     setSelectedConv(null);
   }
 
-  // Filtro por setor: admins veem tudo; demais veem apenas seu(s) setor(es) + fila central
+  function handleConversationCreated(convId: string) {
+    setShowNewConv(false);
+    // Wait for Realtime to push the new conversation, then select it
+    const check = () => {
+      const found = conversations.find((c) => c.id === convId);
+      if (found) { handleSelect(found); }
+    };
+    setTimeout(check, 800);
+    setTimeout(check, 2000);
+  }
+
   const visibleConversations = isAdmin || myDeptIds === null
     ? conversations
     : conversations.filter(
         (c) => c.department_id === null || myDeptIds.includes(c.department_id)
       );
+
+  const filteredByConn = activeConn
+    ? visibleConversations.filter(
+        (c) => c.meta_connection_id === activeConn || c.z_api_connection_id === activeConn
+      )
+    : visibleConversations;
+
+  const zapiConnections = connections.filter((c) => c.type === "zapi");
 
   return (
     <div
@@ -128,16 +146,68 @@ export function Inbox() {
     >
       <Topbar breadcrumbs={[{ label: "Inbox" }]} />
 
+      {/* ── Connection sub-header ──────────────────── */}
+      {connections.length > 0 && (
+        <div
+          className="flex items-center gap-2 px-5 py-2 shrink-0"
+          style={{ borderBottom: "1px solid rgba(63,176,108,0.08)", background: "rgba(10,17,14,0.6)" }}
+        >
+          <div className="flex items-center gap-1.5 flex-1 flex-wrap">
+            <button
+              onClick={() => setActiveConn(null)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+              style={!activeConn
+                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+              }
+            >
+              Todas
+            </button>
+            {connections.map((conn) => {
+              const accent   = conn.type === "meta" ? "#1877F2" : "#f59e0b";
+              const isActive = activeConn === conn.id;
+              return (
+                <button
+                  key={conn.id}
+                  onClick={() => setActiveConn(isActive ? null : conn.id)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
+                  style={isActive
+                    ? { background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }
+                    : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
+                  }
+                >
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: isActive ? accent : "#6b8a75" }} />
+                  {conn.type === "meta" ? "Meta" : "Z-API"}
+                  {conn.phone && (
+                    <span className="opacity-60 text-[10px]">· {shortPhone(conn.phone)}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {zapiConnections.length > 0 && (
+            <button
+              onClick={() => setShowNewConv(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold shrink-0 transition-all"
+              style={{ background: "rgba(63,176,108,0.12)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Nova conversa
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className={selectedConv ? "hidden md:flex" : "flex w-full md:w-auto"}>
           <ConversationList
-            conversations={visibleConversations}
+            conversations={filteredByConn}
             loading={loading}
             selectedId={selectedConv?.id ?? null}
             onSelect={handleSelect}
             teamMembers={teamMembers}
             departments={departments}
-            connections={connections}
           />
         </div>
 
@@ -158,6 +228,14 @@ export function Inbox() {
           )}
         </div>
       </div>
+
+      <NewConversationDialog
+        open={showNewConv}
+        onClose={() => setShowNewConv(false)}
+        zapiConnections={zapiConnections}
+        workspaceId={wsId}
+        onCreated={handleConversationCreated}
+      />
     </div>
   );
 }
@@ -184,4 +262,12 @@ function EmptyState() {
       </div>
     </div>
   );
+}
+
+function shortPhone(phone: string): string {
+  const d = phone.replace(/\D/g, "");
+  const local = d.startsWith("55") && d.length > 11 ? d.slice(2) : d;
+  if (local.length === 11) return `${local.slice(0, 2)} ${local.slice(2, 7)}-${local.slice(7)}`;
+  if (local.length === 10) return `${local.slice(0, 2)} ${local.slice(2, 6)}-${local.slice(6)}`;
+  return phone;
 }

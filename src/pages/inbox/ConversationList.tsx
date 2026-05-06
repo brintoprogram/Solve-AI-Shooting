@@ -3,7 +3,7 @@ import { Search, MessageSquareDashed, Clock, User, List, Archive } from "lucide-
 import { format, isToday, isYesterday } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
-import type { InboxConversation, Department, ConnectionInfo } from "@/types/inbox";
+import type { InboxConversation, Department } from "@/types/inbox";
 
 type TabId = "waiting" | "mine" | "all" | "archived";
 
@@ -21,17 +21,15 @@ interface Props {
   onSelect: (conv: InboxConversation) => void;
   teamMembers: UserProfile[];
   departments?: Department[];
-  connections?: ConnectionInfo[];
 }
 
 export function ConversationList({
-  conversations, loading, selectedId, onSelect, teamMembers, departments = [], connections = [],
+  conversations, loading, selectedId, onSelect, teamMembers, departments = [],
 }: Props) {
   const { profile } = useAuth();
   const [search, setSearch]         = useState("");
   const [activeTab, setActiveTab]   = useState<TabId>("mine");
   const [activeDept, setActiveDept] = useState<string | null>(null);
-  const [activeConn, setActiveConn] = useState<string | null>(null);
 
   const myId           = profile?.id ?? "";
   const isAdminManager = profile ? ["admin", "manager"].includes(profile.role) : false;
@@ -57,11 +55,7 @@ export function ConversationList({
     ? byTab.filter((c) => c.department_id === activeDept)
     : byTab;
 
-  const byConn = activeConn
-    ? byDept.filter((c) => c.meta_connection_id === activeConn || c.z_api_connection_id === activeConn)
-    : byDept;
-
-  const filtered = byConn
+  const filtered = byDept
     .filter((c) => {
       const name = (c.inbox_contacts.name ?? c.inbox_contacts.phone).toLowerCase();
       const q = search.toLowerCase();
@@ -245,45 +239,6 @@ export function ConversationList({
         </div>
       )}
 
-      {/* ── Filtro de número (só quando >1 conexão) ─── */}
-      {connections.length > 1 && (
-        <div className="px-4 pt-2.5 pb-2" style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
-          <p className="text-[9px] font-bold uppercase tracking-widest mb-2" style={{ color: "#4a6052" }}>
-            Número
-          </p>
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              onClick={() => setActiveConn(null)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
-              style={!activeConn
-                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
-                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-              }
-            >
-              Todos
-            </button>
-            {connections.map((conn) => {
-              const accent   = conn.type === "meta" ? "#1877F2" : "#f59e0b";
-              const isActive = activeConn === conn.id;
-              return (
-                <button
-                  key={conn.id}
-                  onClick={() => setActiveConn(conn.id)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all"
-                  style={isActive
-                    ? { background: `${accent}20`, color: accent, border: `1px solid ${accent}50` }
-                    : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }
-                  }
-                >
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: isActive ? accent : "#6b8a75" }} />
-                  {conn.type === "meta" ? "Meta" : "Z-API"}
-                  <span className="opacity-60 text-[10px]">· {shortPhone(conn.phone || conn.label)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* ── List ────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -414,8 +369,8 @@ export function ConversationList({
                   )}
                 </div>
 
-                {/* Row 3: Tags + dept + connection badges */}
-                {(conv.tags?.length > 0 || conv.departments || connections.length > 1) && (
+                {/* Row 3: Tags + dept */}
+                {(conv.tags?.length > 0 || conv.departments) && (
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                     {conv.tags?.map((tag) => {
                       const cfg = CONVERSATION_TAGS[tag];
@@ -443,21 +398,6 @@ export function ConversationList({
                         {conv.departments.name}
                       </span>
                     )}
-                    {connections.length > 1 && (() => {
-                      const connInfo = connections.find(
-                        (cn) => cn.id === conv.meta_connection_id || cn.id === conv.z_api_connection_id
-                      );
-                      if (!connInfo) return null;
-                      const accent = connInfo.type === "meta" ? "#1877F2" : "#f59e0b";
-                      return (
-                        <span
-                          className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
-                          style={{ color: accent, background: `${accent}15`, border: `1px solid ${accent}35` }}
-                        >
-                          {connInfo.type === "meta" ? "Meta" : "Z-API"}
-                        </span>
-                      );
-                    })()}
                   </div>
                 )}
               </div>
