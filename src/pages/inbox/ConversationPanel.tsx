@@ -159,42 +159,45 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
 
       {/* ── Message list ───────────────────────────────────── */}
       <div
-        className="flex-1 overflow-y-auto scrollbar-thin px-5 py-5"
+        className="flex-1 overflow-y-auto scrollbar-thin py-5"
         style={{ background: "rgba(8,14,10,0.6)" }}
       >
-        {loading && (
-          <div className="flex justify-center py-10">
-            <div className="w-5 h-5 rounded-full border-2 border-agro-green border-t-transparent animate-spin" />
-          </div>
-        )}
-
-        {!loading && messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <p className="text-sm text-agro-muted">Nenhuma mensagem ainda</p>
-            <p className="text-xs text-agro-muted-2">
-              Mensagens trocadas aparecem aqui em tempo real
-            </p>
-          </div>
-        )}
-
-        {messages.map((msg, i) => {
-          const prev    = messages[i - 1];
-          const showSep =
-            !prev || !isSameDay(new Date(msg.created_at), new Date(prev.created_at));
-          return (
-            <div key={msg.id}>
-              {showSep && <DateSeparator date={msg.created_at} />}
-              <MessageBubble
-                message={msg}
-                teamMembers={teamMembers}
-                currentUserId={profile?.id}
-                onDelete={deleteMessage}
-              />
+        {/* Central max-width wrapper — prevents messages from stretching on wide screens */}
+        <div className="max-w-[720px] mx-auto px-4">
+          {loading && (
+            <div className="flex justify-center py-10">
+              <div className="w-5 h-5 rounded-full border-2 border-agro-green border-t-transparent animate-spin" />
             </div>
-          );
-        })}
+          )}
 
-        <div ref={bottomRef} />
+          {!loading && messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-center py-20">
+              <p className="text-sm text-agro-muted">Nenhuma mensagem ainda</p>
+              <p className="text-xs text-agro-muted-2">
+                Mensagens trocadas aparecem aqui em tempo real
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg, i) => {
+            const prev    = messages[i - 1];
+            const showSep =
+              !prev || !isSameDay(new Date(msg.created_at), new Date(prev.created_at));
+            return (
+              <div key={msg.id}>
+                {showSep && <DateSeparator date={msg.created_at} />}
+                <MessageBubble
+                  message={msg}
+                  teamMembers={teamMembers}
+                  currentUserId={profile?.id}
+                  onDelete={deleteMessage}
+                />
+              </div>
+            );
+          })}
+
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* ── Reply bar ──────────────────────────────────────── */}
