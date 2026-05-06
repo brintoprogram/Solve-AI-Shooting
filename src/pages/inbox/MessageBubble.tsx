@@ -23,21 +23,22 @@ function parseTemplateBody(body: string | null): TemplatePreview | null {
   return null;
 }
 
-function TemplateCard({ preview }: { preview: TemplatePreview }) {
-  const headerFormat = preview.header?.format?.toUpperCase() ?? "TEXT";
+// Renders template content INSIDE the bubble — no outer card wrapper
+function TemplateContent({ preview }: { preview: TemplatePreview }) {
+  const headerFormat  = preview.header?.format?.toUpperCase() ?? "TEXT";
   const headerIsMedia = ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat);
 
   return (
-    <div className="space-y-0 overflow-hidden rounded-xl" style={{ border: "1px solid rgba(63,176,108,0.2)", minWidth: 220, maxWidth: 300 }}>
+    <div>
       {preview.header && (
         headerIsMedia ? (
           <div
-            className="flex items-center justify-center gap-2 px-4 py-3"
-            style={{ background: "rgba(0,0,0,0.25)", borderBottom: "1px solid rgba(63,176,108,0.12)" }}
+            className="flex items-center justify-center gap-2 px-3 py-2.5"
+            style={{ background: "rgba(0,0,0,0.2)", borderBottom: "1px solid rgba(255,255,255,0.07)" }}
           >
-            {headerFormat === "IMAGE"    && <Image    className="w-6 h-6 text-agro-muted-2" />}
-            {headerFormat === "VIDEO"    && <FileVideo className="w-6 h-6 text-agro-muted-2" />}
-            {headerFormat === "DOCUMENT" && <FileText  className="w-6 h-6 text-agro-muted-2" />}
+            {headerFormat === "IMAGE"    && <Image    className="w-5 h-5 text-agro-muted-2" />}
+            {headerFormat === "VIDEO"    && <FileVideo className="w-5 h-5 text-agro-muted-2" />}
+            {headerFormat === "DOCUMENT" && <FileText  className="w-5 h-5 text-agro-muted-2" />}
             <span className="text-xs text-agro-muted-2 capitalize">{headerFormat.toLowerCase()}</span>
           </div>
         ) : preview.header.text ? (
@@ -52,17 +53,17 @@ function TemplateCard({ preview }: { preview: TemplatePreview }) {
         </div>
       )}
       {preview.footer && (
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-1">
           <p className="text-[11px] text-agro-muted-2 leading-snug">{preview.footer}</p>
         </div>
       )}
       {preview.buttons && preview.buttons.length > 0 && (
-        <div style={{ borderTop: "1px solid rgba(63,176,108,0.12)" }}>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
           {preview.buttons.map((btn, i) => (
             <div
               key={i}
-              className="flex items-center justify-center px-3 py-2 text-xs font-semibold"
-              style={{ color: "#3fb06c", borderTop: i > 0 ? "1px solid rgba(63,176,108,0.1)" : undefined }}
+              className="flex items-center justify-center px-3 py-2.5 text-xs font-semibold"
+              style={{ color: "#3fb06c", borderTop: i > 0 ? "1px solid rgba(255,255,255,0.06)" : undefined }}
             >
               {btn}
             </div>
@@ -82,16 +83,21 @@ interface Props {
 
 export function MessageBubble({ message, teamMembers, currentUserId, onDelete }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const isInbound  = message.direction === "inbound";
-  const isInternal = message.is_internal === true;
-  const isTemplate = message.message_type === "template";
-  const time       = format(new Date(message.created_at), "HH:mm");
+  const isInbound      = message.direction === "inbound";
+  const isInternal     = message.is_internal === true;
+  const isTemplate     = message.message_type === "template";
+  const templatePreview = isTemplate ? parseTemplateBody(message.body) : null;
+  const time           = format(new Date(message.created_at), "HH:mm");
 
   const senderLabel = !isInbound && message.sent_by
     ? message.sent_by === currentUserId
       ? "Você"
       : (teamMembers?.find((m) => m.id === message.sent_by)?.full_name?.split(" ")[0] ?? "Agente")
     : null;
+
+  const bubbleStyle = isInbound
+    ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
+    : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" };
 
   // ── Internal note ─────────────────────────────────────────
   if (isInternal) {
@@ -103,7 +109,6 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           </span>
         )}
         <div className="relative max-w-[72%]">
-          {/* Delete button */}
           {onDelete && (
             <DeleteButton
               confirmDelete={confirmDelete}
@@ -114,12 +119,8 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           )}
           <div
             className="rounded-2xl rounded-br-sm px-3 py-2"
-            style={{
-              background: "rgba(30, 20, 0, 0.85)",
-              border: "1px solid rgba(245,158,11,0.3)",
-            }}
+            style={{ background: "rgba(30, 20, 0, 0.85)", border: "1px solid rgba(245,158,11,0.3)" }}
           >
-            {/* Note badge */}
             <div className="flex items-center gap-1.5 mb-1.5">
               <StickyNote className="w-3 h-3" style={{ color: "#f59e0b" }} />
               <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#f59e0b" }}>
@@ -138,7 +139,7 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
     );
   }
 
-  // ── Normal message ────────────────────────────────────────
+  // ── Normal message (including templates) ──────────────────
   return (
     <div className={`flex flex-col ${isInbound ? "items-start" : "items-end"} mb-1 group`}>
       {senderLabel && (
@@ -147,7 +148,6 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
         </span>
       )}
       <div className="relative max-w-[72%] min-w-[80px]">
-        {/* Delete button — outbound only */}
         {!isInbound && onDelete && (
           <DeleteButton
             confirmDelete={confirmDelete}
@@ -157,18 +157,28 @@ export function MessageBubble({ message, teamMembers, currentUserId, onDelete }:
           />
         )}
         <div
-          className={`rounded-2xl ${isInbound ? "rounded-bl-sm" : "rounded-br-sm"} ${isTemplate ? "" : "px-3 py-2"}`}
-          style={isTemplate ? { background: "transparent" } : (
-            isInbound
-              ? { background: "rgba(13,26,17,0.95)", border: "1px solid rgba(63,176,108,0.12)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
-              : { background: "rgba(22,101,52,0.55)", border: "1px solid rgba(63,176,108,0.28)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)" }
-          )}
+          className={`rounded-2xl ${isInbound ? "rounded-bl-sm" : "rounded-br-sm"} overflow-hidden`}
+          style={bubbleStyle}
         >
-          <MessageContent message={message} />
-          <div className={`flex items-center justify-end gap-1 mt-1 select-none opacity-65 ${isTemplate ? "px-1" : ""}`}>
-            <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
-            {!isInbound && <StatusTicks message={message} />}
-          </div>
+          {/* Template with JSON preview: TemplateContent handles its own padding */}
+          {isTemplate && templatePreview ? (
+            <>
+              <TemplateContent preview={templatePreview} />
+              <div className="flex items-center justify-end gap-1 px-3 pb-2 pt-1 select-none opacity-65">
+                <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
+                {!isInbound && <StatusTicks message={message} />}
+              </div>
+            </>
+          ) : (
+            /* All other messages: padded wrapper */
+            <div className="px-3 py-2">
+              <MessageContent message={message} />
+              <div className="flex items-center justify-end gap-1 mt-1 select-none opacity-65">
+                <span className="text-[10px] text-agro-muted-2 leading-none">{time}</span>
+                {!isInbound && <StatusTicks message={message} />}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -382,16 +392,13 @@ function MessageContent({ message }: { message: InboxMessage }) {
         </div>
       );
 
-    case "template": {
-      const preview = parseTemplateBody(message.body);
-      if (preview) return <TemplateCard preview={preview} />;
+    case "template":
       return (
-        <div className="flex items-start gap-2.5">
+        <div className="flex items-start gap-2">
           <span className="text-base leading-none mt-0.5">📋</span>
           <p className="text-sm text-agro-text">{message.body ?? "Template enviado"}</p>
         </div>
       );
-    }
 
     default:
       return <p className="text-xs text-agro-muted italic">Tipo de mensagem não suportado</p>;
