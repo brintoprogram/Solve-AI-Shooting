@@ -305,14 +305,17 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         transition: "border-color 0.2s",
       }}
     >
-      {/* ── Mode tabs — underline style ────────────────────── */}
-      <div className="flex mb-2" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+      {/* ── Mode tabs — segmented control ──────────────────── */}
+      <div
+        className="flex gap-0.5 mb-2 p-0.5 rounded-xl"
+        style={{ background: "rgba(0,0,0,0.25)" }}
+      >
         <button
           onClick={() => setIsNote(false)}
-          className="flex items-center gap-1.5 px-3 pb-2 pt-1 text-xs font-semibold transition-colors duration-150"
+          className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 text-xs font-semibold rounded-[10px] transition-all duration-150"
           style={!isNote
-            ? { color: "#3fb06c", borderBottom: "2px solid #3fb06c", marginBottom: -1 }
-            : { color: "#4a6052", borderBottom: "2px solid transparent", marginBottom: -1 }
+            ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+            : { background: "transparent", color: "#4a6052", border: "1px solid transparent" }
           }
         >
           <MessageSquare className="w-3 h-3" />
@@ -320,10 +323,10 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         </button>
         <button
           onClick={() => setIsNote(true)}
-          className="flex items-center gap-1.5 px-3 pb-2 pt-1 text-xs font-semibold transition-colors duration-150"
+          className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 text-xs font-semibold rounded-[10px] transition-all duration-150"
           style={isNote
-            ? { color: "#f59e0b", borderBottom: "2px solid #f59e0b", marginBottom: -1 }
-            : { color: "#4a6052", borderBottom: "2px solid transparent", marginBottom: -1 }
+            ? { background: "rgba(245,158,11,0.18)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }
+            : { background: "transparent", color: "#4a6052", border: "1px solid transparent" }
           }
         >
           <StickyNote className="w-3 h-3" />
@@ -506,19 +509,20 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
         onKeyDown={handleKeyDown}
         onFocus={(e) => {
           e.target.style.borderColor = accentColor;
-          e.target.style.boxShadow   = `0 0 0 3px ${accentAlpha},0.12)`;
+          e.target.style.boxShadow   = `0 0 0 3px ${accentAlpha},0.15)`;
         }}
         onBlur={(e) => {
-          e.target.style.borderColor = `${accentAlpha},0.12)`;
+          e.target.style.borderColor = `${accentAlpha},0.2)`;
           e.target.style.boxShadow   = "none";
         }}
         className="w-full resize-none scrollbar-thin text-sm text-agro-text placeholder:text-agro-muted-2 focus:outline-none disabled:opacity-50"
         style={{
           background:   isNote ? "rgba(30,20,0,0.4)" : "rgba(13,26,17,0.6)",
-          border:       `1px solid ${accentAlpha},0.12)`,
+          border:       `1px solid ${accentAlpha},0.2)`,
           borderRadius: "0.75rem",
           padding:      "0.5rem 0.875rem",
           lineHeight:   "1.5",
+          minHeight:    56,
           maxHeight:    120,
           overflowY:    "auto",
           transition:   "border-color 0.2s, box-shadow 0.2s, background 0.2s",
