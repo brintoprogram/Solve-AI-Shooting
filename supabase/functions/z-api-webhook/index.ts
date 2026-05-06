@@ -113,12 +113,6 @@ async function handleReceived(body: Record<string, unknown>) {
     return;
   }
 
-  // Skip messages sent from ME on another device (already in outbox)
-  if (fromMe) {
-    console.log(`[received] fromMe=true — skipping self-sent message ${messageId}`);
-    return;
-  }
-
   // Identify the workspace via instanceId
   const { data: conn, error: connErr } = await supabase
     .from("z_api_connections")
@@ -136,8 +130,11 @@ async function handleReceived(body: Record<string, unknown>) {
   const contactId = await upsertZApiContact(workspaceId, phone, senderName, ts);
   if (!contactId) return;
 
-  const shortBody = buildShortBody(body);
-  const conversationId = await upsertZApiConversation(workspaceId, connectionId, contactId, ts, shortBody);
+  const direction  = fromMe ? "outbound" : "inbound";
+  const shortBody  = buildShortBody(body);
+  const conversationId = await upsertZApiConversation(
+    workspaceId, connectionId, contactId, ts, shortBody, direction,
+  );
   if (!conversationId) return;
 
   const fields = extractFields(body);
@@ -148,7 +145,7 @@ async function handleReceived(body: Record<string, unknown>) {
       conversation_id:  conversationId,
       contact_id:       contactId,
       wamid:            messageId,
-      direction:        "inbound",
+      direction,
       message_type:     fields.message_type,
       body:             fields.body             ?? null,
       media_url:        fields.media_url        ?? null,
@@ -163,14 +160,15 @@ async function handleReceived(body: Record<string, unknown>) {
       reaction_emoji:   fields.reaction_emoji   ?? null,
       reaction_wamid:   fields.reaction_wamid   ?? null,
       is_internal:      false,
-      status:           "delivered",
+      // fromMe via phone = already sent, inbound = needs delivery confirmation
+      status:           fromMe ? "sent" : "delivered",
       created_at:       ts,
     },
     { onConflict: "wamid", ignoreDuplicates: true }
   );
 
   if (msgErr) console.error("[received] save message error:", msgErr.message);
-  else console.log(`[received] ✓ ${fields.message_type} de ${phone} → conv ${conversationId}`);
+  else console.log(`[received] ✓ ${direction} ${fields.message_type} ${fromMe ? "(from phone)" : `de ${phone}`} → conv ${conversationId}`);
 }
 
 // ── 2. Ao Receber Status — MessageStatusCallback ─────────────
@@ -341,6 +339,7 @@ async function upsertZApiConversation(
   contactId:    string,
   ts:           string,
   lastBody:     string,
+  direction:    string,
 ): Promise<string | null> {
   const { data: existing } = await supabase
     .from("inbox_conversations")
@@ -350,12 +349,13 @@ async function upsertZApiConversation(
     .maybeSingle();
 
   if (existing) {
+    const currentUnread = existing.unread_count as number;
     await supabase.from("inbox_conversations").update({
       status:                 "open",
-      unread_count:           (existing.unread_count as number) + 1,
+      unread_count:           direction === "inbound" ? currentUnread + 1 : currentUnread,
       last_message_at:        ts,
       last_message_body:      lastBody,
-      last_message_direction: "inbound",
+      last_message_direction: direction,
       updated_at:             ts,
     }).eq("id", existing.id);
     return existing.id as string;
@@ -369,10 +369,10 @@ async function upsertZApiConversation(
       meta_connection_id:    null,
       contact_id:            contactId,
       status:                "open",
-      unread_count:          1,
+      unread_count:          direction === "inbound" ? 1 : 0,
       last_message_at:       ts,
       last_message_body:     lastBody,
-      last_message_direction:"inbound",
+      last_message_direction: direction,
     })
     .select("id")
     .single();
