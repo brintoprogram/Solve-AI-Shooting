@@ -111,7 +111,25 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
             <p className="text-sm font-semibold text-agro-text truncate leading-tight">
               {displayName}
             </p>
-            <p className="text-[11px] text-agro-muted-2 font-mono mt-0.5">{contact.phone}</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-[11px] text-agro-muted-2 font-mono">{contact.phone}</p>
+              {conversation.meta_connection_id && (
+                <span
+                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide"
+                  style={{ background: "rgba(24,119,242,0.15)", color: "#1877F2", border: "1px solid rgba(24,119,242,0.3)" }}
+                >
+                  Meta
+                </span>
+              )}
+              {conversation.z_api_connection_id && (
+                <span
+                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide"
+                  style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}
+                >
+                  Z-API
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Actions cluster — right side */}
