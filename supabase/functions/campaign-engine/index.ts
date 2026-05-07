@@ -603,15 +603,29 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "pause") {
-      await db.from("shooting_campaigns").update({ status: "paused" }).eq("id", campaign_id);
+      // Atomic: only pauses if currently "sending" — prevents corrupting other statuses
+      const { data: paused } = await db.from("shooting_campaigns")
+        .update({ status: "paused" })
+        .eq("id", campaign_id)
+        .eq("status", "sending")
+        .select("id")
+        .maybeSingle();
+      if (!paused) return json({ error: "Campanha não está em andamento" }, 409);
       writeAuditLog(auditWid, "campaign_paused", campaign_id, "campaign", "info");
       return json({ ok: true });
     }
 
     if (action === "resume") {
-      await db.from("shooting_campaigns").update({ status: "sending" }).eq("id", campaign_id);
+      // Atomic: only resumes if currently "paused" — prevents spawning duplicate send loops
+      // on double-click or concurrent requests
+      const { data: resumed } = await db.from("shooting_campaigns")
+        .update({ status: "sending" })
+        .eq("id", campaign_id)
+        .eq("status", "paused")
+        .select("id")
+        .maybeSingle();
+      if (!resumed) return json({ error: "Campanha não está pausada" }, 409);
       writeAuditLog(auditWid, "campaign_resumed", campaign_id, "campaign", "info");
-      // Fire-and-forget: re-kick the engine by starting the send loop
       startSendLoop(campaign_id); // intentionally not awaited
       return json({ ok: true, info: "resumed" });
     }
@@ -627,22 +641,23 @@ Deno.serve(async (req: Request) => {
     if (action !== "start") return json({ error: "Ação desconhecida" }, 400);
 
     // ── START ──────────────────────────────────────────────────
+    // Atomic status claim: update + fetch in one request, only if status allows starting.
+    // Prevents double-start race condition where two concurrent requests both pass a
+    // read-then-check pattern and both launch send loops.
     const { data: campaign, error: campErr } = await db
       .from("shooting_campaigns")
-      .select("*, meta_connections(*), meta_templates(*), z_api_connections(*)")
-      .eq("id", campaign_id)
-      .single();
-
-    if (campErr || !campaign) return json({ error: "Campanha não encontrada" }, 404);
-
-    if (!["draft", "paused"].includes(campaign.status)) {
-      return json({ error: `Campanha não pode ser iniciada no status "${campaign.status}"` }, 409);
-    }
-
-    // Mark as sending immediately so the UI updates
-    await db.from("shooting_campaigns")
       .update({ status: "sending", started_at: new Date().toISOString() })
-      .eq("id", campaign_id);
+      .eq("id", campaign_id)
+      .in("status", ["draft", "paused"])
+      .select("*, meta_connections(*), meta_templates(*), z_api_connections(*)")
+      .maybeSingle();
+
+    if (campErr) return json({ error: campErr.message }, 500);
+    if (!campaign) {
+      const { data: cur } = await db.from("shooting_campaigns").select("status").eq("id", campaign_id).maybeSingle();
+      if (!cur) return json({ error: "Campanha não encontrada" }, 404);
+      return json({ error: `Campanha não pode ser iniciada no status "${cur.status}"` }, 409);
+    }
 
     const { data: pending } = await db
       .from("shooting_messages")

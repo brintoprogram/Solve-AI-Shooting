@@ -124,7 +124,8 @@ export function CampaignDetail() {
   const { campaign, loading } = useCampaignDetail(id ?? "");
   const isLive = campaign?.status === "sending";
   const { chartData, chartLoading, refetchTimeline } = useTimelineData(id ?? "", isLive);
-  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingPdf,  setExportingPdf]  = useState(false);
+  const [actionLoading, setActionLoading] = useState<"pause" | "resume" | "cancel" | "start" | null>(null);
   const { profile } = useAuth();
   const isAdmin = profile?.role === "admin";
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -446,7 +447,8 @@ export function CampaignDetail() {
   }
 
   async function handleAction(action: "pause" | "resume" | "cancel") {
-    if (!id) return;
+    if (!id || actionLoading) return;
+    setActionLoading(action);
     try {
       if (action === "pause")  await pauseCampaign(id);
       if (action === "resume") await resumeCampaign(id);
@@ -454,6 +456,8 @@ export function CampaignDetail() {
       toast({ title: "Ação realizada com sucesso", variant: "success" });
     } catch {
       toast({ title: "Erro ao executar ação", variant: "destructive" });
+    } finally {
+      setActionLoading(null);
     }
   }
 
@@ -571,18 +575,20 @@ export function CampaignDetail() {
               <>
                 <button
                   onClick={() => handleAction("pause")}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
+                  disabled={actionLoading !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ border: "1px solid rgba(63,176,108,0.15)" }}
                 >
-                  <Pause className="w-3.5 h-3.5" />
+                  {actionLoading === "pause" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pause className="w-3.5 h-3.5" />}
                   Pausar
                 </button>
                 <button
                   onClick={() => handleAction("cancel")}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-red-400 hover:text-red-300 transition-colors"
+                  disabled={actionLoading !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-red-400 hover:text-red-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ border: "1px solid rgba(239,68,68,0.2)" }}
                 >
-                  <StopCircle className="w-3.5 h-3.5" />
+                  {actionLoading === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <StopCircle className="w-3.5 h-3.5" />}
                   Cancelar
                 </button>
               </>
@@ -590,18 +596,31 @@ export function CampaignDetail() {
             {campaign.status === "paused" && (
               <button
                 onClick={() => handleAction("resume")}
-                className="btn-agro flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                disabled={actionLoading !== null}
+                className="btn-agro flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Play className="w-3.5 h-3.5" />
+                {actionLoading === "resume" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                 Retomar
               </button>
             )}
             {(campaign.status === "draft" || campaign.status === "scheduled") && campaign.dispatch_channel !== "n8n_email" && (
               <button
-                onClick={() => startCampaign(id!)}
-                className="btn-agro flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                disabled={actionLoading !== null}
+                onClick={async () => {
+                  if (actionLoading) return;
+                  setActionLoading("start");
+                  try {
+                    await startCampaign(id!);
+                    toast({ title: "Disparo iniciado!", variant: "success" });
+                  } catch {
+                    toast({ title: "Erro ao iniciar campanha", variant: "destructive" });
+                  } finally {
+                    setActionLoading(null);
+                  }
+                }}
+                className="btn-agro flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Play className="w-3.5 h-3.5" />
+                {actionLoading === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                 Iniciar
               </button>
             )}
