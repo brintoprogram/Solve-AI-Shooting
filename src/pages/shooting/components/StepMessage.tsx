@@ -17,12 +17,26 @@ export function StepMessage({ state, templates, xlsxResult, onChange }: StepMess
 
   const selectedTemplate = templates.find((t) => t.id === state.templateId);
 
-  const availableColumns =
-    xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"];
-
-  const previewRows = xlsxResult?.validRows ?? [
-    { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/01/2025", link: "https://pay.example.com/abc" },
+  const CONTACT_COLUMNS = [
+    "name", "phone", "empresa", "email", "email2", "cpf_cnpj",
+    "nome_representante", "email_representante",
+    "cidade", "estado", "bairro", "cep",
+    "gerente1_nome", "gerente2_nome",
   ];
+  const CONTACT_SAMPLE = {
+    name: "João Silva", phone: "5511999999999", empresa: "Empresa Exemplo",
+    email: "joao@empresa.com", cidade: "São Paulo", estado: "SP",
+  };
+
+  const availableColumns = state.dataSource === "contacts"
+    ? CONTACT_COLUMNS
+    : (xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"]);
+
+  const previewRows = state.dataSource === "contacts"
+    ? [CONTACT_SAMPLE]
+    : (xlsxResult?.validRows ?? [
+      { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/01/2025", link: "https://pay.example.com/abc" },
+    ]);
 
   const currentRow = previewRows[previewIndex] ?? {};
   const previewVars = selectedTemplate
