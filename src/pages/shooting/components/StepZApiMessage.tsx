@@ -30,8 +30,24 @@ function buildPreview(
 }
 
 export function StepZApiMessage({ state, xlsxResult, templates, onChange }: StepZApiMessageProps) {
-  const availableColumns = xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"];
-  const sampleRow        = xlsxResult?.validRows?.[0] ?? { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/04/2025" };
+  const CONTACT_COLUMNS = [
+    "name", "phone", "empresa", "email", "email2", "cpf_cnpj",
+    "nome_representante", "email_representante",
+    "cidade", "estado", "bairro", "cep",
+    "gerente1_nome", "gerente2_nome",
+  ];
+  const CONTACT_SAMPLE = {
+    name: "João Silva", phone: "5511999999999", empresa: "Empresa Exemplo",
+    email: "joao@empresa.com", cidade: "São Paulo", estado: "SP",
+  };
+
+  const availableColumns = state.dataSource === "contacts"
+    ? CONTACT_COLUMNS
+    : (xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"]);
+
+  const sampleRow = state.dataSource === "contacts"
+    ? CONTACT_SAMPLE
+    : (xlsxResult?.validRows?.[0] ?? { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/04/2025" });
 
   const selectedTemplate = templates.find((t) => t.id === state.zApiTemplateId) ?? null;
 
