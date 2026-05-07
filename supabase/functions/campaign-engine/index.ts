@@ -451,7 +451,7 @@ async function upsertInboxConversation(workspaceId: string, connectionId: string
 }
 
 async function upsertZApiConversation(workspaceId: string, zApiConnectionId: string, contactId: string, ts: string, lastBody: string): Promise<string | null> {
-  const { data: existing } = await db.from("inbox_conversations").select("id").eq("workspace_id", workspaceId).eq("contact_id", contactId).maybeSingle();
+  const { data: existing } = await db.from("inbox_conversations").select("id").eq("workspace_id", workspaceId).eq("contact_id", contactId).eq("z_api_connection_id", zApiConnectionId).maybeSingle();
   if (existing) {
     await db.from("inbox_conversations").update({ last_message_at: ts, last_message_body: lastBody, last_message_direction: "outbound", updated_at: ts }).eq("id", existing.id);
     return existing.id as string;
