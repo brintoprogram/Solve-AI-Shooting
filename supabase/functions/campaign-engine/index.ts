@@ -56,6 +56,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function substituteVars(
+  template:    string,
+  vars:        Record<string, string>,
+  contactData: Record<string, unknown>,
+): string {
+  let result = template;
+  for (const [idx, col] of Object.entries(vars)) {
+    result = result.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
+  }
+  return result;
+}
+
 // ── Auth ─────────────────────────────────────────────────
 
 async function authorizeRequest(req: Request): Promise<
@@ -229,17 +241,18 @@ function buildZApiText(
   contactData: Record<string, unknown>,
   tpl?:        ZApiTemplateData | null,
 ): string {
-  const bodyVars = (mapping.body_variables ?? {}) as Record<string, string>;
-  let text = body;
-  for (const [idx, col] of Object.entries(bodyVars)) {
-    text = text.replace(new RegExp(`\\{\\{${idx}\\}\\}`, "g"), String(contactData[col] ?? ""));
-  }
-  // For plain text type with header/footer: embed them in the message
+  const bodyVars   = (mapping.body_variables  ?? {}) as Record<string, string>;
+  const headerVars = (mapping.header_variables ?? {}) as Record<string, string>;
+  const footerVars = (mapping.footer_variables ?? {}) as Record<string, string>;
+
+  const text = substituteVars(body, bodyVars, contactData);
+
+  // For plain text type: embed header/footer as markdown with variable substitution
   if (tpl && tpl.message_type === "text") {
     const parts: string[] = [];
-    if (tpl.header_text) parts.push(`*${tpl.header_text}*`);
+    if (tpl.header_text) parts.push(`*${substituteVars(tpl.header_text, headerVars, contactData)}*`);
     parts.push(text);
-    if (tpl.footer) parts.push(`_${tpl.footer}_`);
+    if (tpl.footer) parts.push(`_${substituteVars(tpl.footer, footerVars, contactData)}_`);
     return parts.join("\n\n");
   }
   return text;
@@ -258,9 +271,15 @@ async function processZApiMessage(
 
   let result: ZApiSendResult;
   if (tpl?.message_type === "button_list" && tpl.buttons.length > 0) {
+    const headerVars = (mapping.header_variables ?? {}) as Record<string, string>;
+    const footerVars = (mapping.footer_variables ?? {}) as Record<string, string>;
+    const contact    = msg.recipient_data ?? {};
     result = await sendZApiButtonList(
       zConn.instance_id, zConn.token, zConn.client_token,
-      msg.recipient_phone, text, tpl.header_text, tpl.footer, tpl.buttons,
+      msg.recipient_phone, text,
+      tpl.header_text ? substituteVars(tpl.header_text, headerVars, contact) : null,
+      tpl.footer      ? substituteVars(tpl.footer,      footerVars, contact) : null,
+      tpl.buttons,
     );
   } else {
     result = await sendZApiMessage(zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, text);
