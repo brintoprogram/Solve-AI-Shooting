@@ -3,6 +3,8 @@ import { LayoutTemplate, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
 import type { ZApiTemplate } from "@/types/database";
+import { useContactFields } from "@/hooks/useContactFields";
+import { useAuth } from "@/context/AuthContext";
 
 interface StepZApiMessageProps {
   state:      WizardState;
@@ -30,19 +32,17 @@ function buildPreview(
 }
 
 export function StepZApiMessage({ state, xlsxResult, templates, onChange }: StepZApiMessageProps) {
-  const CONTACT_COLUMNS = [
-    "name", "phone", "empresa", "email", "email2", "cpf_cnpj",
-    "nome_representante", "email_representante",
-    "cidade", "estado", "bairro", "cep",
-    "gerente1_nome", "gerente2_nome",
-  ];
+  const { workspaceId } = useAuth();
+  const { visibleFields } = useContactFields(workspaceId ?? "");
+
   const CONTACT_SAMPLE = {
     name: "João Silva", phone: "5511999999999", empresa: "Empresa Exemplo",
     email: "joao@empresa.com", cidade: "São Paulo", estado: "SP",
+    valor_total_pendente: "R$ 1.250,00", proximo_vencimento: "30/04/2025", boleto_nf: "NF-0042",
   };
 
   const availableColumns = state.dataSource === "contacts"
-    ? CONTACT_COLUMNS
+    ? visibleFields
     : (xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"]);
 
   const sampleRow = state.dataSource === "contacts"

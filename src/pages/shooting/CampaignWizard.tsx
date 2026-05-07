@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { initialWizardState } from "@/types/shooting";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
+import { aggregateInvoices } from "@/lib/invoiceAggregation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 
@@ -109,7 +110,7 @@ export function CampaignWizard() {
       if (state.dataSource === "contacts" && state.selectedContacts.length > 0) {
         const { data: contactRows } = await supabase
           .from("inbox_contacts")
-          .select("*")
+          .select("*, contact_invoices(*)")
           .in("id", state.selectedContacts);
 
         const messages = (contactRows ?? []).map((c: Record<string, unknown>) => ({
@@ -117,7 +118,7 @@ export function CampaignWizard() {
           workspace_id:    WORKSPACE_ID,
           recipient_phone: String(c.phone ?? ""),
           recipient_name:  String(c.name ?? ""),
-          recipient_data:  c,
+          recipient_data:  aggregateInvoices(c as Parameters<typeof aggregateInvoices>[0]),
           status:          "pending" as const,
           retry_count:     0,
           max_retries:     3,

@@ -4,6 +4,8 @@ import { VariableMapper, buildVariablesFromRow } from "./VariableMapper";
 import { PhonePreviewFrame } from "./PhonePreviewFrame";
 import type { WizardState, XlsxValidationResult } from "@/types/shooting";
 import type { MetaTemplate } from "@/types/shooting";
+import { useContactFields } from "@/hooks/useContactFields";
+import { useAuth } from "@/context/AuthContext";
 
 interface StepMessageProps {
   state: WizardState;
@@ -14,22 +16,19 @@ interface StepMessageProps {
 
 export function StepMessage({ state, templates, xlsxResult, onChange }: StepMessageProps) {
   const [previewIndex, setPreviewIndex] = useState(0);
+  const { workspaceId } = useAuth();
+  const { visibleFields } = useContactFields(workspaceId ?? "");
 
   const selectedTemplate = templates.find((t) => t.id === state.templateId);
 
-  const CONTACT_COLUMNS = [
-    "name", "phone", "empresa", "email", "email2", "cpf_cnpj",
-    "nome_representante", "email_representante",
-    "cidade", "estado", "bairro", "cep",
-    "gerente1_nome", "gerente2_nome",
-  ];
   const CONTACT_SAMPLE = {
     name: "João Silva", phone: "5511999999999", empresa: "Empresa Exemplo",
     email: "joao@empresa.com", cidade: "São Paulo", estado: "SP",
+    valor_total_pendente: "R$ 1.250,00", proximo_vencimento: "30/04/2025", boleto_nf: "NF-0042",
   };
 
   const availableColumns = state.dataSource === "contacts"
-    ? CONTACT_COLUMNS
+    ? visibleFields
     : (xlsxResult?.headers ?? ["nome", "telefone", "valor", "data_vencimento", "link"]);
 
   const previewRows = state.dataSource === "contacts"

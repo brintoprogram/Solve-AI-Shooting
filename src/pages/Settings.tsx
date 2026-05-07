@@ -4,8 +4,10 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch,
+  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket,
 } from "lucide-react";
+import { ALL_CONTACT_FIELDS } from "@/lib/contactFields";
+import { useContactFields }   from "@/hooks/useContactFields";
 import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
@@ -502,7 +504,10 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo">("perfil");
+  const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
+  const [localFields, setLocalFields]        = useState<string[]>([]);
+  const [savingFields, setSavingFields]      = useState(false);
 
   const [form, setForm]           = useState({ waba_id: "", phone_number_id: "", access_token: "", webhook_verify_token: crypto.randomUUID() });
   const [testing,  setTesting]    = useState(false);
@@ -1061,6 +1066,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "whatsapp",  label: "WhatsApp",  icon: Smartphone },
             { id: "email",     label: "Email",     icon: Mail       },
             { id: "ia",        label: "IA",        icon: Zap        },
+            { id: "disparo",   label: "Disparo",   icon: Rocket     },
             { id: "avancado",  label: "Avançado",  icon: Terminal   },
           ];
           return (
@@ -1490,6 +1496,74 @@ CREATE POLICY "avatars_delete" ON storage.objects
         </div>
 
         </> /* end WhatsApp tab */}
+
+        {/* ══ Tab: Disparo ══════════════════════════════════ */}
+        {settingsTab === "disparo" && (() => {
+          const groups = [...new Set(ALL_CONTACT_FIELDS.map((f) => f.group))];
+          const fields = localFields.length > 0 ? localFields : visibleFields;
+          function toggle(key: string) {
+            setLocalFields((prev) => {
+              const base = prev.length > 0 ? prev : visibleFields;
+              return base.includes(key) ? base.filter((k) => k !== key) : [...base, key];
+            });
+          }
+          async function handleSave() {
+            setSavingFields(true);
+            const toSave = localFields.length > 0 ? localFields : visibleFields;
+            await saveVisibleFields(toSave);
+            setSavingFields(false);
+            toast({ title: "Campos salvos", variant: "success" });
+          }
+          return (
+            <div className="space-y-6 animate-fade-up">
+              <DarkCard
+                title="Campos visíveis no mapeamento de variáveis"
+                subtitle="Selecione quais campos do contato aparecem como opção ao mapear variáveis em campanhas (Meta e Z-API)."
+              >
+                <div className="space-y-6">
+                  {groups.map((group) => (
+                    <div key={group}>
+                      <p className="text-[10px] font-bold text-agro-muted-2 uppercase tracking-[0.1em] mb-3">{group}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {ALL_CONTACT_FIELDS.filter((f) => f.group === group).map((f) => {
+                          const on = fields.includes(f.key);
+                          return (
+                            <label
+                              key={f.key}
+                              className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors"
+                              style={{
+                                background: on ? "rgba(63,176,108,0.08)" : "rgba(13,26,17,0.5)",
+                                border: `1px solid ${on ? "rgba(63,176,108,0.25)" : "rgba(63,176,108,0.08)"}`,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={() => toggle(f.key)}
+                                className="accent-agro-green w-4 h-4 shrink-0"
+                              />
+                              <span className="flex-1 text-sm text-agro-text">{f.label}</span>
+                              <span className="font-mono text-[10px] text-agro-muted-2">{f.key}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleSave}
+                  disabled={savingFields}
+                  className="btn-agro flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  {savingFields ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  Salvar campos
+                </button>
+              </DarkCard>
+            </div>
+          );
+        })()}
 
         {/* ══ Tab: Avançado (Deploy) ═════════════════════════ */}
         {settingsTab === "avancado" && <>
