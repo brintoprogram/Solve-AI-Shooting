@@ -109,15 +109,15 @@ export function CampaignWizard() {
       if (state.dataSource === "contacts" && state.selectedContacts.length > 0) {
         const { data: contactRows } = await supabase
           .from("inbox_contacts")
-          .select("id, name, phone")
+          .select("*")
           .in("id", state.selectedContacts);
 
-        const messages = (contactRows ?? []).map((c: { id: string; name: string | null; phone: string | null }) => ({
+        const messages = (contactRows ?? []).map((c: Record<string, unknown>) => ({
           campaign_id:     campaign.id,
           workspace_id:    WORKSPACE_ID,
-          recipient_phone: c.phone ?? "",
-          recipient_name:  c.name ?? "",
-          recipient_data:  {},
+          recipient_phone: String(c.phone ?? ""),
+          recipient_name:  String(c.name ?? ""),
+          recipient_data:  c,
           status:          "pending" as const,
           retry_count:     0,
           max_retries:     3,
