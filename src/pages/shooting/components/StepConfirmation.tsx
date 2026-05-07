@@ -20,9 +20,21 @@ interface StepConfirmationProps {
   submitting: boolean;
 }
 
+function formatDurationFromSeconds(totalSeconds: number): string {
+  const m = Math.ceil(totalSeconds / 60);
+  if (m < 60) return `~${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return `~${h}h ${rem > 0 ? ` ${rem}min` : ""}`.trim();
+}
+
 export function StepConfirmation({ state, template, connection, zApiConnection, zApiTemplate, onSubmit, submitting }: StepConfirmationProps) {
   const [consented, setConsented] = useState(false);
   const isZApi = state.channel === "z_api";
+  const isRandomMode = isZApi && state.sendingSpeedMode === "random";
+
+  const randomMinTime = isRandomMode ? formatDurationFromSeconds(state.totalRecipients * state.minDelaySeconds) : "";
+  const randomMaxTime = isRandomMode ? formatDurationFromSeconds(state.totalRecipients * state.maxDelaySeconds) : "";
 
   const summaryCards = [
     {
@@ -65,13 +77,17 @@ export function StepConfirmation({ state, template, connection, zApiConnection, 
     {
       icon: Gauge,
       label: "Velocidade",
-      value: `${state.sendingSpeed} msg/min`,
-      sub: `Duração: ${estimateDuration(state.totalRecipients, state.sendingSpeed)}`,
+      value: isRandomMode ? "Aleatório" : `${state.sendingSpeed} msg/min`,
+      sub: isRandomMode
+        ? `${state.minDelaySeconds}s – ${state.maxDelaySeconds}s por mensagem`
+        : `Duração: ${estimateDuration(state.totalRecipients, state.sendingSpeed)}`,
     },
     {
       icon: Clock,
       label: "Tempo estimado",
-      value: estimateDuration(state.totalRecipients, state.sendingSpeed),
+      value: isRandomMode
+        ? `${randomMinTime} – ${randomMaxTime}`
+        : estimateDuration(state.totalRecipients, state.sendingSpeed),
       sub: `Para ${state.totalRecipients.toLocaleString("pt-BR")} msgs`,
     },
   ];
