@@ -283,34 +283,41 @@ export function CampaignDetail() {
         ? ((campaign.sent_count - campaign.failed_count) / campaign.sent_count * 100).toFixed(1) + "%"
         : "—";
 
-      const CARDS = [
-        { label: "Total de Contatos",    value: campaign.total_recipients.toLocaleString("pt-BR"), color: [25, 25, 25]     as [number,number,number] },
-        { label: "Enviados com Sucesso", value: (campaign.sent_count - campaign.failed_count).toLocaleString("pt-BR"), color: [22, 163, 74] as [number,number,number] },
-        { label: "Falhas",               value: campaign.failed_count.toLocaleString("pt-BR"),     color: [220, 38, 38]    as [number,number,number] },
-        { label: "Taxa de Sucesso",      value: successRate,                                       color: [22, 163, 74]    as [number,number,number] },
+      const ROW1 = [
+        { label: "Total de Contatos",    value: campaign.total_recipients.toLocaleString("pt-BR"),                        color: [25, 25, 25]     as [number,number,number] },
+        { label: "Enviados com Sucesso", value: (campaign.sent_count - campaign.failed_count).toLocaleString("pt-BR"),    color: [22, 163, 74]    as [number,number,number] },
+        { label: "Entregues ✓✓",         value: campaign.delivered_count.toLocaleString("pt-BR"),                         color: [16, 132, 163]   as [number,number,number] },
+      ];
+      const ROW2 = [
+        { label: "Lidos ✓✓",             value: campaign.read_count.toLocaleString("pt-BR"),                              color: [37, 99, 235]    as [number,number,number] },
+        { label: "Falhas",               value: campaign.failed_count.toLocaleString("pt-BR"),                            color: [220, 38, 38]    as [number,number,number] },
+        { label: "Taxa de Sucesso",      value: successRate,                                                              color: [22, 163, 74]    as [number,number,number] },
       ];
 
-      const cardW = (W - MX * 2 - 3 * 5) / 4;
+      const cardW = (W - MX * 2 - 2 * 5) / 3;
       const cardH = 28;
 
-      CARDS.forEach((card, i) => {
-        const cx = MX + i * (cardW + 5);
-        doc.setFillColor(250, 250, 250);
-        doc.setDrawColor(210, 210, 210);
-        doc.setLineWidth(0.3);
-        doc.roundedRect(cx, y, cardW, cardH, 2, 2, "FD");
-        // Label
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(130, 130, 130);
-        doc.text(card.label, cx + cardW / 2, y + 9, { align: "center" });
-        // Value
-        doc.setFontSize(20);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...card.color);
-        doc.text(card.value, cx + cardW / 2, y + 22, { align: "center" });
-      });
+      const drawCards = (cards: typeof ROW1, startY: number) => {
+        cards.forEach((card, i) => {
+          const cx = MX + i * (cardW + 5);
+          doc.setFillColor(250, 250, 250);
+          doc.setDrawColor(210, 210, 210);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cx, startY, cardW, cardH, 2, 2, "FD");
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(130, 130, 130);
+          doc.text(card.label, cx + cardW / 2, startY + 9, { align: "center" });
+          doc.setFontSize(20);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...card.color);
+          doc.text(card.value, cx + cardW / 2, startY + 22, { align: "center" });
+        });
+      };
 
+      drawCards(ROW1, y);
+      y += cardH + 4;
+      drawCards(ROW2, y);
       y += cardH + 6;
 
       // Total value line
