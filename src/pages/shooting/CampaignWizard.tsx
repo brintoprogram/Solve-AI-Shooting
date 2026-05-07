@@ -103,6 +103,28 @@ export function CampaignWizard() {
         error_summary:       {},
       });
 
+      if (state.dataSource === "contacts" && state.selectedContacts.length > 0) {
+        const { data: contactRows } = await supabase
+          .from("inbox_contacts")
+          .select("id, name, phone")
+          .in("id", state.selectedContacts);
+
+        const messages = (contactRows ?? []).map((c: { id: string; name: string | null; phone: string | null }) => ({
+          campaign_id:     campaign.id,
+          workspace_id:    WORKSPACE_ID,
+          recipient_phone: c.phone ?? "",
+          recipient_name:  c.name ?? "",
+          recipient_data:  {},
+          status:          "pending" as const,
+          retry_count:     0,
+          max_retries:     3,
+        }));
+
+        for (let i = 0; i < messages.length; i += 500) {
+          await supabase.from("shooting_messages").insert(messages.slice(i, i + 500));
+        }
+      }
+
       if (state.dataSource === "xlsx_upload" && xlsxResult) {
         const phoneCol = xlsxResult.phoneColumn ?? state.columnMapping.phone_column;
         const messages = xlsxResult.validRows.map((row) => ({
@@ -342,7 +364,7 @@ export function CampaignWizard() {
                 if (step === 1) navigate("/shooting");
                 else patch({ step: (step - 1) as 1 | 2 | 3 | 4 });
               }}
-              className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors duration-200 px-4 py-2 rounded-xl hover:bg-white/5"
+              className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors duration-200 px-5 py-2.5 rounded-xl hover:bg-white/5"
             >
               <ChevronLeft className="w-4 h-4" />
               {step === 1 ? "Cancelar" : "Voltar"}

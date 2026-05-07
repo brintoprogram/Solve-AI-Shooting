@@ -20,7 +20,6 @@ export function StepRecipients({
   if (state.dataSource === "contacts") {
     return (
       <ContactSelector
-        workspaceId=""
         selected={state.selectedContacts}
         onChange={(ids) => onChange({ selectedContacts: ids, totalRecipients: ids.length })}
       />

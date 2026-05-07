@@ -139,7 +139,7 @@ export function StepScope({ state, connections, zApiConnections, onChange }: Ste
           {state.connectionId && (() => {
             const conn = connections.find((c) => c.id === state.connectionId);
             return conn ? (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg" style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
                 <div className={cn("w-1.5 h-1.5 rounded-full", conn.status === "active" ? "bg-agro-green" : "bg-red-400")} />
                 <span className="text-xs text-agro-text">{conn.display_phone}</span>
                 {conn.quality_rating && <span className={cn("text-xs font-medium", QUALITY_COLOR[conn.quality_rating] ?? "text-agro-muted")}>● {conn.quality_rating}</span>}
@@ -171,7 +171,7 @@ export function StepScope({ state, connections, zApiConnections, onChange }: Ste
               {state.connectionId && (() => {
                 const conn = zApiConnections.find((c) => c.id === state.connectionId);
                 return conn ? (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-lg" style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
                     <div className={cn("w-1.5 h-1.5 rounded-full", conn.status === "connected" ? "bg-agro-green" : "bg-amber-400")} />
                     <span className="text-xs text-agro-text">{conn.name}</span>
                     {conn.phone && <span className="text-xs text-agro-muted">{conn.phone}</span>}
@@ -192,7 +192,7 @@ export function StepScope({ state, connections, zApiConnections, onChange }: Ste
           <Calendar className="w-3.5 h-3.5" />
           Agendamento
         </p>
-        <div className="flex gap-3">
+        <div className="flex gap-4">
           {[
             { value: "now",   label: "Enviar agora",        sub: "Disparo imediato" },
             { value: "later", label: "Agendar para depois", sub: "Escolha data e hora" },
