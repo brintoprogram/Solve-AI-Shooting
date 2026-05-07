@@ -171,22 +171,24 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
           )}
         </div>
 
-        {/* Phone column */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
-            Coluna do telefone *
-          </p>
-          <select
-            className="input-agro w-full"
-            value={state.columnMapping.phone_column}
-            onChange={(e) => handlePhoneCol(e.target.value)}
-          >
-            <option value="">Selecione a coluna...</option>
-            {availableColumns.map((col) => (
-              <option key={col} value={col}>{col}</option>
-            ))}
-          </select>
-        </div>
+        {/* Phone column — only needed for XLSX uploads; contacts already have phone */}
+        {state.dataSource !== "contacts" && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+              Coluna do telefone *
+            </p>
+            <select
+              className="input-agro w-full"
+              value={state.columnMapping.phone_column}
+              onChange={(e) => handlePhoneCol(e.target.value)}
+            >
+              <option value="">Selecione a coluna...</option>
+              {availableColumns.map((col) => (
+                <option key={col} value={col}>{col}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Message body */}
         <div className="space-y-2">

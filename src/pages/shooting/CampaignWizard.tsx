@@ -57,7 +57,7 @@ export function CampaignWizard() {
     if (step === 3) {
       if (state.channel === "z_api") {
         if (!state.messageBody.trim()) return false;
-        if (!state.columnMapping.phone_column) return false;
+        if (state.dataSource !== "contacts" && !state.columnMapping.phone_column) return false;
         const varIndices = [...new Set((state.messageBody.match(/\{\{(\d+)\}\}/g) ?? []).map((m) => m.replace(/\{\{|\}\}/g, "")))];
         return varIndices.every((i) => !!state.columnMapping.body_variables?.[i]);
       }
@@ -146,10 +146,6 @@ export function CampaignWizard() {
       }
 
       if (state.scheduleMode === "now") {
-        await supabase
-          .from("shooting_campaigns")
-          .update({ status: "sending", started_at: new Date().toISOString() })
-          .eq("id", campaign.id);
         await supabase.functions.invoke("campaign-engine", {
           body: { action: "start", campaign_id: campaign.id },
         });
