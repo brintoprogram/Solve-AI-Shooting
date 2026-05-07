@@ -100,14 +100,14 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
   const phoneColSet   = !!state.columnMapping.phone_column;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
 
       {/* ── Left: compose ─────────────────────── */}
-      <div className="space-y-5">
+      <div className="space-y-6">
 
         {/* Template picker */}
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+          <p className="text-xs font-bold text-agro-muted-2 uppercase tracking-[0.1em] leading-none">
             Template Z-API
           </p>
           {templates.length === 0 ? (
@@ -133,26 +133,26 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
               </select>
 
               {selectedTemplate && (
-                <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 rounded-xl"
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-xl"
                   style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.2)" }}
                 >
                   <LayoutTemplate className="w-3 h-3 shrink-0" style={{ color: "#a78bfa" }} />
                   {selectedTemplate.header_text && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                    <span className="text-[10px] px-2 py-1 rounded font-medium"
                       style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
                     >
                       Header: {selectedTemplate.header_text}
                     </span>
                   )}
                   {selectedTemplate.footer && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                    <span className="text-[10px] px-2 py-1 rounded font-medium"
                       style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
                     >
                       Footer
                     </span>
                   )}
                   {selectedTemplate.message_type === "button_list" && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                    <span className="text-[10px] px-2 py-1 rounded font-medium"
                       style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd" }}
                     >
                       {selectedTemplate.buttons.length} botão{selectedTemplate.buttons.length !== 1 ? "es" : ""}
@@ -161,7 +161,7 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
                   <button
                     type="button"
                     onClick={() => selectTemplate(null)}
-                    className="ml-auto text-agro-muted-2 hover:text-red-400 transition-colors"
+                    className="ml-auto p-1 -mr-1 text-agro-muted-2 hover:text-red-400 transition-colors rounded"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -174,7 +174,7 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
         {/* Phone column — only needed for XLSX uploads; contacts already have phone */}
         {state.dataSource !== "contacts" && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+            <p className="text-[10px] font-medium text-agro-muted-2 uppercase tracking-[0.06em] leading-none">
               Coluna do telefone *
             </p>
             <select
@@ -192,12 +192,12 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
 
         {/* Message body */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs font-bold text-agro-muted-2 uppercase tracking-[0.1em] leading-none">
               Mensagem *
             </p>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-agro-muted">{charCount} caracteres</span>
+            <div className="flex items-baseline gap-2.5">
+              <span className="text-[9px] font-light text-agro-muted-2">{charCount} caracteres</span>
               <button
                 type="button"
                 onClick={insertVar}
@@ -228,10 +228,10 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
         {/* Variable mapping */}
         {varIndices.length > 0 && (
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">
+            <p className="text-xs font-bold text-agro-muted-2 uppercase tracking-[0.1em] leading-none">
               Mapeamento de variáveis *
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {varIndices.map((idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   <span
@@ -281,17 +281,23 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
       {/* ── Right: preview ────────────────────── */}
       <div className="flex flex-col items-center">
         {state.messageBody.trim() ? (
-          <div className="space-y-3 w-full flex flex-col items-center">
+          <div className="space-y-4 w-full flex flex-col items-center">
             <div className="text-center">
               <p className="text-sm font-semibold text-agro-text">Preview em tempo real</p>
               <p className="text-xs text-agro-muted mt-0.5">Dados da linha 1 dos destinatários</p>
             </div>
 
             {/* Phone mockup */}
-            <div className="w-[240px] rounded-3xl p-3 shadow-2xl"
-              style={{ background: "#111b21", border: "2px solid rgba(255,255,255,0.08)" }}>
+            <div
+              className="w-[268px] rounded-[32px] p-3.5"
+              style={{
+                background: "#111b21",
+                border: "2px solid rgba(255,255,255,0.08)",
+                boxShadow: "0 36px 72px rgba(0,0,0,0.65), 0 12px 28px rgba(0,0,0,0.45), 0 4px 8px rgba(0,0,0,0.3)",
+              }}
+            >
               {/* Status bar */}
-              <div className="flex justify-between items-center mb-2 px-2">
+              <div className="flex justify-between items-center mb-2.5 px-2">
                 <span className="text-[9px] text-gray-500">9:41</span>
                 <div className="flex gap-1">
                   <div className="w-3 h-1.5 rounded-sm bg-gray-600" />
@@ -300,7 +306,7 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
               </div>
 
               {/* Chat area */}
-              <div className="rounded-2xl min-h-[180px] p-3 flex flex-col gap-2"
+              <div className="rounded-2xl min-h-[180px] p-3.5 flex flex-col gap-2"
                 style={{ background: "#0b141a" }}>
 
                 {/* Message bubble */}
@@ -310,13 +316,13 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
 
                     {/* Header */}
                     {selectedTemplate?.header_text && (
-                      <div className="px-3 pt-2.5 pb-1">
+                      <div className="px-4 pt-3 pb-1">
                         <p className="text-[11px] font-bold text-white">{selectedTemplate.header_text}</p>
                       </div>
                     )}
 
                     {/* Body */}
-                    <div className={cn("px-3 py-2", selectedTemplate?.header_text && "pt-0")}>
+                    <div className={cn("px-4 py-3", selectedTemplate?.header_text && "pt-0")}>
                       <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
                         {bodyPreview || "Sua mensagem aparecerá aqui..."}
                       </p>
@@ -324,7 +330,7 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
 
                     {/* Footer */}
                     {selectedTemplate?.footer && (
-                      <div className="px-3 pb-2">
+                      <div className="px-4 pb-3">
                         <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.45)" }}>
                           {selectedTemplate.footer}
                         </p>
@@ -332,7 +338,7 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
                     )}
 
                     {/* Timestamp */}
-                    <div className="flex items-center justify-end gap-1 px-3 pb-1.5">
+                    <div className="flex items-center justify-end gap-1 px-4 pb-2">
                       <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
                       <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
                         <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
@@ -343,10 +349,10 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
 
                   {/* Buttons (outside bubble, below) */}
                   {selectedTemplate?.message_type === "button_list" && selectedTemplate.buttons.length > 0 && (
-                    <div className="mt-1 space-y-1">
+                    <div className="mt-1.5 space-y-1.5">
                       {selectedTemplate.buttons.map((btn) => (
                         <div key={btn.id}
-                          className="flex items-center justify-center py-1.5 rounded-lg text-[10px] font-semibold"
+                          className="flex items-center justify-center py-2 rounded-lg text-[10px] font-semibold"
                           style={{ background: "rgba(0,92,75,0.7)", border: "1px solid rgba(0,92,75,0.9)", color: "#53bdeb" }}
                         >
                           {btn.label}

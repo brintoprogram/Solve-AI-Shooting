@@ -257,16 +257,16 @@ export function CampaignWizard() {
         </div>
 
         {/* ── Main card ─────────────────────────────────── */}
-        <div className="animate-fade-up-delay-1 rounded-2xl overflow-hidden"
+        <div className="animate-fade-up-delay-1 rounded-3xl overflow-hidden"
           style={{
             background: "rgba(13,26,17,0.8)",
             backdropFilter: "blur(20px)",
             border: "1px solid rgba(63,176,108,0.12)",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.4), inset 0 0 60px rgba(63,176,108,0.02)",
+            boxShadow: "0 32px 80px rgba(0,0,0,0.6), 0 8px 24px rgba(0,0,0,0.45), inset 0 0 80px rgba(63,176,108,0.02)",
           }}
         >
           {/* Card header */}
-          <div className="px-8 py-6 relative"
+          <div className="px-8 py-8 relative"
             style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
           >
             {/* Top accent line */}
