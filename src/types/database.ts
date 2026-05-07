@@ -159,6 +159,9 @@ export interface ShootingCampaign {
   failed_count: number;
   error_summary: Json;
   sending_speed: number;
+  sending_speed_mode: "fixed" | "random";
+  min_delay_seconds: number | null;
+  max_delay_seconds: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

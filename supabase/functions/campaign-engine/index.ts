@@ -714,15 +714,18 @@ async function startSendLoop(
     }
   }
 
-  const isZApi           = String(campaign.dispatch_channel ?? "whatsapp") === "z_api";
-  const mapping          = (campaign.column_mapping ?? {}) as Record<string, unknown>;
-  const workspaceId      = String(campaign.workspace_id     ?? "");
-  const connectionId     = String(campaign.meta_connection_id ?? "");
-  const sendingSpeed     = Number(campaign.sending_speed ?? 80);
-  const targetIntervalMs = Math.ceil(60_000 / sendingSpeed);
+  const isZApi            = String(campaign.dispatch_channel ?? "whatsapp") === "z_api";
+  const mapping           = (campaign.column_mapping ?? {}) as Record<string, unknown>;
+  const workspaceId       = String(campaign.workspace_id     ?? "");
+  const connectionId      = String(campaign.meta_connection_id ?? "");
+  const sendingSpeed      = Number(campaign.sending_speed ?? 80);
+  const targetIntervalMs  = Math.ceil(60_000 / sendingSpeed);
+  const isRandomMode      = isZApi && String(campaign.sending_speed_mode ?? "fixed") === "random";
+  const minDelayMs        = isRandomMode ? Number(campaign.min_delay_seconds ?? 5)  * 1_000 : 0;
+  const maxDelayMs        = isRandomMode ? Number(campaign.max_delay_seconds ?? 30) * 1_000 : 0;
 
-  console.log(`[engine] starting campaign ${campaignId} channel=${isZApi ? "z_api" : "meta"} speed=${sendingSpeed}msg/min`);
-  writeAuditLog(workspaceId, "campaign_started", campaignId, "campaign", "info", null, { sending_speed: sendingSpeed });
+  console.log(`[engine] starting campaign ${campaignId} channel=${isZApi ? "z_api" : "meta"} speed=${sendingSpeed}msg/min random=${isRandomMode}`);
+  writeAuditLog(workspaceId, "campaign_started", campaignId, "campaign", "info", null, { sending_speed: sendingSpeed, random_mode: isRandomMode });
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -752,7 +755,11 @@ async function startSendLoop(
       } else {
         await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
       }
-      const remaining = targetIntervalMs - (Date.now() - t0);
+      const elapsed   = Date.now() - t0;
+      const delayMs   = isRandomMode
+        ? minDelayMs + Math.random() * (maxDelayMs - minDelayMs)
+        : targetIntervalMs;
+      const remaining = delayMs - elapsed;
       if (remaining > 50) await sleep(remaining);
     }
 

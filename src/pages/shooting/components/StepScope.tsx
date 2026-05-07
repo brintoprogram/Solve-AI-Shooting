@@ -222,34 +222,156 @@ export function StepScope({ state, connections, zApiConnections, onChange }: Ste
         )}
       </div>
 
-      {/* ── Sending speed ────────────────���───────── */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-2">
-            <Gauge className="w-3.5 h-3.5" />
-            Velocidade de envio
-          </p>
-          <span className="text-sm font-bold text-agro-green glow-green-sm px-2 py-0.5 rounded-md" style={{ background: "rgba(63,176,108,0.1)" }}>
-            {state.sendingSpeed} msg/min
-          </span>
-        </div>
-        <div className="relative py-2">
-          <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.12)" }}>
-            <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
-              style={{ width: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)", boxShadow: "0 0 8px rgba(63,176,108,0.5)" }}
+      {/* ── Sending speed (Meta) ─────────────────── */}
+      {!isZApi && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-2">
+              <Gauge className="w-3.5 h-3.5" />
+              Velocidade de envio
+            </p>
+            <span className="text-sm font-bold text-agro-green glow-green-sm px-2 py-0.5 rounded-md" style={{ background: "rgba(63,176,108,0.1)" }}>
+              {state.sendingSpeed} msg/min
+            </span>
+          </div>
+          <div className="relative py-2">
+            <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.12)" }}>
+              <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
+                style={{ width: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)", boxShadow: "0 0 8px rgba(63,176,108,0.5)" }}
+              />
+            </div>
+            <input type="range" min={1} max={80} step={1} value={state.sendingSpeed} onChange={(e) => onChange({ sendingSpeed: Number(e.target.value) })} className="absolute inset-0 w-full opacity-0 cursor-pointer h-6 -top-2" />
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-agro-green transition-all duration-200 pointer-events-none glow-green-sm"
+              style={{ left: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
             />
           </div>
-          <input type="range" min={1} max={80} step={1} value={state.sendingSpeed} onChange={(e) => onChange({ sendingSpeed: Number(e.target.value) })} className="absolute inset-0 w-full opacity-0 cursor-pointer h-6 -top-2" />
-          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-agro-green transition-all duration-200 pointer-events-none glow-green-sm"
-            style={{ left: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
-          />
+          <div className="flex justify-between text-[10px] text-agro-muted-2">
+            <span>1 msg/min</span>
+            <span className="text-agro-muted">Respeite o tier da sua conta Meta</span>
+            <span>80 msg/min</span>
+          </div>
         </div>
-        <div className="flex justify-between text-[10px] text-agro-muted-2">
-          <span>1 msg/min</span>
-          <span className="text-agro-muted">{isZApi ? "Z-API suporta até ~80 msg/min" : "Respeite o tier da sua conta Meta"}</span>
-          <span>80 msg/min</span>
+      )}
+
+      {/* ── Intervalo de envio (Z-API only) ──────── */}
+      {isZApi && (
+        <div className="space-y-4">
+          <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest flex items-center gap-2">
+            <Gauge className="w-3.5 h-3.5" />
+            Intervalo entre mensagens
+          </p>
+
+          {/* Mode toggle */}
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { value: "fixed",  label: "Velocidade Fixa",      sub: "Intervalo constante entre envios" },
+              { value: "random", label: "Intervalo Aleatório",   sub: "Varia entre um mínimo e máximo" },
+            ] as const).map((opt) => {
+              const sel = state.sendingSpeedMode === opt.value;
+              return (
+                <div
+                  key={opt.value}
+                  onClick={() => onChange({ sendingSpeedMode: opt.value })}
+                  className="flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all duration-200"
+                  style={sel
+                    ? { background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.3)" }
+                    : { background: "rgba(26,46,34,0.5)", border: "1px solid rgba(63,176,108,0.08)" }
+                  }
+                >
+                  <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 transition-all duration-200"
+                    style={{ border: sel ? "none" : "2px solid rgba(63,176,108,0.3)", background: sel ? "linear-gradient(135deg, #3fb06c, #16A34A)" : "transparent" }}
+                  >
+                    {sel && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div>
+                    <p className={cn("text-sm font-medium", sel ? "text-agro-text" : "text-agro-muted")}>{opt.label}</p>
+                    <p className={cn("text-[10px]", sel ? "text-agro-green" : "text-agro-muted-2")}>{opt.sub}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Fixed mode — slider */}
+          {state.sendingSpeedMode === "fixed" && (
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <span className="text-sm font-bold text-agro-green px-2 py-0.5 rounded-md" style={{ background: "rgba(63,176,108,0.1)" }}>
+                  {state.sendingSpeed} msg/min
+                </span>
+              </div>
+              <div className="relative py-2">
+                <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.12)" }}>
+                  <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
+                    style={{ width: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)", boxShadow: "0 0 8px rgba(63,176,108,0.5)" }}
+                  />
+                </div>
+                <input type="range" min={1} max={80} step={1} value={state.sendingSpeed} onChange={(e) => onChange({ sendingSpeed: Number(e.target.value) })} className="absolute inset-0 w-full opacity-0 cursor-pointer h-6 -top-2" />
+                <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-agro-green transition-all duration-200 pointer-events-none glow-green-sm"
+                  style={{ left: `${(state.sendingSpeed / 80) * 100}%`, background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-agro-muted-2">
+                <span>1 msg/min</span>
+                <span>80 msg/min</span>
+              </div>
+            </div>
+          )}
+
+          {/* Random mode — min/max inputs */}
+          {state.sendingSpeedMode === "random" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Mínimo (segundos)</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={state.maxDelaySeconds - 1}
+                    value={state.minDelaySeconds}
+                    onChange={(e) => {
+                      const v = Math.max(1, Math.min(Number(e.target.value), state.maxDelaySeconds - 1));
+                      onChange({ minDelaySeconds: v });
+                    }}
+                    className="input-agro w-full"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Máximo (segundos)</p>
+                  <input
+                    type="number"
+                    min={state.minDelaySeconds + 1}
+                    max={1500}
+                    value={state.maxDelaySeconds}
+                    onChange={(e) => {
+                      const v = Math.max(state.minDelaySeconds + 1, Math.min(Number(e.target.value), 1500));
+                      onChange({ maxDelaySeconds: v });
+                    }}
+                    className="input-agro w-full"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 px-4 py-3 rounded-lg" style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
+                <span className="text-xs text-agro-muted">
+                  Cada mensagem aguardará entre{" "}
+                  <span className="font-semibold text-agro-text">
+                    {state.minDelaySeconds >= 60
+                      ? `${Math.floor(state.minDelaySeconds / 60)}min ${state.minDelaySeconds % 60 > 0 ? `${state.minDelaySeconds % 60}s` : ""}`.trim()
+                      : `${state.minDelaySeconds}s`}
+                  </span>
+                  {" "}e{" "}
+                  <span className="font-semibold text-agro-text">
+                    {state.maxDelaySeconds >= 60
+                      ? `${Math.floor(state.maxDelaySeconds / 60)}min ${state.maxDelaySeconds % 60 > 0 ? `${state.maxDelaySeconds % 60}s` : ""}`.trim()
+                      : `${state.maxDelaySeconds}s`}
+                  </span>
+                  {" "}antes de ser enviada · limite máximo: 25min
+                </span>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -26,6 +26,9 @@ export interface WizardState {
   scheduleMode: "now" | "later";
   scheduledAt: Date | null;
   sendingSpeed: number;
+  sendingSpeedMode: "fixed" | "random";  // Z-API only
+  minDelaySeconds: number;
+  maxDelaySeconds: number;
   // Step 2
   selectedContacts: string[];
   uploadId: string | null;
@@ -49,6 +52,9 @@ export const initialWizardState: WizardState = {
   scheduleMode: "now",
   scheduledAt: null,
   sendingSpeed: 80,
+  sendingSpeedMode: "fixed",
+  minDelaySeconds: 5,
+  maxDelaySeconds: 30,
   selectedContacts: [],
   uploadId: null,
   templateId: "",

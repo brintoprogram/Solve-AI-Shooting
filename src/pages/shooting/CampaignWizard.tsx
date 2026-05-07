@@ -99,6 +99,9 @@ export function CampaignWizard() {
         started_at:          null,
         completed_at:        null,
         sending_speed:       state.sendingSpeed,
+        sending_speed_mode:  isZApi ? state.sendingSpeedMode : "fixed",
+        min_delay_seconds:   isZApi && state.sendingSpeedMode === "random" ? state.minDelaySeconds : null,
+        max_delay_seconds:   isZApi && state.sendingSpeedMode === "random" ? state.maxDelaySeconds : null,
         created_by:          null,
         error_summary:       {},
       });
