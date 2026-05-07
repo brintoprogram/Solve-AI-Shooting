@@ -117,6 +117,7 @@ export interface ZApiTemplateButton {
 export interface ZApiTemplate {
   id: string;
   workspace_id: string;
+  z_api_connection_id: string | null;
   name: string;
   message_type: "text" | "button_list";
   header_text: string | null;

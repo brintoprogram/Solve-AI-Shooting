@@ -9,6 +9,7 @@ import type { ZApiTemplate, ZApiTemplateButton } from "@/types/database";
 
 interface Props {
   workspaceId:  string;
+  connectionId?: string | null;
   editTemplate: ZApiTemplate | null;
   onClose:      () => void;
   onSaved:      () => void;
@@ -16,7 +17,7 @@ interface Props {
 
 const LIMITS = { name: 100, header: 60, body: 1024, footer: 60, button: 20 };
 
-export function ZApiTemplateEditor({ workspaceId, editTemplate, onClose, onSaved }: Props) {
+export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, onClose, onSaved }: Props) {
   const { toast } = useToast();
   const isEdit = !!editTemplate;
 
@@ -110,13 +111,14 @@ export function ZApiTemplateEditor({ workspaceId, editTemplate, onClose, onSaved
     setSaving(true);
     try {
       const payload = {
-        workspace_id: workspaceId,
-        name:         name.trim(),
-        message_type: msgType,
-        header_text:  headerText.trim() || null,
-        body:         body.trim() || "",
-        footer:       footer.trim() || null,
-        buttons:      msgType === "button_list"
+        workspace_id:        workspaceId,
+        z_api_connection_id: connectionId ?? null,
+        name:                name.trim(),
+        message_type:        msgType,
+        header_text:         headerText.trim() || null,
+        body:                body.trim() || "",
+        footer:              footer.trim() || null,
+        buttons:             msgType === "button_list"
           ? buttons.filter((b) => b.label.trim()).map((b, i) => ({ id: `btn${i + 1}`, label: b.label.trim() }))
           : [],
       };
