@@ -294,6 +294,7 @@ async function processZApiMessage(
     writeAuditLog(workspaceId, "message_sent", msg.id, "shooting_message", "success", null, {
       phone: msg.recipient_phone, campaign_id: campaignId, zaap_id: result.zaapId,
     });
+    await saveZApiMessageToInbox(workspaceId, zConn.id, msg.recipient_phone, result.zaapId, text, now);
   } else {
     const retryCount = (msg.retry_count ?? 0) + 1;
     const canRetry   = (result.retryable ?? false) && retryCount < (msg.max_retries ?? 3);
@@ -449,6 +450,16 @@ async function upsertInboxConversation(workspaceId: string, connectionId: string
   return (created?.id as string) ?? null;
 }
 
+async function upsertZApiConversation(workspaceId: string, zApiConnectionId: string, contactId: string, ts: string, lastBody: string): Promise<string | null> {
+  const { data: existing } = await db.from("inbox_conversations").select("id").eq("workspace_id", workspaceId).eq("contact_id", contactId).maybeSingle();
+  if (existing) {
+    await db.from("inbox_conversations").update({ last_message_at: ts, last_message_body: lastBody, last_message_direction: "outbound", updated_at: ts }).eq("id", existing.id);
+    return existing.id as string;
+  }
+  const { data: created } = await db.from("inbox_conversations").insert({ workspace_id: workspaceId, z_api_connection_id: zApiConnectionId, contact_id: contactId, status: "open", unread_count: 0, last_message_at: ts, last_message_body: lastBody, last_message_direction: "outbound" }).select("id").single();
+  return (created?.id as string) ?? null;
+}
+
 async function saveTemplateToInbox(workspaceId: string, connectionId: string, phone: string, wamid: string, preview: TemplatePreview, ts: string): Promise<void> {
   try {
     const contactId = await upsertInboxContact(workspaceId, phone, ts);
@@ -464,6 +475,36 @@ async function saveTemplateToInbox(workspaceId: string, connectionId: string, ph
     }, { onConflict: "wamid", ignoreDuplicates: true });
   } catch (err) {
     console.error("[engine] saveTemplateToInbox error:", err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function saveZApiMessageToInbox(
+  workspaceId:     string,
+  zApiConnectionId: string,
+  phone:           string,
+  zaapId:          string,
+  body:            string,
+  ts:              string,
+): Promise<void> {
+  try {
+    const contactId = await upsertInboxContact(workspaceId, phone, ts);
+    if (!contactId) return;
+    const convId = await upsertZApiConversation(workspaceId, zApiConnectionId, contactId, ts, body);
+    if (!convId) return;
+    await db.from("inbox_messages").upsert({
+      workspace_id:    workspaceId,
+      conversation_id: convId,
+      contact_id:      contactId,
+      wamid:           zaapId,
+      direction:       "outbound",
+      message_type:    "text",
+      body,
+      status:          "sent",
+      created_at:      ts,
+      sent_at:         ts,
+    }, { onConflict: "wamid", ignoreDuplicates: true });
+  } catch (err) {
+    console.error("[engine] saveZApiMessageToInbox error:", err instanceof Error ? err.message : String(err));
   }
 }
 
