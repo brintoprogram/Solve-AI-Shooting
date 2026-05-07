@@ -62,6 +62,12 @@ Deno.serve(async (req: Request) => {
 async function processEvent(body: Record<string, unknown>) {
   const type = body.type as string | undefined;
 
+  // Temporary: log every raw event to z_api_debug_log for diagnostics
+  await supabase.from("z_api_debug_log").insert({
+    event_type: type ?? "unknown",
+    payload:    body,
+  }).then(({ error }: { error: { message: string } | null }) => { if (error) console.error("[debug-log] insert error:", error.message); });
+
   switch (type) {
     case "ReceivedCallback":
       await handleReceived(body);

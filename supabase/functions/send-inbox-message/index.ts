@@ -263,7 +263,7 @@ async function sendViaZApi(params: {
     body:         bodyText,
     sent_by,
     is_internal:  false,
-    status:       "sent",
+    status:       "sending",
     created_at:   now,
   });
 
