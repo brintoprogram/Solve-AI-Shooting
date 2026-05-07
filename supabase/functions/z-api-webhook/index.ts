@@ -235,40 +235,63 @@ async function handleStatusUpdate(body: Record<string, unknown>) {
 }
 
 // ── 3. Ao Enviar — DeliveryCallback ──────────────────────────
-// Fires when message is sent (or fails). messageId is the wamid.
+// Fires when message is sent (or fails).
+// Z-API returns two IDs: messageId (WhatsApp format, e.g. 3EB0...) and zaapId (internal ULID).
+// Outbound messages saved from the inbox use zaapId as wamid (WhatsApp ID isn't always in the
+// send-text response). This handler searches by both IDs and upgrades wamid to the WhatsApp
+// messageId so that subsequent MessageStatusCallback lookups (which use WhatsApp IDs) succeed.
 
 async function handleDelivery(body: Record<string, unknown>) {
-  const messageId = (body.messageId ?? body.zaapId) as string | undefined;
-  const error     = body.error as string | undefined;
+  const waId   = body.messageId as string | undefined;  // WhatsApp format (3EB0...)
+  const zaapId = body.zaapId    as string | undefined;  // Z-API internal ULID
+  const error  = body.error     as string | undefined;
 
-  if (!messageId) return;
+  if (!waId && !zaapId) return;
 
   const mappedStatus = error ? "failed" : "sent";
   const now = new Date().toISOString();
 
-  console.log(`[delivery] messageId=${messageId} → ${mappedStatus}${error ? ` (${error})` : ""}`);
+  console.log(`[delivery] waId=${waId} zaapId=${zaapId} → ${mappedStatus}${error ? ` (${error})` : ""}`);
 
-  // inbox_messages
-  const { data: inboxMsg } = await supabase
-    .from("inbox_messages")
-    .select("id, status")
-    .eq("wamid", messageId)
-    .maybeSingle();
+  // ── inbox_messages ──
+  // Try WhatsApp ID first, then Z-API ULID (outbound inbox messages are stored with zaapId)
+  let inboxMsg: { id: string; status: string } | null = null;
+  let matchedBy: string | null = null;
+
+  for (const id of ([waId, zaapId].filter(Boolean) as string[])) {
+    const { data } = await supabase
+      .from("inbox_messages")
+      .select("id, status")
+      .eq("wamid", id)
+      .maybeSingle();
+    if (data) { inboxMsg = data; matchedBy = id; break; }
+  }
 
   if (inboxMsg && isProgression(inboxMsg.status, mappedStatus)) {
     const patch: Record<string, unknown> = { status: mappedStatus };
     if (mappedStatus === "sent")   patch.sent_at   = now;
     if (mappedStatus === "failed") patch.failed_at = now;
+    // Upgrade wamid to WhatsApp ID so future MessageStatusCallback can find this row
+    if (matchedBy === zaapId && waId && waId !== zaapId) {
+      patch.wamid = waId;
+      console.log(`[delivery] upgrading wamid ${zaapId} → ${waId}`);
+    }
     await supabase.from("inbox_messages").update(patch).eq("id", inboxMsg.id);
-    console.log(`[delivery] ✓ inbox_message ${messageId} → ${mappedStatus}`);
+    console.log(`[delivery] ✓ inbox_message → ${mappedStatus}`);
+  } else if (!inboxMsg) {
+    console.log(`[delivery] inbox_message not found (waId=${waId} zaapId=${zaapId})`);
   }
 
-  // shooting_messages
-  const { data: shootMsg } = await supabase
-    .from("shooting_messages")
-    .select("id, campaign_id, status")
-    .eq("wamid", messageId)
-    .maybeSingle();
+  // ── shooting_messages ──
+  let shootMsg: { id: string; campaign_id: string; status: string } | null = null;
+  for (const id of ([waId, zaapId].filter(Boolean) as string[])) {
+    const { data } = await supabase
+      .from("shooting_messages")
+      .select("id, campaign_id, status")
+      .eq("wamid", id)
+      .maybeSingle();
+    if (data) { shootMsg = data; break; }
+  }
 
   if (shootMsg && isProgression(shootMsg.status, mappedStatus)) {
     const patch: Record<string, unknown> = { status: mappedStatus };
@@ -281,7 +304,7 @@ async function handleDelivery(body: Record<string, unknown>) {
       });
     }
     await supabase.from("shooting_messages").update(patch).eq("id", shootMsg.id);
-    console.log(`[delivery] ✓ shooting_message ${messageId} → ${mappedStatus}`);
+    console.log(`[delivery] ✓ shooting_message → ${mappedStatus}`);
   }
 }
 
