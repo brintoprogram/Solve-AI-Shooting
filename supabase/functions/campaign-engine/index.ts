@@ -13,6 +13,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY          = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const META_BASE            = "https://graph.facebook.com/v25.0";
@@ -667,7 +669,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (!resumed) return json({ error: "Campanha não está pausada" }, 409);
       writeAuditLog(auditWid, "campaign_resumed", campaign_id, "campaign", "info");
-      startSendLoop(campaign_id); // intentionally not awaited
+      EdgeRuntime.waitUntil(startSendLoop(campaign_id));
       return json({ ok: true, info: "resumed" });
     }
 
@@ -732,14 +734,17 @@ Deno.serve(async (req: Request) => {
       }
 
       const msgBody = zApiTpl?.body ?? String(campaign.message_body ?? "");
-      await startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, msgBody, zApiTpl);
+      // Fire-and-forget: return the HTTP response immediately so the browser never
+      // times out waiting for the loop to finish.  EdgeRuntime.waitUntil() keeps
+      // the function alive while the send loop runs in the background.
+      EdgeRuntime.waitUntil(startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, msgBody, zApiTpl));
     } else {
       const rawConn  = campaign.meta_connections as Connection | null;
       const template = campaign.meta_templates   as Template   | null;
       if (!rawConn)  return json({ error: "Conexão WhatsApp não encontrada" }, 400);
       if (!template) return json({ error: "Template não encontrado" }, 400);
       const connection: Connection = { ...rawConn, access_token: await decrypt(rawConn.access_token) };
-      await startSendLoop(campaign_id, connection, template, campaign);
+      EdgeRuntime.waitUntil(startSendLoop(campaign_id, connection, template, campaign));
     }
 
     return json({ ok: true, processed: pendingCount });
