@@ -4,12 +4,11 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket, Bot,
+  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket,
 } from "lucide-react";
 import { ALL_CONTACT_FIELDS } from "@/lib/contactFields";
 import { useContactFields }   from "@/hooks/useContactFields";
 import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
-import { SettingsAIAgents }    from "@/pages/settings/SettingsAIAgents";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
@@ -505,7 +504,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"agentes"|"avancado"|"disparo">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo">("perfil");
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);
@@ -1067,7 +1066,6 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "whatsapp",  label: "WhatsApp",  icon: Smartphone },
             { id: "email",     label: "Email",     icon: Mail       },
             { id: "ia",        label: "IA",        icon: Zap        },
-            { id: "agentes",   label: "Agentes",   icon: Bot        },
             { id: "disparo",   label: "Disparo",   icon: Rocket     },
             { id: "avancado",  label: "Avançado",  icon: Terminal   },
           ];
@@ -2198,13 +2196,6 @@ CREATE POLICY "avatars_delete" ON storage.objects
         </div>
 
         </> /* end IA tab */}
-
-        {/* ══ Tab: Agentes ══════════════════════════════════ */}
-        {settingsTab === "agentes" && (
-          <div className="animate-fade-up-delay-1">
-            <SettingsAIAgents workspaceId={WORKSPACE_ID} />
-          </div>
-        )}
 
         {/* ══ Tab: Avançado ══════════════════════════════════ */}
         {settingsTab === "avancado" && <>
