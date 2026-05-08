@@ -273,18 +273,23 @@ async function handleDelivery(body: Record<string, unknown>) {
     if (data) { inboxMsg = data; matchedBy = id; break; }
   }
 
-  if (inboxMsg && isProgression(inboxMsg.status, mappedStatus)) {
-    const patch: Record<string, unknown> = { status: mappedStatus };
-    if (mappedStatus === "sent")   patch.sent_at   = now;
-    if (mappedStatus === "failed") patch.failed_at = now;
-    // Upgrade wamid to WhatsApp ID so future MessageStatusCallback can find this row
+  if (inboxMsg) {
+    const patch: Record<string, unknown> = {};
+    // Upgrade wamid unconditionally so MessageStatusCallback can find this row later
     if (matchedBy === zaapId && waId && waId !== zaapId) {
       patch.wamid = waId;
       console.log(`[delivery] upgrading wamid ${zaapId} → ${waId}`);
     }
-    await supabase.from("inbox_messages").update(patch).eq("id", inboxMsg.id);
-    console.log(`[delivery] ✓ inbox_message → ${mappedStatus}`);
-  } else if (!inboxMsg) {
+    if (isProgression(inboxMsg.status, mappedStatus)) {
+      patch.status = mappedStatus;
+      if (mappedStatus === "sent")   patch.sent_at   = now;
+      if (mappedStatus === "failed") patch.failed_at = now;
+    }
+    if (Object.keys(patch).length > 0) {
+      await supabase.from("inbox_messages").update(patch).eq("id", inboxMsg.id);
+      if ("status" in patch) console.log(`[delivery] ✓ inbox_message → ${mappedStatus}`);
+    }
+  } else {
     console.log(`[delivery] inbox_message not found (waId=${waId} zaapId=${zaapId})`);
   }
 
@@ -300,23 +305,28 @@ async function handleDelivery(body: Record<string, unknown>) {
     if (data) { shootMsg = data; shootMatchedBy = id; break; }
   }
 
-  if (shootMsg && isProgression(shootMsg.status, mappedStatus)) {
-    const patch: Record<string, unknown> = { status: mappedStatus };
-    if (mappedStatus === "sent")   { patch.sent_at   = now; }
-    if (mappedStatus === "failed") {
-      patch.failed_at     = now;
-      patch.error_message = error ?? "Erro desconhecido";
-      await supabase.rpc("increment_campaign_counters", {
-        p_campaign_id: shootMsg.campaign_id, p_counter_name: "failed_count",
-      });
-    }
-    // Upgrade wamid to WhatsApp ID so future MessageStatusCallback lookups succeed
+  if (shootMsg) {
+    const patch: Record<string, unknown> = {};
+    // Upgrade wamid unconditionally so MessageStatusCallback can find this row later
     if (shootMatchedBy === zaapId && waId && waId !== zaapId) {
       patch.wamid = waId;
       console.log(`[delivery] upgrading shooting_message wamid ${zaapId} → ${waId}`);
     }
-    await supabase.from("shooting_messages").update(patch).eq("id", shootMsg.id);
-    console.log(`[delivery] ✓ shooting_message → ${mappedStatus}`);
+    if (isProgression(shootMsg.status, mappedStatus)) {
+      patch.status = mappedStatus;
+      if (mappedStatus === "sent")   { patch.sent_at = now; }
+      if (mappedStatus === "failed") {
+        patch.failed_at     = now;
+        patch.error_message = error ?? "Erro desconhecido";
+        await supabase.rpc("increment_campaign_counters", {
+          p_campaign_id: shootMsg.campaign_id, p_counter_name: "failed_count",
+        });
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      await supabase.from("shooting_messages").update(patch).eq("id", shootMsg.id);
+      if ("status" in patch) console.log(`[delivery] ✓ shooting_message → ${mappedStatus}`);
+    }
   }
 }
 
