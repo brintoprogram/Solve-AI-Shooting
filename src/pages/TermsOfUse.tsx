@@ -226,3 +226,17 @@ export function TermsOfUse() {
     </div>
   );
 }
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h2
+        className="text-base font-bold text-agro-text mb-3 pb-2"
+        style={{ borderBottom: "1px solid rgba(63,176,108,0.1)" }}
+      >
+        {title}
+      </h2>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
