@@ -22,6 +22,8 @@ import { Support }     from "@/pages/Support";
 import { Agents }      from "@/pages/Agents";
 import { SetPassword } from "@/pages/SetPassword";
 import { AcceptInvite } from "@/pages/AcceptInvite";
+import { PrivacyPolicy } from "@/pages/PrivacyPolicy";
+import { TermsOfUse } from "@/pages/TermsOfUse";
 
 // ── Error boundary — shows error message instead of blank screen ──
 class ErrorBoundary extends Component<
@@ -103,6 +105,10 @@ function AppRoutes() {
 
   if (loading)    return <FullScreenLoader />;
   if (setupType)  return <SetPassword />;
+
+  // Public routes — accessible without authentication
+  if (window.location.pathname === "/privacidade") return <PrivacyPolicy />;
+  if (window.location.pathname === "/termos")      return <TermsOfUse />;
 
   // Public route: scanner-proof invite landing page (authenticated users go to dashboard)
   if (window.location.pathname === "/convite") {
