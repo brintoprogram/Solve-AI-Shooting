@@ -290,13 +290,14 @@ async function handleDelivery(body: Record<string, unknown>) {
 
   // ── shooting_messages ──
   let shootMsg: { id: string; campaign_id: string; status: string } | null = null;
+  let shootMatchedBy: string | null = null;
   for (const id of ([waId, zaapId].filter(Boolean) as string[])) {
     const { data } = await supabase
       .from("shooting_messages")
       .select("id, campaign_id, status")
       .eq("wamid", id)
       .maybeSingle();
-    if (data) { shootMsg = data; break; }
+    if (data) { shootMsg = data; shootMatchedBy = id; break; }
   }
 
   if (shootMsg && isProgression(shootMsg.status, mappedStatus)) {
@@ -308,6 +309,11 @@ async function handleDelivery(body: Record<string, unknown>) {
       await supabase.rpc("increment_campaign_counters", {
         p_campaign_id: shootMsg.campaign_id, p_counter_name: "failed_count",
       });
+    }
+    // Upgrade wamid to WhatsApp ID so future MessageStatusCallback lookups succeed
+    if (shootMatchedBy === zaapId && waId && waId !== zaapId) {
+      patch.wamid = waId;
+      console.log(`[delivery] upgrading shooting_message wamid ${zaapId} → ${waId}`);
     }
     await supabase.from("shooting_messages").update(patch).eq("id", shootMsg.id);
     console.log(`[delivery] ✓ shooting_message → ${mappedStatus}`);
