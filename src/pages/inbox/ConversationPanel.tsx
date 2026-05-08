@@ -164,6 +164,13 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
           <div className="flex items-center gap-1 shrink-0">
             <StatusBadge status={conversation.status} />
 
+            <AgentQuickPicker
+              agents={aiAgents}
+              currentId={aiAgentId}
+              saving={agentSaving}
+              onChange={handleAgentChange}
+            />
+
             <button
               onClick={() => {
                 const next = !showPanel;
@@ -432,6 +439,90 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
               )}
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AgentQuickPicker ────────────────────────────────────────
+
+interface AgentQuickPickerProps {
+  agents:        { id: string; name: string }[];
+  currentId:     string | null;
+  saving:        boolean;
+  onChange:      (id: string | null) => void;
+}
+
+function AgentQuickPicker({ agents, currentId, saving, onChange }: AgentQuickPickerProps) {
+  const [open, setOpen] = useState(false);
+  const ref             = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  const currentAgent = currentId ? agents.find((a) => a.id === currentId) : null;
+  const isActive     = !!currentId;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={isActive ? `Agente: ${currentAgent?.name ?? "IA ativa"}` : "Ativar agente de IA"}
+        className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/5"
+        style={
+          isActive
+            ? { background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.35)" }
+            : { color: "#6b8a75", border: "1px solid rgba(63,176,108,0.1)" }
+        }
+      >
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-10 z-50 w-52 rounded-2xl py-1 shadow-2xl"
+          style={{ background: "rgba(10,18,13,0.97)", border: "1px solid rgba(63,176,108,0.18)", backdropFilter: "blur(12px)" }}
+        >
+          <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest px-3 pt-2 pb-1">Agente de IA</p>
+
+          {/* No agent option */}
+          <button
+            onClick={() => { onChange(null); setOpen(false); }}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-white/5 ${!currentId ? "text-agro-text" : "text-agro-muted"}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${!currentId ? "bg-agro-green" : "bg-transparent"}`} />
+            <span>Sem agente</span>
+          </button>
+
+          {agents.length > 0 && (
+            <div className="mx-3 my-1" style={{ height: "1px", background: "rgba(63,176,108,0.08)" }} />
+          )}
+
+          {agents.map((agent) => {
+            const selected = agent.id === currentId;
+            return (
+              <button
+                key={agent.id}
+                onClick={() => { onChange(agent.id); setOpen(false); }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-white/5 ${selected ? "text-agro-text" : "text-agro-muted"}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selected ? "bg-violet-400" : "bg-transparent"}`} />
+                <Bot className={`w-3 h-3 shrink-0 ${selected ? "text-violet-400" : "text-agro-muted-2"}`} />
+                <span className="truncate">{agent.name}</span>
+              </button>
+            );
+          })}
+
+          {agents.length === 0 && (
+            <p className="px-3 py-2 text-xs text-agro-muted/60">Nenhum agente ativo. Crie em Configurações → Agentes.</p>
+          )}
         </div>
       )}
     </div>
