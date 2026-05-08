@@ -10,6 +10,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -175,6 +177,15 @@ async function handleReceived(body: Record<string, unknown>) {
 
   if (msgErr) console.error("[received] save message error:", msgErr.message);
   else console.log(`[received] ✓ ${direction} ${fields.message_type} ${fromMe ? "(from phone)" : `de ${phone}`} → conv ${conversationId}`);
+
+  // Fire-and-forget: AI agent reply (inbound only, skip own messages)
+  if (!fromMe && !msgErr) {
+    EdgeRuntime.waitUntil(
+      supabase.functions.invoke("ai-agent-reply", {
+        body: { conversation_id: conversationId, message_body: fields.body ?? "" },
+      }).catch((e: unknown) => console.error("[received] ai-agent error:", e))
+    );
+  }
 }
 
 // ── 2. Ao Receber Status — MessageStatusCallback ─────────────

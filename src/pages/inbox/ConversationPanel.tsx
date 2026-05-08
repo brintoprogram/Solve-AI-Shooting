@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch, Info } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch, Info, Bot } from "lucide-react";
 import type { InboxConversation, Department } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
@@ -58,6 +58,34 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
   const [showPanel, setShowPanel] = useState(() => {
     try { return localStorage.getItem("inbox_panel_open") === "true"; } catch { return false; }
   });
+
+  const [aiAgents,      setAiAgents]      = useState<{ id: string; name: string }[]>([]);
+  const [aiAgentId,     setAiAgentId]     = useState<string | null>(conversation.ai_agent_id ?? null);
+  const [agentSaving,   setAgentSaving]   = useState(false);
+
+  const fetchAiAgents = useCallback(async () => {
+    if (!workspaceId) return;
+    const { data } = await db
+      .from("ai_agents")
+      .select("id, name")
+      .eq("workspace_id", workspaceId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+    setAiAgents(data ?? []);
+  }, [workspaceId]);
+
+  useEffect(() => { fetchAiAgents(); }, [fetchAiAgents]);
+  useEffect(() => { setAiAgentId(conversation.ai_agent_id ?? null); }, [conversation.ai_agent_id]);
+
+  async function handleAgentChange(newAgentId: string | null) {
+    setAgentSaving(true);
+    await db
+      .from("inbox_conversations")
+      .update({ ai_agent_id: newAgentId })
+      .eq("id", conversation.id);
+    setAiAgentId(newAgentId);
+    setAgentSaving(false);
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -353,6 +381,44 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
                 </span>
               </div>
             )}
+
+            {/* ── Agente de IA ── */}
+            <div className="px-4 py-4" style={{ borderTop: "1px solid rgba(63,176,108,0.07)" }}>
+              <div className="flex items-center gap-1.5 mb-2.5">
+                <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-wider">Agente de IA</p>
+                {agentSaving && <Loader2 className="w-3 h-3 text-agro-muted animate-spin" />}
+              </div>
+              {aiAgents.length === 0 ? (
+                <p className="text-xs text-agro-muted/60">
+                  Nenhum agente ativo.{" "}
+                  <span className="text-agro-muted">Configure em Configurações → Agentes.</span>
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {aiAgentId && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-5 h-5 rounded-lg bg-agro-green/10 flex items-center justify-center shrink-0">
+                        <Bot className="w-3 h-3 text-agro-green" />
+                      </div>
+                      <p className="text-xs font-medium text-agro-text truncate">
+                        {aiAgents.find((a) => a.id === aiAgentId)?.name ?? "Agente"}
+                      </p>
+                    </div>
+                  )}
+                  <select
+                    className="input-agro w-full text-xs"
+                    value={aiAgentId ?? ""}
+                    onChange={(e) => handleAgentChange(e.target.value || null)}
+                    disabled={agentSaving}
+                  >
+                    <option value="">Nenhum (desativar agente)</option>
+                    {aiAgents.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             {/* ── Notas & Histórico ── */}
             <div className="px-4 py-4">

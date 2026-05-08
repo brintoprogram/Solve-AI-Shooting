@@ -37,6 +37,7 @@ export interface InboxConversation {
   pinned:   boolean;
   archived: boolean;
   tags:     string[];
+  ai_agent_id: string | null;
   unread_count: number;
   last_message_at: string | null;
   last_message_body: string | null;

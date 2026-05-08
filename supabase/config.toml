@@ -42,3 +42,6 @@ verify_jwt = false
 
 [functions.start-z-api-conversation]
 verify_jwt = false
+
+[functions.ai-agent-reply]
+verify_jwt = false

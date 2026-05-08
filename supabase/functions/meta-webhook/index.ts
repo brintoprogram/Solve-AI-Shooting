@@ -422,6 +422,13 @@ async function processWebhook(body: Record<string, unknown>) {
             detectCampaignReply(from, workspaceId, conversationId, replyText)
               .catch((e) => console.error("[reply-detect] bg error:", e?.message));
           }
+
+          // Fire-and-forget: AI agent auto-reply (skip routing replies and reactions)
+          if (!isRoutingReply && type !== "reaction" && conversationId) {
+            supabase.functions.invoke("ai-agent-reply", {
+              body: { conversation_id: conversationId, message_body: fields.body ?? "" },
+            }).catch((e: unknown) => console.error("[meta] ai-agent error:", e));
+          }
         }
       }
 
