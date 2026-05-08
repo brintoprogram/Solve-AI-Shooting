@@ -463,6 +463,10 @@ function extractFields(body: Record<string, unknown>): MsgFields {
     const m = body.image as Record<string, unknown>;
     return { message_type: "image", media_url: m.imageUrl as string, media_mime_type: m.mimeType as string, media_caption: m.caption as string };
   }
+  if (body.sticker) {
+    const m = body.sticker as Record<string, unknown>;
+    return { message_type: "sticker", media_url: m.stickerUrl as string, media_mime_type: m.mimeType as string };
+  }
   if (body.audio) {
     const m = body.audio as Record<string, unknown>;
     return { message_type: "audio", media_url: m.audioUrl as string, media_mime_type: m.mimeType as string };
@@ -501,6 +505,7 @@ function extractFields(body: Record<string, unknown>): MsgFields {
 function buildShortBody(body: Record<string, unknown>): string {
   if (body.text)    return ((body.text as Record<string, unknown>).message as string) ?? "";
   if (body.image)   return "📷 Imagem";
+  if (body.sticker) return "🖼️ Sticker";
   if (body.audio)   return "🎵 Áudio";
   if (body.video)   return "🎬 Vídeo";
   if (body.document) {
