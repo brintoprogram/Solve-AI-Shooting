@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { ArrowLeft, FileText } from "lucide-react";
 
 export function TermsOfUse() {
@@ -9,20 +8,20 @@ export function TermsOfUse() {
         className="sticky top-0 z-10 px-6 py-4 flex items-center justify-between"
         style={{ background: "rgba(10,17,14,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}
       >
-        <Link
-          to="/login"
+        <a
+          href="/"
           className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Voltar
-        </Link>
+        </a>
         <div className="flex items-center gap-2">
           <FileText className="w-4 h-4 text-agro-green" />
           <span className="text-sm font-semibold text-agro-text">Solve<span className="text-agro-green">.AI</span></span>
         </div>
-        <Link to="/privacidade" className="text-xs text-agro-muted hover:text-agro-green transition-colors">
+        <a href="/privacidade" className="text-xs text-agro-muted hover:text-agro-green transition-colors">
           Política de Privacidade →
-        </Link>
+        </a>
       </div>
 
       {/* Content */}
@@ -202,8 +201,8 @@ export function TermsOfUse() {
               <p className="text-agro-text font-semibold">Solve AI Consulting</p>
               <p className="mt-1">
                 E-mail:{" "}
-                <a href="mailto:contato@solveai.consulting" className="text-agro-green hover:underline">
-                  contato@solveai.consulting
+                <a href="mailto:business@solveai.consulting" className="text-agro-green hover:underline">
+                  business@solveai.consulting
                 </a>
               </p>
             </div>
@@ -218,8 +217,8 @@ export function TermsOfUse() {
         >
           <p>© 2026 Solve AI Consulting. Todos os direitos reservados.</p>
           <div className="flex items-center gap-4">
-            <Link to="/privacidade" className="hover:text-agro-green transition-colors">Política de Privacidade</Link>
-            <Link to="/login" className="hover:text-agro-green transition-colors">Acessar plataforma</Link>
+            <a href="/privacidade" className="hover:text-agro-green transition-colors">Política de Privacidade</a>
+            <a href="/" className="hover:text-agro-green transition-colors">Acessar plataforma</a>
           </div>
         </div>
       </div>

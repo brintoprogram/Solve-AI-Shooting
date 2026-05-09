@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { ArrowLeft, Shield } from "lucide-react";
 
 export function PrivacyPolicy() {
@@ -9,20 +8,20 @@ export function PrivacyPolicy() {
         className="sticky top-0 z-10 px-6 py-4 flex items-center justify-between"
         style={{ background: "rgba(10,17,14,0.95)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}
       >
-        <Link
-          to="/login"
+        <a
+          href="/"
           className="flex items-center gap-2 text-sm text-agro-muted hover:text-agro-text transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Voltar
-        </Link>
+        </a>
         <div className="flex items-center gap-2">
           <Shield className="w-4 h-4 text-agro-green" />
           <span className="text-sm font-semibold text-agro-text">Solve<span className="text-agro-green">.AI</span></span>
         </div>
-        <Link to="/termos" className="text-xs text-agro-muted hover:text-agro-green transition-colors">
+        <a href="/termos" className="text-xs text-agro-muted hover:text-agro-green transition-colors">
           Termos de Uso →
-        </Link>
+        </a>
       </div>
 
       {/* Content */}
@@ -210,8 +209,8 @@ export function PrivacyPolicy() {
         >
           <p>© 2026 Solve AI Consulting. Todos os direitos reservados.</p>
           <div className="flex items-center gap-4">
-            <Link to="/termos" className="hover:text-agro-green transition-colors">Termos de Uso</Link>
-            <Link to="/login" className="hover:text-agro-green transition-colors">Acessar plataforma</Link>
+            <a href="/termos" className="hover:text-agro-green transition-colors">Termos de Uso</a>
+            <a href="/" className="hover:text-agro-green transition-colors">Acessar plataforma</a>
           </div>
         </div>
       </div>
