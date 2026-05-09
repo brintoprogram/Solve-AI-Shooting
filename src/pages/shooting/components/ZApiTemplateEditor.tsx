@@ -2,10 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutTemplate, X, Check, Loader2, Plus, Trash2,
   Smartphone, Eye, Pencil, ChevronDown, Tag, FileText, MousePointerClick,
+  Shuffle, ChevronUp,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import type { ZApiTemplate, ZApiTemplateButton } from "@/types/database";
+import { getVariationExamples } from "@/lib/textVariations";
 
 interface Props {
   workspaceId:  string;
@@ -29,6 +31,8 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
   const [buttons,    setButtons]    = useState<ZApiTemplateButton[]>(
     editTemplate?.buttons?.length ? editTemplate.buttons : [{ id: "btn1", label: "" }],
   );
+  const [enableVariations,  setEnableVariations]  = useState(editTemplate?.enable_light_variations ?? false);
+  const [showVarPreviews,   setShowVarPreviews]   = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [activeTab,     setActiveTab]     = useState<"form" | "preview">("form");
   const [showVarMenu,   setShowVarMenu]   = useState(false);
@@ -111,14 +115,15 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
     setSaving(true);
     try {
       const payload = {
-        workspace_id:        workspaceId,
-        z_api_connection_id: connectionId ?? null,
-        name:                name.trim(),
-        message_type:        msgType,
-        header_text:         headerText.trim() || null,
-        body:                body.trim() || "",
-        footer:              footer.trim() || null,
-        buttons:             msgType === "button_list"
+        workspace_id:             workspaceId,
+        z_api_connection_id:      connectionId ?? null,
+        name:                     name.trim(),
+        message_type:             msgType,
+        header_text:              headerText.trim() || null,
+        body:                     body.trim() || "",
+        footer:                   footer.trim() || null,
+        enable_light_variations:  enableVariations,
+        buttons:                  msgType === "button_list"
           ? buttons.filter((b) => b.label.trim()).map((b, i) => ({ id: `btn${i + 1}`, label: b.label.trim() }))
           : [],
       };
@@ -334,6 +339,62 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                         </div>
                       </div>
                     )}
+
+                    {/* ── Leves variações ── */}
+                    <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
+                      <label className="flex items-center gap-3 cursor-pointer select-none">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={enableVariations}
+                          onClick={() => { setEnableVariations((v) => !v); setShowVarPreviews(false); }}
+                          className="relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200"
+                          style={{ background: enableVariations ? "#8b5cf6" : "rgba(255,255,255,0.1)" }}
+                        >
+                          <span
+                            className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                            style={{ transform: enableVariations ? "translateX(16px)" : "translateX(0)" }}
+                          />
+                        </button>
+                        <div>
+                          <p className="text-xs font-semibold" style={{ color: enableVariations ? "#a78bfa" : "#7a9e83" }}>
+                            Permitir leves variações
+                          </p>
+                          <p className="text-[10px] text-agro-muted leading-tight mt-0.5">
+                            Alterna pequenas partes do texto fixo a cada envio, preservando variáveis, sentido e tom.
+                          </p>
+                        </div>
+                      </label>
+
+                      {enableVariations && (
+                        <div className="mt-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowVarPreviews((v) => !v)}
+                            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                            style={{ color: "#a78bfa", border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)" }}
+                          >
+                            <Shuffle className="w-3 h-3" />
+                            Pré-visualizar variações
+                            {showVarPreviews ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </button>
+
+                          {showVarPreviews && (
+                            <div className="mt-2 space-y-2">
+                              {getVariationExamples(body, 3).map((example, i) => (
+                                <div key={i} className="p-2.5 rounded-lg text-xs text-agro-muted whitespace-pre-wrap leading-relaxed"
+                                  style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.12)" }}>
+                                  <span className="block text-[10px] font-semibold mb-1" style={{ color: "#7c3aed" }}>
+                                    Variação {i + 1}
+                                  </span>
+                                  {example}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div>

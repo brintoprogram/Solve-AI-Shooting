@@ -124,6 +124,7 @@ export interface ZApiTemplate {
   body: string;
   footer: string | null;
   buttons: ZApiTemplateButton[];
+  enable_light_variations: boolean;
   created_at: string;
   updated_at: string;
 }
