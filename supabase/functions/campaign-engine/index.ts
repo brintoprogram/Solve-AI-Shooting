@@ -58,6 +58,51 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ── Light variation engine (deterministic, no AI) ─────────────────────────────
+type PhraseGroup = [RegExp, string[]];
+const VARIATION_GROUPS: PhraseGroup[] = [
+  [/^(E aí|Eaí|Eai|Oi|Oii|Olá|Ola|Ei|Hey)\b/im, ["E aí", "Oi", "Olá", "Ei"]],
+  [/\btudo certo\?/gi,  ["tudo certo?", "tudo bem?", "como vai?"]],
+  [/\btudo bem\?/gi,    ["tudo bem?", "tudo certo?", "como vai?"]],
+  [/\bcomo vai\?/gi,    ["como vai?", "tudo bem?", "tudo certo?"]],
+  [/Passando para (avisar|informar)\b/gi,
+   ["Passando para avisar", "Só te avisando", "Passando para informar"]],
+  [/Só te avisando\b/gi, ["Só te avisando", "Passando para avisar", "Só informando"]],
+  [/Só informando\b/gi,  ["Só informando", "Só te avisando", "Passando para informar"]],
+  [/responda por aqui\b/gi,
+   ["responda por aqui", "pode me chamar por aqui", "me chame aqui"]],
+  [/pode me chamar por aqui\b/gi,
+   ["pode me chamar por aqui", "responda por aqui", "fala comigo aqui"]],
+];
+
+function _extractVars(text: string): string[] {
+  return (text.match(/\{\{\d+\}\}/g) ?? []).sort();
+}
+
+function applyLightVariation(text: string, seed: number): string {
+  try {
+    const tokens: string[] = [];
+    const protected_ = text.replace(/\{\{\d+\}\}/g, (match) => {
+      const idx = tokens.length; tokens.push(match);
+      return `\x00VAR${idx}\x00`;
+    });
+    let varied = protected_;
+    for (const [pattern, options] of VARIATION_GROUPS) {
+      if (pattern.test(varied)) {
+        const choice = options[seed % options.length];
+        pattern.lastIndex = 0;
+        varied = varied.replace(pattern, choice);
+        pattern.lastIndex = 0;
+      }
+    }
+    const restored = varied.replace(/\x00VAR(\d+)\x00/g, (_, i) => tokens[Number(i)]);
+    const a = _extractVars(text), b = _extractVars(restored);
+    if (a.length !== b.length || a.some((v, i) => v !== b[i])) return text;
+    return restored;
+  } catch { return text; }
+}
+// ── end light variation engine ────────────────────────────────────────────────
+
 function substituteVars(
   template:    string,
   vars:        Record<string, string>,
@@ -160,12 +205,13 @@ interface ZApiConnection {
 }
 
 interface ZApiTemplateData {
-  id:           string;
-  message_type: "text" | "button_list";
-  header_text:  string | null;
-  body:         string;
-  footer:       string | null;
-  buttons:      Array<{ id: string; label: string }>;
+  id:                      string;
+  message_type:            "text" | "button_list";
+  header_text:             string | null;
+  body:                    string;
+  footer:                  string | null;
+  buttons:                 Array<{ id: string; label: string }>;
+  enable_light_variations: boolean;
 }
 
 interface ZApiSendResult {
@@ -242,12 +288,17 @@ function buildZApiText(
   mapping:     Record<string, unknown>,
   contactData: Record<string, unknown>,
   tpl?:        ZApiTemplateData | null,
+  seed?:       number,
 ): string {
   const bodyVars   = (mapping.body_variables  ?? {}) as Record<string, string>;
   const headerVars = (mapping.header_variables ?? {}) as Record<string, string>;
   const footerVars = (mapping.footer_variables ?? {}) as Record<string, string>;
 
-  const text = substituteVars(body, bodyVars, contactData);
+  const bodyToUse = (tpl?.enable_light_variations && seed !== undefined)
+    ? applyLightVariation(body, seed)
+    : body;
+
+  const text = substituteVars(bodyToUse, bodyVars, contactData);
 
   // For plain text type: embed header/footer as markdown with variable substitution
   if (tpl && tpl.message_type === "text") {
@@ -268,8 +319,9 @@ async function processZApiMessage(
   campaignId:  string,
   workspaceId: string,
   tpl?:        ZApiTemplateData | null,
+  seed?:       number,
 ): Promise<void> {
-  const text = buildZApiText(messageBody, mapping, msg.recipient_data ?? {}, tpl);
+  const text = buildZApiText(messageBody, mapping, msg.recipient_data ?? {}, tpl, seed);
 
   let result: ZApiSendResult;
   if (tpl?.message_type === "button_list" && tpl.buttons.length > 0) {
@@ -807,6 +859,7 @@ async function startSendLoop(
   console.log(`[engine] starting campaign ${campaignId} channel=${isZApi ? "z_api" : "meta"} speed=${sendingSpeed}msg/min random=${isRandomMode}`);
   writeAuditLog(workspaceId, "campaign_started", campaignId, "campaign", "info", null, { sending_speed: sendingSpeed, random_mode: isRandomMode });
 
+  let msgIndex = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (!await isCampaignActive(campaignId)) {
@@ -831,10 +884,11 @@ async function startSendLoop(
 
       const t0 = Date.now();
       if (isZApi && zApiConn && messageBody) {
-        await processZApiMessage(msg, zApiConn, messageBody, mapping, campaignId, workspaceId, zApiTpl);
+        await processZApiMessage(msg, zApiConn, messageBody, mapping, campaignId, workspaceId, zApiTpl, msgIndex);
       } else {
         await processMessage(msg, conn!, tpl!, mapping, campaignId, workspaceId, connectionId);
       }
+      msgIndex++;
       const elapsed   = Date.now() - t0;
       const delayMs   = isRandomMode
         ? minDelayMs + Math.random() * (maxDelayMs - minDelayMs)
