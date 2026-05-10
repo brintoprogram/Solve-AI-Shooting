@@ -718,11 +718,18 @@ Deno.serve(async (req: Request) => {
         .update({ status: "sending" })
         .eq("id", campaign_id)
         .eq("status", "paused")
-        .select("id")
+        .select("id, dispatch_channel")
         .maybeSingle();
       if (!resumed) return json({ error: "Campanha não está pausada" }, 409);
       writeAuditLog(auditWid, "campaign_resumed", campaign_id, "campaign", "info");
-      EdgeRuntime.waitUntil(startSendLoop(campaign_id));
+      if (resumed.dispatch_channel === "z_api") {
+        // Z-API: hand off to ticker — set next_message_at so ticker picks it up within 1 min
+        await db.from("shooting_campaigns")
+          .update({ next_message_at: new Date().toISOString() })
+          .eq("id", campaign_id);
+      } else {
+        EdgeRuntime.waitUntil(startSendLoop(campaign_id));
+      }
       return json({ ok: true, info: "resumed" });
     }
 
@@ -770,27 +777,13 @@ Deno.serve(async (req: Request) => {
     }
 
     if (campaign.dispatch_channel === "z_api") {
-      const rawZApi = campaign.z_api_connections as (ZApiConnection & { token: string; client_token: string }) | null;
-      if (!rawZApi) return json({ error: "Conexão Z-API não encontrada" }, 400);
+      if (!campaign.z_api_connections) return json({ error: "Conexão Z-API não encontrada" }, 400);
       if (!campaign.message_body && !campaign.z_api_template_id) return json({ error: "Mensagem ou template da campanha não configurado" }, 400);
-
-      const zApiConn: ZApiConnection = {
-        ...rawZApi,
-        token:        await decrypt(rawZApi.token),
-        client_token: await decrypt(rawZApi.client_token),
-      };
-
-      let zApiTpl: ZApiTemplateData | null = null;
-      if (campaign.z_api_template_id) {
-        const { data: fetchedTpl } = await db.from("z_api_templates").select("*").eq("id", campaign.z_api_template_id).single();
-        zApiTpl = (fetchedTpl as ZApiTemplateData) ?? null;
-      }
-
-      const msgBody = zApiTpl?.body ?? String(campaign.message_body ?? "");
-      // Fire-and-forget: return the HTTP response immediately so the browser never
-      // times out waiting for the loop to finish.  EdgeRuntime.waitUntil() keeps
-      // the function alive while the send loop runs in the background.
-      EdgeRuntime.waitUntil(startSendLoop(campaign_id, undefined, undefined, campaign, zApiConn, msgBody, zApiTpl));
+      // Z-API campaigns are processed by campaign-ticker (tick-based scheduling).
+      // Setting next_message_at = now() queues this campaign for immediate pickup.
+      await db.from("shooting_campaigns")
+        .update({ next_message_at: new Date().toISOString() })
+        .eq("id", campaign_id);
     } else {
       const rawConn  = campaign.meta_connections as Connection | null;
       const template = campaign.meta_templates   as Template   | null;

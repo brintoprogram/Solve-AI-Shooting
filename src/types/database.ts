@@ -164,6 +164,7 @@ export interface ShootingCampaign {
   sending_speed_mode: "fixed" | "random";
   min_delay_seconds: number | null;
   max_delay_seconds: number | null;
+  next_message_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
