@@ -5,6 +5,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const Z_API_BASE      = "https://api.z-api.io/instances";
@@ -440,14 +442,19 @@ async function runTick(): Promise<void> {
   }
 }
 
-// ── Entry points ──────────────────────────────────────────────────────────────
+// ── Entry point ───────────────────────────────────────────────────────────────
 
-Deno.cron("campaign-ticker", "* * * * *", runTick);
-
-// HTTP handler for health checks and manual triggers (useful in development / catch-up runs)
-Deno.serve(async (req) => {
+// Scheduling is handled by pg_cron (PostgreSQL-level) which POSTs to this endpoint.
+// Deno.cron is intentionally NOT used — it stops firing when the container goes cold.
+Deno.serve((req) => {
   if (req.method === "POST") {
-    await runTick();
+    // Return 200 immediately so pg_net doesn't time out (it has a 5s timeout).
+    // runTick runs in background for up to 45s via EdgeRuntime.waitUntil.
+    EdgeRuntime.waitUntil(
+      runTick().catch((err) =>
+        console.error("[ticker] unhandled error:", err instanceof Error ? err.message : String(err))
+      )
+    );
     return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
   }
   return new Response("campaign-ticker OK", { status: 200 });
