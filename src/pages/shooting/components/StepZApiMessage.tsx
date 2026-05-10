@@ -273,25 +273,6 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
           </div>
         )}
 
-        {/* Validation hints */}
-        {!phoneColSet && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
-            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", color: "#fbbf24" }}>
-            ⚠ Selecione a coluna do telefone para continuar
-          </div>
-        )}
-        {phoneColSet && !state.messageBody.trim() && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
-            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", color: "#fbbf24" }}>
-            ⚠ Digite a mensagem para continuar
-          </div>
-        )}
-        {phoneColSet && state.messageBody.trim() && !allVarsMapped && varIndices.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs"
-            style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", color: "#fbbf24" }}>
-            ⚠ Mapeie todas as variáveis para continuar
-          </div>
-        )}
       </div>
 
       {/* ── Right: preview ────────────────────── */}

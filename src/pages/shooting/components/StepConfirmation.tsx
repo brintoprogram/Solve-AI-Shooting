@@ -2,7 +2,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
-  Users, MessageSquare, Wifi, Calendar, Gauge, AlertTriangle, Rocket, Clock,
+  Users, MessageSquare, Wifi, Calendar, Gauge, Rocket, Clock,
 } from "lucide-react";
 import { estimateDuration } from "@/lib/utils";
 import type { WizardState, MetaTemplate, MetaConnection } from "@/types/shooting";
@@ -117,26 +117,6 @@ export function StepConfirmation({ state, template, connection, zApiConnection, 
         ))}
       </div>
 
-      {/* Warning */}
-      <div className="flex items-start gap-3 p-4 rounded-xl"
-        style={{
-          background: "rgba(245,158,11,0.06)",
-          border: "1px solid rgba(245,158,11,0.2)",
-        }}
-      >
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "rgba(245,158,11,0.12)" }}
-        >
-          <AlertTriangle className="w-4 h-4 text-amber-400" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-amber-400">Atenção antes de continuar</p>
-          <p className="text-xs text-agro-muted mt-1 leading-relaxed">
-            Uma vez iniciado, o disparo pode ser pausado mas as mensagens já enviadas não podem ser revertidas.
-            Certifique-se de que sua conta possui saldo suficiente e que o número está com quality rating GREEN.
-          </p>
-        </div>
-      </div>
 
       {/* Consent */}
       <div
