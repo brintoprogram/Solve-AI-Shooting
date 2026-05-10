@@ -52,15 +52,17 @@ export function applyLightVariation(text: string, seed: number): string {
       return `\x00VAR${idx}\x00`;
     });
 
-    // 2. Apply phrase substitutions
+    // 2. Apply the FIRST matching phrase substitution only.
+    //    Applying multiple groups causes circular chains (e.g. "tudo certo?" →
+    //    "tudo bem?" → "tudo certo?") that undo each other.
     let varied = protected_;
     for (const [pattern, options] of VARIATION_GROUPS) {
       if (pattern.test(varied)) {
         const choice = options[seed % options.length];
-        // Reset lastIndex for global regexes
         pattern.lastIndex = 0;
-        varied = varied.replace(pattern, choice);
+        const next = varied.replace(pattern, choice);
         pattern.lastIndex = 0;
+        if (next !== varied) { varied = next; break; }
       }
     }
 

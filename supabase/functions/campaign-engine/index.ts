@@ -91,8 +91,9 @@ function applyLightVariation(text: string, seed: number): string {
       if (pattern.test(varied)) {
         const choice = options[seed % options.length];
         pattern.lastIndex = 0;
-        varied = varied.replace(pattern, choice);
+        const next = varied.replace(pattern, choice);
         pattern.lastIndex = 0;
+        if (next !== varied) { varied = next; break; }
       }
     }
     const restored = varied.replace(/\x00VAR(\d+)\x00/g, (_, i) => tokens[Number(i)]);
