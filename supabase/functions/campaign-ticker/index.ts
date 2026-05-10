@@ -388,6 +388,13 @@ async function runTick(): Promise<void> {
   const now       = new Date().toISOString();
   console.log(`[ticker] tick ${now}`);
 
+  // Self-heal: reset campaigns stuck in sending with no next_message_at
+  await db.from("shooting_campaigns")
+    .update({ next_message_at: new Date().toISOString() })
+    .eq("status", "sending")
+    .eq("dispatch_channel", "z_api")
+    .is("next_message_at", null);
+
   const { data: dueCampaigns, error: qErr } = await db
     .from("shooting_campaigns")
     .select("id, workspace_id, z_api_connection_id, z_api_template_id, message_body, column_mapping, sending_speed, sending_speed_mode, min_delay_seconds, max_delay_seconds")

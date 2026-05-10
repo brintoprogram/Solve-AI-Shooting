@@ -196,22 +196,33 @@ async function handleReceived(body: Record<string, unknown>) {
 async function markCampaignMessagesReplied(workspaceId: string, phone: string, now: string): Promise<void> {
   const { data: msgs } = await supabase
     .from("shooting_messages")
-    .select("id, campaign_id, status")
+    .select("id, campaign_id, status, read_at")
     .eq("workspace_id", workspaceId)
     .eq("recipient_phone", phone)
     .in("status", ["sent", "delivered", "read"]);
 
   if (!msgs || msgs.length === 0) return;
 
-  for (const msg of msgs as { id: string; campaign_id: string; status: string }[]) {
+  for (const msg of msgs as { id: string; campaign_id: string; status: string; read_at: string | null }[]) {
+    const wasNotRead = msg.read_at === null;
     await supabase.from("shooting_messages")
-      .update({ status: "replied", replied_at: now })
+      .update({
+        status: "replied",
+        replied_at: now,
+        ...(wasNotRead ? { read_at: now } : {}),
+      })
       .eq("id", msg.id);
     await supabase.rpc("increment_campaign_counters", {
       p_campaign_id:  msg.campaign_id,
       p_counter_name: "replied_count",
     });
-    console.log(`[received] ✓ shooting_message ${msg.id} → replied`);
+    if (wasNotRead) {
+      await supabase.rpc("increment_campaign_counters", {
+        p_campaign_id:  msg.campaign_id,
+        p_counter_name: "read_count",
+      });
+    }
+    console.log(`[received] ✓ shooting_message ${msg.id} → replied${wasNotRead ? " + read" : ""}`);
   }
 }
 
