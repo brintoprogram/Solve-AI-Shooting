@@ -178,6 +178,11 @@ async function handleReceived(body: Record<string, unknown>) {
   if (msgErr) console.error("[received] save message error:", msgErr.message);
   else console.log(`[received] ✓ ${direction} ${fields.message_type} ${fromMe ? "(from phone)" : `de ${phone}`} → conv ${conversationId}`);
 
+  // When contact replies, mark corresponding campaign messages as "replied"
+  if (!fromMe && !msgErr) {
+    await markCampaignMessagesReplied(workspaceId, phone, ts);
+  }
+
   // Fire-and-forget: AI agent reply (inbound only, skip own messages)
   if (!fromMe && !msgErr) {
     EdgeRuntime.waitUntil(
@@ -185,6 +190,28 @@ async function handleReceived(body: Record<string, unknown>) {
         body: { conversation_id: conversationId, message_body: fields.body ?? "" },
       }).catch((e: unknown) => console.error("[received] ai-agent error:", e))
     );
+  }
+}
+
+async function markCampaignMessagesReplied(workspaceId: string, phone: string, now: string): Promise<void> {
+  const { data: msgs } = await supabase
+    .from("shooting_messages")
+    .select("id, campaign_id, status")
+    .eq("workspace_id", workspaceId)
+    .eq("recipient_phone", phone)
+    .in("status", ["sent", "delivered", "read"]);
+
+  if (!msgs || msgs.length === 0) return;
+
+  for (const msg of msgs as { id: string; campaign_id: string; status: string }[]) {
+    await supabase.from("shooting_messages")
+      .update({ status: "replied", replied_at: now })
+      .eq("id", msg.id);
+    await supabase.rpc("increment_campaign_counters", {
+      p_campaign_id:  msg.campaign_id,
+      p_counter_name: "replied_count",
+    });
+    console.log(`[received] ✓ shooting_message ${msg.id} → replied`);
   }
 }
 
