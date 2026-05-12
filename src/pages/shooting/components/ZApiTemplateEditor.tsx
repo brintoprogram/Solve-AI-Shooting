@@ -378,7 +378,7 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                             />
                             <div className="flex items-center justify-between mt-1">
                               <p className="text-[10px]" style={{ color: "#4b6a55" }}>
-                                Delay após: ~{(Math.max(800, Math.min(5_000, block.length * 50)) / 1_000).toFixed(1)}s
+                                Delay após: ~{(Math.max(1_600, Math.min(10_000, block.length * 100)) / 1_000).toFixed(1)}s
                               </p>
                               <CharCount current={block.length} max={LIMITS.body} />
                             </div>

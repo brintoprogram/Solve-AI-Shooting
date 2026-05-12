@@ -22,7 +22,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function blockDelay(charCount: number): number {
-  return Math.max(800, Math.min(5_000, charCount * 50));
+  return Math.max(1_600, Math.min(10_000, charCount * 100));
 }
 
 function writeAuditLog(
