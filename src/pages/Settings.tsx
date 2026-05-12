@@ -1445,8 +1445,12 @@ CREATE POLICY "avatars_delete" ON storage.objects
                       </button>
                       <button
                         onClick={async () => {
-                          await deleteZApiConnection(conn.id);
-                          toast({ title: "Conexão removida" });
+                          const { error } = await deleteZApiConnection(conn.id);
+                          if (error) {
+                            toast({ title: "Erro ao remover conexão", description: error, variant: "destructive" });
+                          } else {
+                            toast({ title: "Conexão removida" });
+                          }
                         }}
                         title="Remover conexão"
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-colors shrink-0"

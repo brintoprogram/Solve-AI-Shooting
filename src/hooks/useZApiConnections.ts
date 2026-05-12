@@ -36,9 +36,11 @@ export function useZApiConnections(workspaceId: string) {
     setLoading(false);
   }
 
-  async function deleteConnection(id: string) {
-    await supabase.from("z_api_connections").delete().eq("id", id);
+  async function deleteConnection(id: string): Promise<{ error: string | null }> {
+    const { error } = await supabase.from("z_api_connections").delete().eq("id", id);
+    if (error) return { error: error.message };
     setConnections((prev) => prev.filter((c) => c.id !== id));
+    return { error: null };
   }
 
   return { connections, loading, deleteConnection, refetch: load };
