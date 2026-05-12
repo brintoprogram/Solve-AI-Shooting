@@ -272,28 +272,26 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                       </label>
 
                       <div className="flex items-center gap-2">
-                        {/* Blocks mode toggle (text type only) */}
-                        {msgType === "text" && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!blocksMode) {
-                                setBlocksMode(true);
-                                setBlocks(body.trim() ? [body.trim()] : [""]);
-                              } else {
-                                setBlocksMode(false);
-                                setBody(blocks.filter((b) => b.trim()).join("\n"));
-                              }
-                            }}
-                            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                            style={blocksMode
-                              ? { color: "#3fb06c", background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.3)" }
-                              : { color: "#6b8a75", background: "transparent", border: "1px solid rgba(63,176,108,0.15)" }}
-                          >
-                            <Layers className="w-3 h-3" />
-                            {blocksMode ? "Blocos ativo" : "Blocos"}
-                          </button>
-                        )}
+                        {/* Blocks mode toggle */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!blocksMode) {
+                              setBlocksMode(true);
+                              setBlocks(body.trim() ? [body.trim()] : [""]);
+                            } else {
+                              setBlocksMode(false);
+                              setBody(blocks.filter((b) => b.trim()).join("\n"));
+                            }
+                          }}
+                          className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                          style={blocksMode
+                            ? { color: "#3fb06c", background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.4)" }
+                            : { color: "#a0bfaa", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)" }}
+                        >
+                          <Layers className="w-3 h-3" />
+                          {blocksMode ? "Blocos ativo" : "Blocos"}
+                        </button>
 
                         {/* Variable menu — single-body mode only */}
                         {!blocksMode && (
