@@ -151,21 +151,16 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
           .gte("sent_at", chartStart),
       ]);
 
-      // ── Taxa de entrega + tempo de automação ──────────────────────
+      // ── Taxa de entrega ───────────────────────────────────────────
       let totalSent         = 0;
       let totalDelivered    = 0;
       let totalRecipients   = 0;
-      let automationMinutes = 0;
       for (const c of (campaignAgg.data ?? [])) {
         const sent      = c.sent_count ?? 0;
         const delivered = c.dispatch_channel === "n8n_email" ? sent : (c.delivered_count ?? 0);
         totalSent       += sent;
         totalDelivered  += delivered;
         totalRecipients += c.total_recipients ?? 0;
-        if (c.started_at && c.completed_at) {
-          automationMinutes +=
-            (new Date(c.completed_at).getTime() - new Date(c.started_at).getTime()) / 60_000;
-        }
       }
       const denominator  = totalRecipients > 0 ? totalRecipients : totalSent;
       const deliveryRate = denominator > 0
@@ -173,9 +168,13 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         : 0;
 
       // ── Economia de tempo ─────────────────────────────────────────
-      const HUMAN_MIN_PER_MSG = 5;
-      const humanMinutes      = (messagesTotal.count ?? 0) * HUMAN_MIN_PER_MSG;
-      const timeSavedMinutes  = Math.max(0, humanMinutes - automationMinutes);
+      // Human: 5 min/message manually. Automation: 0.5 min/message (setup + click).
+      // We do NOT use (completed_at - started_at) because Z-API campaigns have intentional
+      // delays between messages (anti-ban), which is idle time, not actual work.
+      const HUMAN_MIN_PER_MSG      = 5;
+      const AUTOMATION_MIN_PER_MSG = 0.5;
+      const msgCount         = messagesTotal.count ?? 0;
+      const timeSavedMinutes = Math.round(msgCount * (HUMAN_MIN_PER_MSG - AUTOMATION_MIN_PER_MSG));
 
       // ── Valor disparado ───────────────────────────────────────────
       let valueDispatched = 0;

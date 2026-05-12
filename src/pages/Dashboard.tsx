@@ -470,9 +470,8 @@ export function Dashboard() {
                 <p className="font-display text-3xl font-bold text-agro-text">{fmtTime(metrics.timeSavedMinutes)}</p>
                 <p className="text-sm text-agro-muted mt-1">Economia de tempo</p>
                 <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed">
-                  Um humano levaria ~{fmtTime(metrics.messagesSent * 5)} para enviar{" "}
-                  {fmtCount(metrics.messagesSent)} mensagens manualmente (5 min/msg).
-                  A automação fez em muito menos tempo.
+                  Enviar {fmtCount(metrics.messagesSent)} mensagens manualmente levaria ~{fmtTime(metrics.messagesSent * 5)} (5 min/msg).
+                  A automação executa cada envio em ~30 segundos.
                 </p>
               </>
             )}
