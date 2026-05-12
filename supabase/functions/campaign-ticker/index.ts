@@ -21,6 +21,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function blockDelay(charCount: number): number {
+  return Math.max(800, Math.min(5_000, charCount * 50));
+}
+
 function writeAuditLog(
   workspaceId: string, eventType: string,
   entityId:    string | null | undefined, entityType: string | null | undefined,
@@ -87,7 +91,7 @@ interface ZApiConn {
 interface ZApiTpl {
   id: string; message_type: "text" | "button_list"; header_text: string | null;
   body: string; footer: string | null; buttons: Array<{ id: string; label: string }>;
-  enable_light_variations: boolean;
+  enable_light_variations: boolean; blocks: string[] | null;
 }
 interface ZApiSendResult { zaapId?: string; error?: string; retryable?: boolean; }
 interface Message {
@@ -230,6 +234,59 @@ async function processZApiMessage(
   mapping: Record<string, unknown>, campaignId: string, workspaceId: string,
   tpl?: ZApiTpl | null, seed?: number,
 ): Promise<void> {
+  // ── Multi-block path ──────────────────────────────────────────────────────────
+  if (tpl?.blocks && tpl.blocks.length > 0) {
+    const bodyVars = (mapping.body_variables ?? {}) as Record<string, string>;
+    const contact  = (msg.recipient_data ?? {}) as Record<string, unknown>;
+    let lastZaapId = "";
+
+    for (let i = 0; i < tpl.blocks.length; i++) {
+      const blockText = substituteVars(tpl.blocks[i], bodyVars, contact);
+      const res = await sendZApiMessage(
+        zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, blockText,
+      );
+
+      if (!res.zaapId) {
+        const retryCount = (msg.retry_count ?? 0) + 1;
+        const canRetry   = (res.retryable ?? false) && retryCount < (msg.max_retries ?? 3);
+        const now = new Date().toISOString();
+        if (canRetry) {
+          await db.from("shooting_messages").update({ retry_count: retryCount, error_message: res.error }).eq("id", msg.id);
+          writeAuditLog(workspaceId, "message_retry", msg.id, "shooting_message", "warning", res.error, {
+            phone: msg.recipient_phone, campaign_id: campaignId, retry_count: retryCount, block_index: i,
+          });
+        } else {
+          await db.from("shooting_messages").update({
+            status: "failed", failed_at: now, error_message: res.error, retry_count: retryCount,
+          }).eq("id", msg.id);
+          await db.rpc("increment_campaign_counters", { p_campaign_id: campaignId, p_counter_name: "failed_count" });
+          writeAuditLog(workspaceId, "message_failed", msg.id, "shooting_message", "error", res.error, {
+            phone: msg.recipient_phone, campaign_id: campaignId, block_index: i,
+          });
+        }
+        console.warn(`[ticker] msg ${msg.id} block ${i} → ${canRetry ? "retry" : "failed"}: ${res.error}`);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      await saveZApiMessageToInbox(workspaceId, zConn.id, msg.recipient_phone, res.zaapId, blockText, now);
+      lastZaapId = res.zaapId;
+
+      if (i < tpl.blocks.length - 1) {
+        await sleep(blockDelay(tpl.blocks[i].length));
+      }
+    }
+
+    const now = new Date().toISOString();
+    await db.from("shooting_messages").update({ status: "sent", wamid: lastZaapId, sent_at: now }).eq("id", msg.id);
+    await db.rpc("increment_campaign_counters", { p_campaign_id: campaignId, p_counter_name: "sent_count" });
+    writeAuditLog(workspaceId, "message_sent", msg.id, "shooting_message", "success", null, {
+      phone: msg.recipient_phone, campaign_id: campaignId, zaap_id: lastZaapId, blocks: tpl.blocks.length,
+    });
+    return;
+  }
+
+  // ── Single-message path ───────────────────────────────────────────────────────
   const text = buildZApiText(messageBody, mapping, msg.recipient_data ?? {}, tpl, seed);
 
   let result: ZApiSendResult;

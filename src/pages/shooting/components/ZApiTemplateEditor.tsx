@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   LayoutTemplate, X, Check, Loader2, Plus, Trash2,
   Smartphone, Eye, Pencil, ChevronDown, Tag, FileText, MousePointerClick,
-  Shuffle, ChevronUp,
+  Shuffle, ChevronUp, Layers,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
@@ -33,6 +33,10 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
   );
   const [enableVariations,  setEnableVariations]  = useState(editTemplate?.enable_light_variations ?? false);
   const [showVarPreviews,   setShowVarPreviews]   = useState(false);
+  const [blocksMode, setBlocksMode] = useState(() => (editTemplate?.blocks?.length ?? 0) > 0);
+  const [blocks,     setBlocks]     = useState<string[]>(
+    editTemplate?.blocks?.length ? editTemplate.blocks : [""],
+  );
   const [saving,        setSaving]        = useState(false);
   const [activeTab,     setActiveTab]     = useState<"form" | "preview">("form");
   const [showVarMenu,   setShowVarMenu]   = useState(false);
@@ -43,13 +47,15 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
   const varMenuRef = useRef<HTMLDivElement>(null);
   const saveFnRef  = useRef<((draft: boolean) => void) | null>(null);
 
-  // Detected variables from body
+  const allBodyText = blocksMode ? blocks.join("\n") : body;
+
+  // Detected variables from body or blocks
   const detectedVars = Array.from(new Set(
-    (body.match(/\{\{\w+\}\}/g) ?? []).map((m) => m.slice(2, -2)),
+    (allBodyText.match(/\{\{\w+\}\}/g) ?? []).map((m) => m.slice(2, -2)),
   ));
 
   function nextVarIndex(): string {
-    const nums = (body.match(/\{\{(\d+)\}\}/g) ?? [])
+    const nums = (allBodyText.match(/\{\{(\d+)\}\}/g) ?? [])
       .map((m) => Number(m.slice(2, -2))).filter((n) => !isNaN(n));
     return nums.length > 0 ? String(Math.max(...nums) + 1) : "1";
   }
@@ -106,7 +112,8 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
     setButtons((p) => p.map((b, idx) => idx === i ? { ...b, label } : b));
   }
 
-  const canSave = !!(name.trim() && body.trim() &&
+  const canSave = !!(name.trim() &&
+    (blocksMode ? blocks.some((b) => b.trim()) : body.trim()) &&
     (msgType !== "button_list" || buttons.some((b) => b.label.trim())));
 
   async function handleSave(draft: boolean) {
@@ -114,15 +121,19 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
     if (!draft && !canSave) return;
     setSaving(true);
     try {
+      const effectiveBlocks = blocksMode ? blocks.filter((b) => b.trim()) : [];
+      const effectiveBody   = blocksMode ? effectiveBlocks.join("\n") : body.trim();
+
       const payload = {
         workspace_id:             workspaceId,
         z_api_connection_id:      connectionId ?? null,
         name:                     name.trim(),
         message_type:             msgType,
-        header_text:              headerText.trim() || null,
-        body:                     body.trim() || "",
-        footer:                   footer.trim() || null,
-        enable_light_variations:  enableVariations,
+        header_text:              (!blocksMode && headerText.trim()) || null,
+        body:                     effectiveBody,
+        footer:                   (!blocksMode && footer.trim()) || null,
+        enable_light_variations:  enableVariations && !blocksMode,
+        blocks:                   effectiveBlocks,
         buttons:                  msgType === "button_list"
           ? buttons.filter((b) => b.label.trim()).map((b, i) => ({ id: `btn${i + 1}`, label: b.label.trim() }))
           : [],
@@ -241,88 +252,227 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                 <SectionLabel icon={<FileText className="w-3.5 h-3.5" />}>Conteúdo</SectionLabel>
                 <div className="space-y-4">
 
-                  <div>
-                    <label htmlFor="ztpl-header" className="field-label">
-                      Header <Opt />
-                    </label>
-                    <input id="ztpl-header" className="input-agro w-full"
-                      placeholder="Ex: Aviso importante…"
-                      value={headerText} onChange={(e) => setHeaderText(e.target.value)} maxLength={LIMITS.header} />
-                    <CharCount current={headerText.length} max={LIMITS.header} />
-                  </div>
+                  {/* Header — hidden in blocks mode */}
+                  {!blocksMode && (
+                    <div>
+                      <label htmlFor="ztpl-header" className="field-label">
+                        Header <Opt />
+                      </label>
+                      <input id="ztpl-header" className="input-agro w-full"
+                        placeholder="Ex: Aviso importante…"
+                        value={headerText} onChange={(e) => setHeaderText(e.target.value)} maxLength={LIMITS.header} />
+                      <CharCount current={headerText.length} max={LIMITS.header} />
+                    </div>
+                  )}
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label htmlFor="ztpl-body" className="field-label !mb-0">
-                        Corpo da mensagem *
+                      <label htmlFor={blocksMode ? undefined : "ztpl-body"} className="field-label !mb-0">
+                        {blocksMode ? "Blocos de mensagem *" : "Corpo da mensagem *"}
                       </label>
 
-                      {/* Variable menu */}
-                      <div className="relative" ref={varMenuRef}>
-                        <button type="button"
-                          onClick={() => { setShowVarMenu((v) => !v); setShowCustomVar(false); }}
-                          className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors hover:bg-agro-green/10"
-                          style={{ color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
-                          + Inserir variável <ChevronDown className="w-3 h-3 ml-0.5" />
-                        </button>
-                        {showVarMenu && (
-                          <div className="absolute right-0 top-full mt-1.5 z-20 rounded-xl w-56 py-1.5 shadow-2xl"
-                            style={{ background: "#111d14", border: "1px solid rgba(63,176,108,0.2)" }}>
-                            <button onClick={() => insertAtCursor(`{{${nextVarIndex()}}}`)}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-agro-text hover:bg-white/5 transition-colors">
-                              <span className="font-mono text-amber-400 text-[11px] bg-amber-400/10 px-1.5 py-0.5 rounded shrink-0">
-                                {`{{${nextVarIndex()}}}`}
-                              </span>
-                              Numerada — próxima
+                      <div className="flex items-center gap-2">
+                        {/* Blocks mode toggle (text type only) */}
+                        {msgType === "text" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!blocksMode) {
+                                setBlocksMode(true);
+                                setBlocks(body.trim() ? [body.trim()] : [""]);
+                              } else {
+                                setBlocksMode(false);
+                                setBody(blocks.filter((b) => b.trim()).join("\n"));
+                              }
+                            }}
+                            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                            style={blocksMode
+                              ? { color: "#3fb06c", background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.3)" }
+                              : { color: "#6b8a75", background: "transparent", border: "1px solid rgba(63,176,108,0.15)" }}
+                          >
+                            <Layers className="w-3 h-3" />
+                            {blocksMode ? "Blocos ativo" : "Blocos"}
+                          </button>
+                        )}
+
+                        {/* Variable menu — single-body mode only */}
+                        {!blocksMode && (
+                          <div className="relative" ref={varMenuRef}>
+                            <button type="button"
+                              onClick={() => { setShowVarMenu((v) => !v); setShowCustomVar(false); }}
+                              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors hover:bg-agro-green/10"
+                              style={{ color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
+                              + Inserir variável <ChevronDown className="w-3 h-3 ml-0.5" />
                             </button>
-                            <div className="h-px mx-3 my-1" style={{ background: "rgba(63,176,108,0.1)" }} />
-                            {showCustomVar ? (
-                              <div className="px-3 py-2">
-                                <p className="text-[10px] text-agro-muted-2 mb-1.5">Nome da variável personalizada</p>
-                                <div className="flex gap-2">
-                                  <input autoFocus
-                                    className="flex-1 rounded-lg px-2 py-1.5 text-xs text-agro-text outline-none"
-                                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(63,176,108,0.2)" }}
-                                    placeholder="ex: nome_cliente"
-                                    value={customVarName}
-                                    onChange={(e) => setCustomVarName(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") { e.preventDefault(); if (customVarName.trim()) insertAtCursor(`{{${customVarName.trim()}}}`); }
-                                      if (e.key === "Escape") setShowCustomVar(false);
-                                    }}
-                                  />
-                                  <button onClick={() => { if (customVarName.trim()) insertAtCursor(`{{${customVarName.trim()}}}`); }}
-                                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors hover:bg-agro-green/15"
-                                    style={{ color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
-                                    OK
+                            {showVarMenu && (
+                              <div className="absolute right-0 top-full mt-1.5 z-20 rounded-xl w-56 py-1.5 shadow-2xl"
+                                style={{ background: "#111d14", border: "1px solid rgba(63,176,108,0.2)" }}>
+                                <button onClick={() => insertAtCursor(`{{${nextVarIndex()}}}`)}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-agro-text hover:bg-white/5 transition-colors">
+                                  <span className="font-mono text-amber-400 text-[11px] bg-amber-400/10 px-1.5 py-0.5 rounded shrink-0">
+                                    {`{{${nextVarIndex()}}}`}
+                                  </span>
+                                  Numerada — próxima
+                                </button>
+                                <div className="h-px mx-3 my-1" style={{ background: "rgba(63,176,108,0.1)" }} />
+                                {showCustomVar ? (
+                                  <div className="px-3 py-2">
+                                    <p className="text-[10px] text-agro-muted-2 mb-1.5">Nome da variável personalizada</p>
+                                    <div className="flex gap-2">
+                                      <input autoFocus
+                                        className="flex-1 rounded-lg px-2 py-1.5 text-xs text-agro-text outline-none"
+                                        style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(63,176,108,0.2)" }}
+                                        placeholder="ex: nome_cliente"
+                                        value={customVarName}
+                                        onChange={(e) => setCustomVarName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") { e.preventDefault(); if (customVarName.trim()) insertAtCursor(`{{${customVarName.trim()}}}`); }
+                                          if (e.key === "Escape") setShowCustomVar(false);
+                                        }}
+                                      />
+                                      <button onClick={() => { if (customVarName.trim()) insertAtCursor(`{{${customVarName.trim()}}}`); }}
+                                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors hover:bg-agro-green/15"
+                                        style={{ color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
+                                        OK
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button onClick={() => setShowCustomVar(true)}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-agro-text hover:bg-white/5 transition-colors">
+                                    <span className="font-mono text-blue-400 text-[11px] bg-blue-400/10 px-1.5 py-0.5 rounded shrink-0">
+                                      {"{{nome}}"}
+                                    </span>
+                                    Personalizada…
                                   </button>
-                                </div>
+                                )}
                               </div>
-                            ) : (
-                              <button onClick={() => setShowCustomVar(true)}
-                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-agro-text hover:bg-white/5 transition-colors">
-                                <span className="font-mono text-blue-400 text-[11px] bg-blue-400/10 px-1.5 py-0.5 rounded shrink-0">
-                                  {"{{nome}}"}
-                                </span>
-                                Personalizada…
-                              </button>
                             )}
                           </div>
                         )}
                       </div>
                     </div>
 
-                    <textarea id="ztpl-body" ref={bodyRef} className="input-agro w-full resize-none" rows={6}
-                      placeholder="Olá {{1}}, sua fatura de {{2}} vence em {{3}}."
-                      value={body} onChange={(e) => setBody(e.target.value)} maxLength={LIMITS.body} />
+                    {/* ── Blocks editor ── */}
+                    {blocksMode ? (
+                      <div className="space-y-3">
+                        {blocks.map((block, i) => (
+                          <div key={i} className="rounded-xl p-3"
+                            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(63,176,108,0.12)" }}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[11px] font-semibold" style={{ color: "#3fb06c" }}>
+                                Bloco {i + 1}
+                              </span>
+                              {blocks.length > 1 && (
+                                <button type="button"
+                                  onClick={() => setBlocks((prev) => prev.filter((_, idx) => idx !== i))}
+                                  className="w-6 h-6 rounded flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                            <textarea
+                              className="input-agro w-full resize-none" rows={2}
+                              placeholder={i === 0 ? "Ex: Oi, tudo bem?" : `Mensagem do bloco ${i + 1}…`}
+                              value={block}
+                              onChange={(e) => setBlocks((prev) => prev.map((b, idx) => idx === i ? e.target.value : b))}
+                              maxLength={LIMITS.body}
+                            />
+                            <div className="flex items-center justify-between mt-1">
+                              <p className="text-[10px]" style={{ color: "#4b6a55" }}>
+                                Delay após: ~{(Math.max(800, Math.min(5_000, block.length * 50)) / 1_000).toFixed(1)}s
+                              </p>
+                              <CharCount current={block.length} max={LIMITS.body} />
+                            </div>
+                          </div>
+                        ))}
 
-                    <div className="flex items-start justify-between mt-1 gap-2">
-                      <p className="text-[10px] text-agro-muted">
-                        Use <span className="font-mono text-amber-400">{"{{1}}, {{2}}, ..."}</span> — mapeadas no wizard
-                      </p>
-                      <CharCount current={body.length} max={LIMITS.body} />
-                    </div>
+                        {blocks.length < 5 && (
+                          <button type="button"
+                            onClick={() => setBlocks((prev) => [...prev, ""])}
+                            className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-2 rounded-xl w-full justify-center transition-colors hover:bg-agro-green/10"
+                            style={{ color: "#3fb06c", border: "1px dashed rgba(63,176,108,0.3)" }}>
+                            <Plus className="w-3 h-3" /> Adicionar bloco
+                          </button>
+                        )}
 
+                        <p className="text-[10px] text-agro-muted">
+                          Use <span className="font-mono text-amber-400">{"{{1}}, {{2}}, ..."}</span> em qualquer bloco — mapeadas no wizard
+                        </p>
+                      </div>
+                    ) : (
+                      /* ── Single-body editor ── */
+                      <>
+                        <textarea id="ztpl-body" ref={bodyRef} className="input-agro w-full resize-none" rows={6}
+                          placeholder="Olá {{1}}, sua fatura de {{2}} vence em {{3}}."
+                          value={body} onChange={(e) => setBody(e.target.value)} maxLength={LIMITS.body} />
+
+                        <div className="flex items-start justify-between mt-1 gap-2">
+                          <p className="text-[10px] text-agro-muted">
+                            Use <span className="font-mono text-amber-400">{"{{1}}, {{2}}, ..."}</span> — mapeadas no wizard
+                          </p>
+                          <CharCount current={body.length} max={LIMITS.body} />
+                        </div>
+
+                        {/* ── Leves variações ── */}
+                        <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={enableVariations}
+                              onClick={() => { setEnableVariations((v) => !v); setShowVarPreviews(false); }}
+                              className="relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200"
+                              style={{ background: enableVariations ? "#8b5cf6" : "rgba(255,255,255,0.1)" }}
+                            >
+                              <span
+                                className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                                style={{ transform: enableVariations ? "translateX(16px)" : "translateX(0)" }}
+                              />
+                            </button>
+                            <div>
+                              <p className="text-xs font-semibold" style={{ color: enableVariations ? "#a78bfa" : "#7a9e83" }}>
+                                Permitir leves variações
+                              </p>
+                              <p className="text-[10px] text-agro-muted leading-tight mt-0.5">
+                                Alterna pequenas partes do texto fixo a cada envio, preservando variáveis, sentido e tom.
+                              </p>
+                            </div>
+                          </label>
+
+                          {enableVariations && (
+                            <div className="mt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setShowVarPreviews((v) => !v)}
+                                className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                                style={{ color: "#a78bfa", border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)" }}
+                              >
+                                <Shuffle className="w-3 h-3" />
+                                Pré-visualizar variações
+                                {showVarPreviews ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              </button>
+
+                              {showVarPreviews && (
+                                <div className="mt-2 space-y-2">
+                                  {getVariationExamples(body, 3).map((example, i) => (
+                                    <div key={i} className="p-2.5 rounded-lg text-xs text-agro-muted whitespace-pre-wrap leading-relaxed"
+                                      style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.12)" }}>
+                                      <span className="block text-[10px] font-semibold mb-1" style={{ color: "#7c3aed" }}>
+                                        Variação {i + 1}
+                                      </span>
+                                      {example}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Detected vars — shown for both modes */}
                     {detectedVars.length > 0 && (
                       <div className="mt-2.5 p-2.5 rounded-xl"
                         style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)" }}>
@@ -339,71 +489,18 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                         </div>
                       </div>
                     )}
+                  </div>
 
-                    {/* ── Leves variações ── */}
-                    <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
-                      <label className="flex items-center gap-3 cursor-pointer select-none">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enableVariations}
-                          onClick={() => { setEnableVariations((v) => !v); setShowVarPreviews(false); }}
-                          className="relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200"
-                          style={{ background: enableVariations ? "#8b5cf6" : "rgba(255,255,255,0.1)" }}
-                        >
-                          <span
-                            className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
-                            style={{ transform: enableVariations ? "translateX(16px)" : "translateX(0)" }}
-                          />
-                        </button>
-                        <div>
-                          <p className="text-xs font-semibold" style={{ color: enableVariations ? "#a78bfa" : "#7a9e83" }}>
-                            Permitir leves variações
-                          </p>
-                          <p className="text-[10px] text-agro-muted leading-tight mt-0.5">
-                            Alterna pequenas partes do texto fixo a cada envio, preservando variáveis, sentido e tom.
-                          </p>
-                        </div>
-                      </label>
-
-                      {enableVariations && (
-                        <div className="mt-2.5">
-                          <button
-                            type="button"
-                            onClick={() => setShowVarPreviews((v) => !v)}
-                            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                            style={{ color: "#a78bfa", border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.08)" }}
-                          >
-                            <Shuffle className="w-3 h-3" />
-                            Pré-visualizar variações
-                            {showVarPreviews ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
-
-                          {showVarPreviews && (
-                            <div className="mt-2 space-y-2">
-                              {getVariationExamples(body, 3).map((example, i) => (
-                                <div key={i} className="p-2.5 rounded-lg text-xs text-agro-muted whitespace-pre-wrap leading-relaxed"
-                                  style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.12)" }}>
-                                  <span className="block text-[10px] font-semibold mb-1" style={{ color: "#7c3aed" }}>
-                                    Variação {i + 1}
-                                  </span>
-                                  {example}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  {/* Footer — hidden in blocks mode */}
+                  {!blocksMode && (
+                    <div>
+                      <label htmlFor="ztpl-footer" className="field-label">Footer <Opt /></label>
+                      <input id="ztpl-footer" className="input-agro w-full"
+                        placeholder="Ex: Ignore se já pagou"
+                        value={footer} onChange={(e) => setFooter(e.target.value)} maxLength={LIMITS.footer} />
+                      <CharCount current={footer.length} max={LIMITS.footer} />
                     </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="ztpl-footer" className="field-label">Footer <Opt /></label>
-                    <input id="ztpl-footer" className="input-agro w-full"
-                      placeholder="Ex: Ignore se já pagou"
-                      value={footer} onChange={(e) => setFooter(e.target.value)} maxLength={LIMITS.footer} />
-                    <CharCount current={footer.length} max={LIMITS.footer} />
-                  </div>
+                  )}
                 </div>
               </section>
 
@@ -462,10 +559,11 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
             </div>
             <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
               <WhatsAppPreview
-                header={headerText}
-                body={body}
-                footer={footer}
-                buttons={msgType === "button_list" ? buttons : []}
+                header={blocksMode ? "" : headerText}
+                body={blocksMode ? "" : body}
+                footer={blocksMode ? "" : footer}
+                buttons={(!blocksMode && msgType === "button_list") ? buttons : []}
+                blocks={blocksMode ? blocks : []}
               />
             </div>
           </div>
@@ -574,11 +672,15 @@ function renderWithVars(text: string): React.ReactNode {
   );
 }
 
-function WhatsAppPreview({ header, body, footer, buttons }: {
-  header: string; body: string; footer: string; buttons: ZApiTemplateButton[];
+function WhatsAppPreview({ header, body, footer, buttons, blocks = [] }: {
+  header: string; body: string; footer: string; buttons: ZApiTemplateButton[]; blocks?: string[];
 }) {
-  const visibleBtns = buttons.filter((b) => b.label.trim());
-  const isEmpty = !header && !body && !footer && visibleBtns.length === 0;
+  const visibleBtns  = buttons.filter((b) => b.label.trim());
+  const visibleBlocks = blocks.filter((b) => b.trim());
+  const isBlocksMode = visibleBlocks.length > 0;
+  const isEmpty = isBlocksMode
+    ? visibleBlocks.length === 0
+    : !header && !body && !footer && visibleBtns.length === 0;
 
   return (
     <div className="w-full max-w-[280px] select-none">
@@ -604,9 +706,30 @@ function WhatsAppPreview({ header, body, footer, buttons }: {
                 Preencha o formulário<br />para ver o preview
               </p>
             </div>
+          ) : isBlocksMode ? (
+            /* ── Multi-block bubbles ── */
+            <div className="space-y-1.5">
+              {visibleBlocks.map((block, i) => (
+                <div key={i} className="ml-auto" style={{ maxWidth: "92%" }}>
+                  <div className="rounded-2xl rounded-tr-sm overflow-hidden shadow-md"
+                    style={{ background: "#005c4b" }}>
+                    <div className="px-3 pt-2.5 pb-1">
+                      <p className="text-[12px] leading-relaxed text-white whitespace-pre-wrap break-words">
+                        {renderWithVars(block)}
+                      </p>
+                    </div>
+                    <div className="flex justify-end px-3 pb-1.5 pt-0">
+                      <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.4)" }}>
+                        12:0{i} ✓✓
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
+            /* ── Single-message bubble ── */
             <div className="ml-auto" style={{ maxWidth: "92%" }}>
-              {/* Message bubble */}
               <div className="rounded-2xl rounded-tr-sm overflow-hidden shadow-md"
                 style={{ background: "#005c4b" }}>
 
