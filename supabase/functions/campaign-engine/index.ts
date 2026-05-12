@@ -713,21 +713,18 @@ Deno.serve(async (req: Request) => {
 
     if (action === "resume") {
       // Atomic: only resumes if currently "paused" — prevents spawning duplicate send loops
-      // on double-click or concurrent requests
+      // on double-click or concurrent requests.
+      // next_message_at is set in the same UPDATE so the ticker cannot race between the
+      // status change and a separate next_message_at write (which would reset the claim lock).
       const { data: resumed } = await db.from("shooting_campaigns")
-        .update({ status: "sending" })
+        .update({ status: "sending", next_message_at: new Date().toISOString() })
         .eq("id", campaign_id)
         .eq("status", "paused")
         .select("id, dispatch_channel")
         .maybeSingle();
       if (!resumed) return json({ error: "Campanha não está pausada" }, 409);
       writeAuditLog(auditWid, "campaign_resumed", campaign_id, "campaign", "info");
-      if (resumed.dispatch_channel === "z_api") {
-        // Z-API: hand off to ticker — set next_message_at so ticker picks it up within 1 min
-        await db.from("shooting_campaigns")
-          .update({ next_message_at: new Date().toISOString() })
-          .eq("id", campaign_id);
-      } else {
+      if (resumed.dispatch_channel !== "z_api") {
         EdgeRuntime.waitUntil(startSendLoop(campaign_id));
       }
       return json({ ok: true, info: "resumed" });
@@ -747,9 +744,11 @@ Deno.serve(async (req: Request) => {
     // Atomic status claim: update + fetch in one request, only if status allows starting.
     // Prevents double-start race condition where two concurrent requests both pass a
     // read-then-check pattern and both launch send loops.
+    // next_message_at is included in this single atomic update so the ticker cannot race
+    // between the status change and a separate next_message_at write and reset the claim lock.
     const { data: campaign, error: campErr } = await db
       .from("shooting_campaigns")
-      .update({ status: "sending", started_at: new Date().toISOString() })
+      .update({ status: "sending", started_at: new Date().toISOString(), next_message_at: new Date().toISOString() })
       .eq("id", campaign_id)
       .in("status", ["draft", "paused"])
       .select("*, meta_connections(*), meta_templates(*), z_api_connections(*)")
@@ -779,11 +778,7 @@ Deno.serve(async (req: Request) => {
     if (campaign.dispatch_channel === "z_api") {
       if (!campaign.z_api_connections) return json({ error: "Conexão Z-API não encontrada" }, 400);
       if (!campaign.message_body && !campaign.z_api_template_id) return json({ error: "Mensagem ou template da campanha não configurado" }, 400);
-      // Z-API campaigns are processed by campaign-ticker (tick-based scheduling).
-      // Setting next_message_at = now() queues this campaign for immediate pickup.
-      await db.from("shooting_campaigns")
-        .update({ next_message_at: new Date().toISOString() })
-        .eq("id", campaign_id);
+      // Z-API campaigns are picked up by campaign-ticker via next_message_at (set above atomically).
     } else {
       const rawConn  = campaign.meta_connections as Connection | null;
       const template = campaign.meta_templates   as Template   | null;
