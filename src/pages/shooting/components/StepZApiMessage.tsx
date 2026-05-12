@@ -49,13 +49,15 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
     ? CONTACT_SAMPLE
     : (xlsxResult?.validRows?.[0] ?? { nome: "João Silva", valor: "R$ 1.200,00", data_vencimento: "30/04/2025" });
 
-  const selectedTemplate = templates.find((t) => t.id === state.zApiTemplateId) ?? null;
+  const selectedTemplate  = templates.find((t) => t.id === state.zApiTemplateId) ?? null;
+  const activeBlocks      = selectedTemplate?.blocks?.filter((b) => b.trim()) ?? [];
+  const isBlocksTemplate  = activeBlocks.length > 0;
 
   const varIndices = useMemo(() => extractVarIndices(state.messageBody), [state.messageBody]);
   const bodyVars   = state.columnMapping.body_variables ?? {};
 
-  const bodyPreview   = buildPreview(state.messageBody, bodyVars, sampleRow as Record<string, unknown>);
-  const charCount     = state.messageBody.length;
+  const bodyPreview = buildPreview(state.messageBody, bodyVars, sampleRow as Record<string, unknown>);
+  const charCount   = state.messageBody.length;
 
   function selectTemplate(tpl: ZApiTemplate | null) {
     if (!tpl) {
@@ -209,36 +211,69 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
         {/* Message body */}
         <div className="space-y-2">
           <div className="flex items-baseline justify-between">
-            <p className="text-xs font-bold text-agro-muted-2 uppercase tracking-[0.1em] leading-none">
-              Mensagem *
-            </p>
-            <div className="flex items-baseline gap-2.5">
-              <span className="text-[9px] font-light text-agro-muted-2">{charCount} caracteres</span>
-              <button
-                type="button"
-                onClick={insertVar}
-                className="text-[11px] font-semibold px-2 py-0.5 rounded-md text-agro-green hover:bg-agro-green/10 transition-colors"
-                style={{ border: "1px solid rgba(63,176,108,0.25)" }}
-              >
-                + Inserir variável
-              </button>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-agro-muted-2 uppercase tracking-[0.1em] leading-none">
+                {isBlocksTemplate ? "Blocos" : "Mensagem *"}
+              </p>
+              {isBlocksTemplate && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.2)" }}>
+                  {activeBlocks.length} mensagens
+                </span>
+              )}
             </div>
+            {!isBlocksTemplate && (
+              <div className="flex items-baseline gap-2.5">
+                <span className="text-[9px] font-light text-agro-muted-2">{charCount} caracteres</span>
+                <button
+                  type="button"
+                  onClick={insertVar}
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded-md text-agro-green hover:bg-agro-green/10 transition-colors"
+                  style={{ border: "1px solid rgba(63,176,108,0.25)" }}
+                >
+                  + Inserir variável
+                </button>
+              </div>
+            )}
           </div>
-          <textarea
-            id="zapi-body"
-            className="input-agro w-full resize-none"
-            rows={6}
-            placeholder={"Olá {{1}}, sua fatura de {{2}} vence em {{3}}.\n\nAcesse o link para pagar: {{4}}"}
-            value={state.messageBody}
-            onChange={(e) => handleBodyChange(e.target.value)}
-          />
-          <p className="text-xs text-agro-muted">
-            Use{" "}
-            <span className="font-mono text-amber-400 px-1 rounded" style={{ background: "rgba(245,158,11,0.1)" }}>
-              {"{{1}}, {{2}}, ..."}
-            </span>{" "}
-            para inserir dados dinâmicos de cada destinatário.
-          </p>
+
+          {isBlocksTemplate ? (
+            /* ── Blocks read-only view ── */
+            <div className="space-y-2">
+              {activeBlocks.map((block, i) => (
+                <div key={i} className="flex gap-2.5 items-start">
+                  <span className="text-[10px] font-mono font-bold mt-2.5 shrink-0 w-4 text-center"
+                    style={{ color: "#3fb06c" }}>{i + 1}</span>
+                  <div className="flex-1 px-3 py-2.5 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap break-words"
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(63,176,108,0.12)", color: "#c8dcd0" }}>
+                    {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
+                  </div>
+                </div>
+              ))}
+              <p className="text-[10px] text-agro-muted">
+                Texto substituído com dados reais da linha 1 dos destinatários.
+              </p>
+            </div>
+          ) : (
+            /* ── Single-body textarea ── */
+            <>
+              <textarea
+                id="zapi-body"
+                className="input-agro w-full resize-none"
+                rows={6}
+                placeholder={"Olá {{1}}, sua fatura de {{2}} vence em {{3}}.\n\nAcesse o link para pagar: {{4}}"}
+                value={state.messageBody}
+                onChange={(e) => handleBodyChange(e.target.value)}
+              />
+              <p className="text-xs text-agro-muted">
+                Use{" "}
+                <span className="font-mono text-amber-400 px-1 rounded" style={{ background: "rgba(245,158,11,0.1)" }}>
+                  {"{{1}}, {{2}}, ..."}
+                </span>{" "}
+                para inserir dados dinâmicos de cada destinatário.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Variable mapping */}
@@ -303,61 +338,79 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
               </div>
 
               {/* Chat area */}
-              <div className="rounded-2xl min-h-[180px] p-3.5 flex flex-col gap-2"
+              <div className="rounded-2xl min-h-[180px] p-3.5 flex flex-col gap-1.5"
                 style={{ background: "#0b141a" }}>
 
-                {/* Message bubble */}
-                <div className="max-w-[90%] self-end">
-                  <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
-                    style={{ background: "#005c4b" }}>
-
-                    {/* Header */}
-                    {selectedTemplate?.header_text && (
-                      <div className="px-4 pt-3 pb-1">
-                        <p className="text-[11px] font-bold text-white">{selectedTemplate.header_text}</p>
+                {isBlocksTemplate ? (
+                  /* ── Multi-block bubbles ── */
+                  activeBlocks.map((block, i) => (
+                    <div key={i} className="max-w-[90%] self-end">
+                      <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
+                        style={{ background: "#005c4b" }}>
+                        <div className="px-4 py-2.5">
+                          <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
+                            {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 px-4 pb-1.5">
+                          <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
+                          <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
+                            <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                            <path d="M15 1l-5 8-2-2" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                          </svg>
+                        </div>
                       </div>
-                    )}
-
-                    {/* Body */}
-                    <div className={cn("px-4 py-3", selectedTemplate?.header_text && "pt-0")}>
-                      <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
-                        {bodyPreview || "Sua mensagem aparecerá aqui..."}
-                      </p>
                     </div>
+                  ))
+                ) : (
+                  /* ── Single-message bubble ── */
+                  <div className="max-w-[90%] self-end">
+                    <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
+                      style={{ background: "#005c4b" }}>
 
-                    {/* Footer */}
-                    {selectedTemplate?.footer && (
-                      <div className="px-4 pb-3">
-                        <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.45)" }}>
-                          {selectedTemplate.footer}
+                      {selectedTemplate?.header_text && (
+                        <div className="px-4 pt-3 pb-1">
+                          <p className="text-[11px] font-bold text-white">{selectedTemplate.header_text}</p>
+                        </div>
+                      )}
+
+                      <div className={cn("px-4 py-3", selectedTemplate?.header_text && "pt-0")}>
+                        <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
+                          {bodyPreview || "Sua mensagem aparecerá aqui..."}
                         </p>
                       </div>
-                    )}
 
-                    {/* Timestamp */}
-                    <div className="flex items-center justify-end gap-1 px-4 pb-2">
-                      <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
-                      <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
-                        <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
-                        <path d="M15 1l-5 8-2-2" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Buttons (outside bubble, below) */}
-                  {selectedTemplate?.message_type === "button_list" && selectedTemplate.buttons.length > 0 && (
-                    <div className="mt-1.5 space-y-1.5">
-                      {selectedTemplate.buttons.map((btn) => (
-                        <div key={btn.id}
-                          className="flex items-center justify-center py-2 rounded-lg text-[10px] font-semibold"
-                          style={{ background: "rgba(0,92,75,0.7)", border: "1px solid rgba(0,92,75,0.9)", color: "#53bdeb" }}
-                        >
-                          {btn.label}
+                      {selectedTemplate?.footer && (
+                        <div className="px-4 pb-3">
+                          <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.45)" }}>
+                            {selectedTemplate.footer}
+                          </p>
                         </div>
-                      ))}
+                      )}
+
+                      <div className="flex items-center justify-end gap-1 px-4 pb-2">
+                        <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
+                        <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
+                          <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                          <path d="M15 1l-5 8-2-2" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                      </div>
                     </div>
-                  )}
-                </div>
+
+                    {selectedTemplate?.message_type === "button_list" && selectedTemplate.buttons.length > 0 && (
+                      <div className="mt-1.5 space-y-1.5">
+                        {selectedTemplate.buttons.map((btn) => (
+                          <div key={btn.id}
+                            className="flex items-center justify-center py-2 rounded-lg text-[10px] font-semibold"
+                            style={{ background: "rgba(0,92,75,0.7)", border: "1px solid rgba(0,92,75,0.9)", color: "#53bdeb" }}
+                          >
+                            {btn.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
