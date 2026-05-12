@@ -235,13 +235,14 @@ async function processZApiMessage(
   tpl?: ZApiTpl | null, seed?: number,
 ): Promise<void> {
   // ── Multi-block path ──────────────────────────────────────────────────────────
-  if (tpl?.blocks && tpl.blocks.length > 0) {
+  const activeBlocks = tpl?.blocks?.filter((b) => b.trim()) ?? [];
+  if (activeBlocks.length > 0) {
     const bodyVars = (mapping.body_variables ?? {}) as Record<string, string>;
     const contact  = (msg.recipient_data ?? {}) as Record<string, unknown>;
     let lastZaapId = "";
 
-    for (let i = 0; i < tpl.blocks.length; i++) {
-      const blockText = substituteVars(tpl.blocks[i], bodyVars, contact);
+    for (let i = 0; i < activeBlocks.length; i++) {
+      const blockText = substituteVars(activeBlocks[i], bodyVars, contact);
       const res = await sendZApiMessage(
         zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, blockText,
       );
@@ -272,8 +273,8 @@ async function processZApiMessage(
       await saveZApiMessageToInbox(workspaceId, zConn.id, msg.recipient_phone, res.zaapId, blockText, now);
       lastZaapId = res.zaapId;
 
-      if (i < tpl.blocks.length - 1) {
-        await sleep(blockDelay(tpl.blocks[i].length));
+      if (i < activeBlocks.length - 1) {
+        await sleep(blockDelay(activeBlocks[i].length));
       }
     }
 
@@ -281,7 +282,7 @@ async function processZApiMessage(
     await db.from("shooting_messages").update({ status: "sent", wamid: lastZaapId, sent_at: now }).eq("id", msg.id);
     await db.rpc("increment_campaign_counters", { p_campaign_id: campaignId, p_counter_name: "sent_count" });
     writeAuditLog(workspaceId, "message_sent", msg.id, "shooting_message", "success", null, {
-      phone: msg.recipient_phone, campaign_id: campaignId, zaap_id: lastZaapId, blocks: tpl.blocks.length,
+      phone: msg.recipient_phone, campaign_id: campaignId, zaap_id: lastZaapId, blocks: activeBlocks.length,
     });
     return;
   }
