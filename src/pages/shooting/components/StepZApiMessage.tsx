@@ -240,16 +240,35 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
           {isBlocksTemplate ? (
             /* ── Blocks read-only view ── */
             <div className="space-y-2">
-              {activeBlocks.map((block, i) => (
-                <div key={i} className="flex gap-2.5 items-start">
-                  <span className="text-[10px] font-mono font-bold mt-2.5 shrink-0 w-4 text-center"
-                    style={{ color: "#3fb06c" }}>{i + 1}</span>
-                  <div className="flex-1 px-3 py-2.5 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap break-words"
-                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(63,176,108,0.12)", color: "#c8dcd0" }}>
-                    {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
+              {activeBlocks.map((block, i) => {
+                const isLastBlock = i === activeBlocks.length - 1;
+                const isMixed = isLastBlock && selectedTemplate?.message_type === "button_list";
+                return (
+                  <div key={i} className="flex gap-2.5 items-start">
+                    <span className="text-[10px] font-mono font-bold mt-2.5 shrink-0 w-4 text-center"
+                      style={{ color: isMixed ? "#f59e0b" : "#3fb06c" }}>{i + 1}</span>
+                    <div className="flex-1 px-3 py-2.5 rounded-xl text-[12px] leading-relaxed whitespace-pre-wrap break-words"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: isMixed ? "1px solid rgba(245,158,11,0.2)" : "1px solid rgba(63,176,108,0.12)",
+                        color: "#c8dcd0",
+                      }}>
+                      {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
+                      {isMixed && selectedTemplate!.buttons.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {selectedTemplate!.buttons.map((btn) => (
+                            <span key={btn.id}
+                              className="text-[10px] px-2 py-1 rounded-full font-medium"
+                              style={{ background: "rgba(245,158,11,0.1)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.2)" }}>
+                              {btn.label || "Botão"}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <p className="text-[10px] text-agro-muted">
                 Texto substituído com dados reais da linha 1 dos destinatários.
               </p>
@@ -343,25 +362,43 @@ export function StepZApiMessage({ state, xlsxResult, templates, onChange }: Step
 
                 {isBlocksTemplate ? (
                   /* ── Multi-block bubbles ── */
-                  activeBlocks.map((block, i) => (
-                    <div key={i} className="max-w-[90%] self-end">
-                      <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
-                        style={{ background: "#005c4b" }}>
-                        <div className="px-4 py-2.5">
-                          <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
-                            {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
-                          </p>
+                  <>
+                    {activeBlocks.map((block, i) => {
+                      const isLastBlock = i === activeBlocks.length - 1;
+                      const isMixed = isLastBlock && selectedTemplate?.message_type === "button_list";
+                      return (
+                        <div key={i} className="max-w-[90%] self-end">
+                          <div className="rounded-2xl rounded-br-sm shadow-sm overflow-hidden"
+                            style={{ background: "#005c4b" }}>
+                            <div className="px-4 py-2.5">
+                              <p className="text-[11px] text-white leading-relaxed whitespace-pre-wrap break-words">
+                                {buildPreview(block, bodyVars, sampleRow as Record<string, unknown>)}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-end gap-1 px-4 pb-1.5">
+                              <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
+                              <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
+                                <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                                <path d="M15 1l-5 8-2-2" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
+                              </svg>
+                            </div>
+                          </div>
+                          {isMixed && selectedTemplate!.buttons.length > 0 && (
+                            <div className="mt-1.5 space-y-1.5">
+                              {selectedTemplate!.buttons.map((btn) => (
+                                <div key={btn.id}
+                                  className="flex items-center justify-center py-2 rounded-lg text-[10px] font-semibold"
+                                  style={{ background: "rgba(0,92,75,0.7)", border: "1px solid rgba(0,92,75,0.9)", color: "#53bdeb" }}
+                                >
+                                  {btn.label}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center justify-end gap-1 px-4 pb-1.5">
-                          <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.5)" }}>Agora</span>
-                          <svg viewBox="0 0 16 11" className="w-3 h-2" fill="none">
-                            <path d="M11 1L6 9 1 5" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
-                            <path d="M15 1l-5 8-2-2" stroke="#53bdeb" strokeWidth="1.5" strokeLinecap="round"/>
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                      );
+                    })}
+                  </>
                 ) : (
                   /* ── Single-message bubble ── */
                   <div className="max-w-[90%] self-end">

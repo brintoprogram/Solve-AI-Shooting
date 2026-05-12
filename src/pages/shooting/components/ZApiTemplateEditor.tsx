@@ -354,36 +354,53 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                     {/* ── Blocks editor ── */}
                     {blocksMode ? (
                       <div className="space-y-3">
-                        {blocks.map((block, i) => (
-                          <div key={i} className="rounded-xl p-3"
-                            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(63,176,108,0.12)" }}>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[11px] font-semibold" style={{ color: "#3fb06c" }}>
-                                Bloco {i + 1}
-                              </span>
-                              {blocks.length > 1 && (
-                                <button type="button"
-                                  onClick={() => setBlocks((prev) => prev.filter((_, idx) => idx !== i))}
-                                  className="w-6 h-6 rounded flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-colors">
-                                  <X className="w-3 h-3" />
-                                </button>
-                              )}
+                        {blocks.map((block, i) => {
+                          const isLastBlock  = i === blocks.length - 1;
+                          const isMixedLast  = isLastBlock && msgType === "button_list";
+                          const borderColor  = isMixedLast
+                            ? "1px solid rgba(245,158,11,0.25)"
+                            : "1px solid rgba(63,176,108,0.12)";
+                          return (
+                            <div key={i} className="rounded-xl p-3"
+                              style={{ background: "rgba(255,255,255,0.03)", border: borderColor }}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-semibold" style={{ color: isMixedLast ? "#f59e0b" : "#3fb06c" }}>
+                                    Bloco {i + 1}
+                                  </span>
+                                  {isMixedLast && (
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                                      style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
+                                      Com botões
+                                    </span>
+                                  )}
+                                </div>
+                                {blocks.length > 1 && (
+                                  <button type="button"
+                                    onClick={() => setBlocks((prev) => prev.filter((_, idx) => idx !== i))}
+                                    className="w-6 h-6 rounded flex items-center justify-center text-agro-muted-2 hover:text-red-400 hover:bg-red-400/10 transition-colors">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                              <textarea
+                                className="input-agro w-full resize-none" rows={2}
+                                placeholder={i === 0 ? "Ex: Oi, tudo bem?" : isMixedLast ? "Texto do bloco com botões…" : `Mensagem do bloco ${i + 1}…`}
+                                value={block}
+                                onChange={(e) => setBlocks((prev) => prev.map((b, idx) => idx === i ? e.target.value : b))}
+                                maxLength={LIMITS.body}
+                              />
+                              <div className="flex items-center justify-between mt-1">
+                                <p className="text-[10px]" style={{ color: isMixedLast ? "rgba(245,158,11,0.6)" : "#4b6a55" }}>
+                                  {isMixedLast
+                                    ? "Enviado com botões de resposta rápida"
+                                    : `Delay após: ~${(Math.max(1_600, Math.min(10_000, block.length * 100)) / 1_000).toFixed(1)}s`}
+                                </p>
+                                <CharCount current={block.length} max={LIMITS.body} />
+                              </div>
                             </div>
-                            <textarea
-                              className="input-agro w-full resize-none" rows={2}
-                              placeholder={i === 0 ? "Ex: Oi, tudo bem?" : `Mensagem do bloco ${i + 1}…`}
-                              value={block}
-                              onChange={(e) => setBlocks((prev) => prev.map((b, idx) => idx === i ? e.target.value : b))}
-                              maxLength={LIMITS.body}
-                            />
-                            <div className="flex items-center justify-between mt-1">
-                              <p className="text-[10px]" style={{ color: "#4b6a55" }}>
-                                Delay após: ~{(Math.max(1_600, Math.min(10_000, block.length * 100)) / 1_000).toFixed(1)}s
-                              </p>
-                              <CharCount current={block.length} max={LIMITS.body} />
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
 
                         {blocks.length < 5 && (
                           <button type="button"
@@ -393,6 +410,44 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                             <Plus className="w-3 h-3" /> Adicionar bloco
                           </button>
                         )}
+
+                        {/* Toggle: último bloco com botões */}
+                        <div className="p-3 rounded-xl"
+                          style={{ background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.15)" }}>
+                          <label className="flex items-center gap-3 cursor-pointer select-none">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={msgType === "button_list"}
+                              onClick={() => {
+                                if (msgType === "text") {
+                                  setMsgType("button_list");
+                                  if (!buttons.some((b) => b.label.trim())) {
+                                    setButtons([{ id: "btn1", label: "" }]);
+                                  }
+                                } else {
+                                  setMsgType("text");
+                                }
+                              }}
+                              className="relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200"
+                              style={{ background: msgType === "button_list" ? "#f59e0b" : "rgba(255,255,255,0.1)" }}
+                            >
+                              <span
+                                className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                                style={{ transform: msgType === "button_list" ? "translateX(16px)" : "translateX(0)" }}
+                              />
+                            </button>
+                            <div>
+                              <p className="text-xs font-semibold"
+                                style={{ color: msgType === "button_list" ? "#f59e0b" : "#7a9e83" }}>
+                                Último bloco com botões
+                              </p>
+                              <p className="text-[10px] text-agro-muted leading-tight mt-0.5">
+                                O último bloco será enviado como mensagem com botões de resposta rápida
+                              </p>
+                            </div>
+                          </label>
+                        </div>
 
                         <p className="text-[10px] text-agro-muted">
                           Use <span className="font-mono text-amber-400">{"{{1}}, {{2}}, ..."}</span> em qualquer bloco — mapeadas no wizard
@@ -560,7 +615,7 @@ export function ZApiTemplateEditor({ workspaceId, connectionId, editTemplate, on
                 header={blocksMode ? "" : headerText}
                 body={blocksMode ? "" : body}
                 footer={blocksMode ? "" : footer}
-                buttons={(!blocksMode && msgType === "button_list") ? buttons : []}
+                buttons={msgType === "button_list" ? buttons : []}
                 blocks={blocksMode ? blocks : []}
               />
             </div>
@@ -707,23 +762,37 @@ function WhatsAppPreview({ header, body, footer, buttons, blocks = [] }: {
           ) : isBlocksMode ? (
             /* ── Multi-block bubbles ── */
             <div className="space-y-1.5">
-              {visibleBlocks.map((block, i) => (
-                <div key={i} className="ml-auto" style={{ maxWidth: "92%" }}>
-                  <div className="rounded-2xl rounded-tr-sm overflow-hidden shadow-md"
-                    style={{ background: "#005c4b" }}>
-                    <div className="px-3 pt-2.5 pb-1">
-                      <p className="text-[12px] leading-relaxed text-white whitespace-pre-wrap break-words">
-                        {renderWithVars(block)}
-                      </p>
+              {visibleBlocks.map((block, i) => {
+                const isLast = i === visibleBlocks.length - 1;
+                return (
+                  <div key={i} className="ml-auto" style={{ maxWidth: "92%" }}>
+                    <div className="rounded-2xl rounded-tr-sm overflow-hidden shadow-md"
+                      style={{ background: "#005c4b" }}>
+                      <div className="px-3 pt-2.5 pb-1">
+                        <p className="text-[12px] leading-relaxed text-white whitespace-pre-wrap break-words">
+                          {renderWithVars(block)}
+                        </p>
+                      </div>
+                      <div className="flex justify-end px-3 pb-1.5 pt-0">
+                        <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.4)" }}>
+                          12:0{i} ✓✓
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex justify-end px-3 pb-1.5 pt-0">
-                      <p className="text-[9px]" style={{ color: "rgba(255,255,255,0.4)" }}>
-                        12:0{i} ✓✓
-                      </p>
-                    </div>
+                    {isLast && visibleBtns.length > 0 && (
+                      <div className="mt-1 space-y-1">
+                        {visibleBtns.map((btn, bi) => (
+                          <div key={bi}
+                            className="rounded-xl flex items-center justify-center py-2 px-3 text-[12px] font-medium"
+                            style={{ background: "#005c4b", color: "#53bdeb" }}>
+                            {btn.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             /* ── Single-message bubble ── */

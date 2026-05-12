@@ -242,10 +242,25 @@ async function processZApiMessage(
     let lastZaapId = "";
 
     for (let i = 0; i < activeBlocks.length; i++) {
-      const blockText = substituteVars(activeBlocks[i], bodyVars, contact);
-      const res = await sendZApiMessage(
-        zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, blockText,
-      );
+      const blockText  = substituteVars(activeBlocks[i], bodyVars, contact);
+      const isLast     = i === activeBlocks.length - 1;
+      const isMixedEnd = isLast && tpl.message_type === "button_list" && (tpl.buttons?.length ?? 0) > 0;
+
+      let res: ZApiSendResult;
+      if (isMixedEnd) {
+        const headerVars = (mapping.header_variables ?? {}) as Record<string, string>;
+        const footerVars = (mapping.footer_variables ?? {}) as Record<string, string>;
+        res = await sendZApiButtonList(
+          zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, blockText,
+          tpl.header_text ? substituteVars(tpl.header_text, headerVars, contact) : null,
+          tpl.footer      ? substituteVars(tpl.footer,      footerVars, contact) : null,
+          tpl.buttons,
+        );
+      } else {
+        res = await sendZApiMessage(
+          zConn.instance_id, zConn.token, zConn.client_token, msg.recipient_phone, blockText,
+        );
+      }
 
       if (!res.zaapId) {
         const retryCount = (msg.retry_count ?? 0) + 1;
