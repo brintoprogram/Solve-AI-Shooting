@@ -433,9 +433,13 @@ async function runTick(): Promise<void> {
       await processCampaign(campaign, tickStart);
     } catch (err) {
       console.error(`[ticker] campaign ${campaign.id}:`, err instanceof Error ? err.message : String(err));
-      // Retry in 1 minute on unexpected error
+      // Retry after the configured minimum delay so a crash doesn't send the next message too soon
+      const minDelayMs = campaign.sending_speed_mode === "random"
+        ? (campaign.min_delay_seconds ?? 60) * 1_000
+        : Math.ceil(60_000 / (campaign.sending_speed ?? 60));
+      const retryMs = Math.max(60_000, minDelayMs);
       await db.from("shooting_campaigns")
-        .update({ next_message_at: new Date(Date.now() + 60_000).toISOString() })
+        .update({ next_message_at: new Date(Date.now() + retryMs).toISOString() })
         .eq("id", campaign.id)
         .catch((e) => console.error("[ticker] retry schedule failed:", e));
     }
