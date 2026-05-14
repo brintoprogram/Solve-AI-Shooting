@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Zap, Clock, Users, ChevronRight, Pause, Play, Trash2, RefreshCw } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
@@ -16,6 +16,35 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; 
 
 function padHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
 
+/** Returns "em Xh Ym" or "em menos de 1 min" until the next HH:00 UTC that matches send_hour. */
+function nextFireCountdown(sendHour: number): string {
+  const now   = new Date();
+  const nowH  = now.getUTCHours();
+  const nowM  = now.getUTCMinutes();
+  const nowS  = now.getUTCSeconds();
+  let hoursUntil = sendHour - nowH;
+  if (hoursUntil < 0) hoursUntil += 24;
+  if (hoursUntil === 0 && (nowM > 0 || nowS > 0)) hoursUntil = 24;
+  const totalMins = hoursUntil * 60 - nowM;
+  if (totalMins < 1) return "menos de 1 min";
+  if (totalMins < 60) return `${totalMins} min`;
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+// ── Live countdown hook ──────────────────────────────────────────────────────
+function useCountdown(sendHour: number, active: boolean) {
+  const [label, setLabel] = useState(() => nextFireCountdown(sendHour));
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setLabel(nextFireCountdown(sendHour)), 30_000);
+    return () => clearInterval(id);
+  }, [sendHour, active]);
+  return label;
+}
+
+// ── Rule card ────────────────────────────────────────────────────────────────
 interface RuleCardProps {
   rule:     AutomationRule;
   acting:   string | null;
@@ -28,6 +57,9 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
   const statusStyle = STATUS_STYLE[rule.status] ?? STATUS_STYLE.draft;
   const canToggle   = rule.status === "active" || rule.status === "paused";
   const isActing    = acting === rule.id;
+  const isActive    = rule.status === "active";
+
+  const countdown = useCountdown(rule.send_hour, isActive);
 
   const progress = rule.total_recipients > 0
     ? Math.round((rule.sent_count / rule.total_recipients) * 100)
@@ -35,16 +67,35 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
 
   return (
     <div
-      className="rounded-2xl p-5 hover:border-agro-green/25 transition-all cursor-pointer group"
-      style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.12)" }}
+      className="rounded-2xl p-5 hover:border-agro-green/30 transition-all cursor-pointer group relative overflow-hidden"
+      style={{
+        background: "rgba(13,26,17,0.85)",
+        border: `1px solid ${isActive ? "rgba(63,176,108,0.18)" : "rgba(63,176,108,0.1)"}`,
+        boxShadow: isActive ? "0 0 32px rgba(63,176,108,0.04) inset" : "none",
+      }}
       onClick={() => onNav(rule.id)}
     >
+      {/* Active glow top edge */}
+      {isActive && (
+        <div className="absolute top-0 left-8 right-8 h-px"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(63,176,108,0.4), transparent)" }} />
+      )}
+
+      {/* Header row */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.15)" }}>
-            <Zap className="w-4 h-4 text-agro-green" />
+          {/* Icon + pulse for active */}
+          <div className="relative shrink-0">
+            {isActive && (
+              <span className="absolute inset-0 rounded-xl animate-ping opacity-20"
+                style={{ background: "#3fb06c" }} />
+            )}
+            <div className="relative w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ background: isActive ? "rgba(63,176,108,0.15)" : "rgba(63,176,108,0.07)", border: `1px solid ${isActive ? "rgba(63,176,108,0.25)" : "rgba(63,176,108,0.12)"}` }}>
+              <Zap className="w-4 h-4 text-agro-green" />
+            </div>
           </div>
+
           <div className="min-w-0">
             <p className="font-semibold text-agro-text text-sm truncate group-hover:text-agro-green transition-colors">
               {rule.name}
@@ -52,6 +103,8 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
                 style={{ background: statusStyle.bg, color: statusStyle.color, border: `1px solid ${statusStyle.border}` }}>
+                {/* Live dot for active */}
+                {isActive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-agro-green mr-1 animate-pulse" />}
                 {statusStyle.label}
               </span>
               <span className="text-[10px] text-agro-muted-2">{rule.channel === "z_api" ? "Z-API" : "Meta"}</span>
@@ -64,23 +117,40 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
         <ChevronRight className="w-4 h-4 text-agro-muted-2 group-hover:text-agro-green transition-colors shrink-0 mt-1" />
       </div>
 
+      {/* Recipient count */}
       <div className="flex items-center gap-3 mb-3">
         <span className="text-[10px] text-agro-muted flex items-center gap-1">
           <Users className="w-3 h-3" /> {rule.total_recipients} destinatários
         </span>
-        <span className="text-[10px] text-agro-muted">
-          {rule.sent_count} enviados
-        </span>
+        <span className="text-[10px] text-agro-muted">{rule.sent_count} enviados</span>
       </div>
 
+      {/* Progress */}
       {rule.total_recipients > 0 && (
         <div className="mb-3">
           <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
-            <div className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }}
-            />
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
           </div>
           <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
+        </div>
+      )}
+
+      {/* ── Next fire countdown (only for active) ── */}
+      {isActive && (
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
+          <span className="w-1.5 h-1.5 rounded-full bg-agro-green animate-pulse shrink-0" />
+          <span className="text-[11px] text-agro-muted">Próximo disparo em</span>
+          <span className="text-[11px] font-bold text-agro-green ml-auto">{countdown}</span>
+        </div>
+      )}
+
+      {/* Paused badge */}
+      {rule.status === "paused" && (
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
+          <span className="text-[11px] text-amber-400/80">Pausada — disparos suspensos</span>
         </div>
       )}
 
@@ -177,6 +247,10 @@ export function Automations() {
     onNav:    (id: string) => navigate(`/automations/${id}`),
   };
 
+  // Aggregate stats across all rules
+  const totalRecipients = rules.reduce((s, r) => s + r.total_recipients, 0);
+  const totalSent       = rules.reduce((s, r) => s + r.sent_count, 0);
+
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
       <Topbar breadcrumbs={[{ label: "Automações" }]} />
@@ -207,15 +281,16 @@ export function Automations() {
         {rules.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Total",     value: rules.length,    color: "#9ca3af" },
-              { label: "Ativas",    value: active.length,   color: "#3fb06c" },
-              { label: "Pausadas",  value: paused.length,   color: "#fbbf24" },
-              { label: "Rascunho",  value: drafts.length,   color: "#6b7280" },
-            ].map(({ label, value, color }) => (
+              { label: "Ativas",        value: active.length,    color: "#3fb06c", sub: "réguas" },
+              { label: "Destinatários", value: totalRecipients,  color: "#7fc49a", sub: "total"  },
+              { label: "Enviados",      value: totalSent,        color: "#7fc49a", sub: "disparos" },
+              { label: "Pausadas",      value: paused.length,    color: "#fbbf24", sub: "réguas" },
+            ].map(({ label, value, color, sub }) => (
               <div key={label} className="p-4 rounded-xl text-center"
                 style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}>
                 <p className="text-2xl font-bold" style={{ color }}>{value}</p>
                 <p className="text-[11px] text-agro-muted-2 mt-0.5">{label}</p>
+                <p className="text-[9px] text-agro-muted mt-0.5">{sub}</p>
               </div>
             ))}
           </div>
