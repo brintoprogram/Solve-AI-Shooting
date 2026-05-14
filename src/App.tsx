@@ -20,6 +20,9 @@ import { Alerts }      from "@/pages/Alerts";
 import { Reports }     from "@/pages/Reports";
 import { Support }     from "@/pages/Support";
 import { Agents }      from "@/pages/Agents";
+import { Automations } from "@/pages/Automations";
+import { AutomationWizard } from "@/pages/automations/AutomationWizard";
+import { AutomationDetail } from "@/pages/automations/AutomationDetail";
 import { SetPassword } from "@/pages/SetPassword";
 import { AcceptInvite } from "@/pages/AcceptInvite";
 import { PrivacyPolicy } from "@/pages/PrivacyPolicy";
@@ -128,7 +131,9 @@ function AppRoutes() {
         <Route path="/settings"               element={<PR permission="can_settings" feature="Configurações"><Settings /></PR>} />
         <Route path="/contacts"               element={<PR permission="can_manage_contacts" feature="Contatos"><Contacts /></PR>} />
         <Route path="/inbox"                  element={<PR permission="can_inbox" feature="Inbox"><Inbox /></PR>} />
-        <Route path="/automations"            element={<PlaceholderPage title="Automações" />} />
+        <Route path="/automations"             element={<Automations />} />
+        <Route path="/automations/new"        element={<AutomationWizard />} />
+        <Route path="/automations/:id"        element={<AutomationDetail />} />
         <Route path="/team"                   element={<PR permission="can_manage_team" feature="Equipe"><Team /></PR>} />
         <Route path="/templates"              element={<Templates />} />
         <Route path="/alerts"                 element={<Alerts />} />
