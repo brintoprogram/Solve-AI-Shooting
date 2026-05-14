@@ -31,8 +31,13 @@ export function useAutomationRules(workspaceId: string) {
   }
 
   async function deleteRule(id: string): Promise<string | null> {
-    const { error } = await supabase.from("automation_rules").delete().eq("id", id);
+    const { data, error } = await (supabase as any)
+      .from("automation_rules")
+      .delete()
+      .eq("id", id)
+      .select("id");
     if (error) return error.message;
+    if (!data?.length) return "Régua não encontrada ou sem permissão para excluir.";
     setRules((prev) => prev.filter((r) => r.id !== id));
     return null;
   }

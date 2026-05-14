@@ -5,7 +5,6 @@ import { Topbar } from "@/components/layout/Topbar";
 import { useAutomationRules } from "@/hooks/useAutomationRules";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 import type { AutomationRule } from "@/types/automations";
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; label: string }> = {
@@ -17,31 +16,153 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; 
 
 function padHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
 
+interface RuleCardProps {
+  rule:     AutomationRule;
+  acting:   string | null;
+  onToggle: (rule: AutomationRule) => void;
+  onDelete: (id: string) => void;
+  onNav:    (id: string) => void;
+}
+
+function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
+  const statusStyle = STATUS_STYLE[rule.status] ?? STATUS_STYLE.draft;
+  const canToggle   = rule.status === "active" || rule.status === "paused";
+  const isActing    = acting === rule.id;
+
+  const progress = rule.total_recipients > 0
+    ? Math.round((rule.sent_count / rule.total_recipients) * 100)
+    : 0;
+
+  return (
+    <div
+      className="rounded-2xl p-5 hover:border-agro-green/25 transition-all cursor-pointer group"
+      style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.12)" }}
+      onClick={() => onNav(rule.id)}
+    >
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.15)" }}>
+            <Zap className="w-4 h-4 text-agro-green" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-agro-text text-sm truncate group-hover:text-agro-green transition-colors">
+              {rule.name}
+            </p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                style={{ background: statusStyle.bg, color: statusStyle.color, border: `1px solid ${statusStyle.border}` }}>
+                {statusStyle.label}
+              </span>
+              <span className="text-[10px] text-agro-muted-2">{rule.channel === "z_api" ? "Z-API" : "Meta"}</span>
+              <span className="text-[10px] text-agro-muted flex items-center gap-0.5">
+                <Clock className="w-2.5 h-2.5" /> {padHour(rule.send_hour)}
+              </span>
+            </div>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-agro-muted-2 group-hover:text-agro-green transition-colors shrink-0 mt-1" />
+      </div>
+
+      <div className="flex items-center gap-3 mb-3">
+        <span className="text-[10px] text-agro-muted flex items-center gap-1">
+          <Users className="w-3 h-3" /> {rule.total_recipients} destinatários
+        </span>
+        <span className="text-[10px] text-agro-muted">
+          {rule.sent_count} enviados
+        </span>
+      </div>
+
+      {rule.total_recipients > 0 && (
+        <div className="mb-3">
+          <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
+            <div className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }}
+            />
+          </div>
+          <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid rgba(63,176,108,0.07)" }}
+        onClick={(e) => e.stopPropagation()}>
+        {canToggle && (
+          <button
+            disabled={isActing}
+            onClick={() => onToggle(rule)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 hover:bg-white/5"
+            style={{ color: rule.status === "active" ? "#fbbf24" : "#3fb06c", border: "1px solid rgba(63,176,108,0.15)" }}>
+            {rule.status === "active" ? <><Pause className="w-3 h-3" /> Pausar</> : <><Play className="w-3 h-3" /> Ativar</>}
+          </button>
+        )}
+        <button
+          disabled={isActing}
+          onClick={() => onDelete(rule.id)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-agro-muted-2 hover:text-red-400 transition-colors disabled:opacity-50"
+          style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+          <Trash2 className="w-3 h-3" /> Excluir
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface SectionProps {
+  title:    string;
+  items:    AutomationRule[];
+  acting:   string | null;
+  onToggle: (rule: AutomationRule) => void;
+  onDelete: (id: string) => void;
+  onNav:    (id: string) => void;
+}
+
+function Section({ title, items, acting, onToggle, onDelete, onNav }: SectionProps) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="text-[11px] font-bold text-agro-muted-2 uppercase tracking-widest mb-3">{title}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((r) => (
+          <RuleCard key={r.id} rule={r} acting={acting} onToggle={onToggle} onDelete={onDelete} onNav={onNav} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Automations() {
-  const navigate       = useNavigate();
-  const { toast }      = useToast();
+  const navigate        = useNavigate();
+  const { toast }       = useToast();
   const { workspaceId } = useAuth();
-  const wsId           = workspaceId ?? "";
+  const wsId            = workspaceId ?? "";
 
   const { rules, loading, refetch, updateStatus, deleteRule } = useAutomationRules(wsId);
-  const [acting, setActing] = useState<string | null>(null);
+  const [acting,  setActing]  = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
 
   async function handleToggle(rule: AutomationRule) {
     const next = rule.status === "active" ? "paused" : "active";
     setActing(rule.id);
-    const err = await updateStatus(rule.id, next);
-    if (err) toast({ title: "Erro ao atualizar status", description: err, variant: "destructive" });
-    else toast({ title: next === "active" ? "Régua ativada!" : "Régua pausada", variant: "success" });
-    setActing(null);
+    try {
+      const err = await updateStatus(rule.id, next);
+      if (err) toast({ title: "Erro ao atualizar status", description: err, variant: "destructive" });
+      else toast({ title: next === "active" ? "Régua ativada!" : "Régua pausada", variant: "success" });
+    } finally {
+      setActing(null);
+    }
   }
 
   async function handleDelete(id: string) {
     setActing(id);
-    const err = await deleteRule(id);
-    if (err) toast({ title: "Erro ao excluir", description: err, variant: "destructive" });
-    setActing(null);
-    setConfirm(null);
+    try {
+      const err = await deleteRule(id);
+      if (err) toast({ title: "Erro ao excluir", description: err, variant: "destructive" });
+      else toast({ title: "Régua excluída", variant: "success" });
+    } finally {
+      setActing(null);
+      setConfirm(null);
+    }
   }
 
   const active    = rules.filter((r) => r.status === "active");
@@ -49,101 +170,12 @@ export function Automations() {
   const paused    = rules.filter((r) => r.status === "paused");
   const completed = rules.filter((r) => r.status === "completed");
 
-  function RuleCard({ rule }: { rule: AutomationRule }) {
-    const statusStyle = STATUS_STYLE[rule.status] ?? STATUS_STYLE.draft;
-    const canToggle   = rule.status === "active" || rule.status === "paused";
-    const isActing    = acting === rule.id;
-
-    const progress = rule.total_recipients > 0
-      ? Math.round((rule.sent_count / rule.total_recipients) * 100)
-      : 0;
-
-    return (
-      <div
-        className="rounded-2xl p-5 hover:border-agro-green/25 transition-all cursor-pointer group"
-        style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.12)" }}
-        onClick={() => navigate(`/automations/${rule.id}`)}
-      >
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.15)" }}>
-              <Zap className="w-4 h-4 text-agro-green" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-semibold text-agro-text text-sm truncate group-hover:text-agro-green transition-colors">
-                {rule.name}
-              </p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                  style={{ background: statusStyle.bg, color: statusStyle.color, border: `1px solid ${statusStyle.border}` }}>
-                  {statusStyle.label}
-                </span>
-                <span className="text-[10px] text-agro-muted-2">{rule.channel === "z_api" ? "Z-API" : "Meta"}</span>
-                <span className="text-[10px] text-agro-muted flex items-center gap-0.5">
-                  <Clock className="w-2.5 h-2.5" /> {padHour(rule.send_hour)}
-                </span>
-              </div>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-agro-muted-2 group-hover:text-agro-green transition-colors shrink-0 mt-1" />
-        </div>
-
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-[10px] text-agro-muted flex items-center gap-1">
-            <Users className="w-3 h-3" /> {rule.total_recipients} destinatários
-          </span>
-          <span className="text-[10px] text-agro-muted">
-            {rule.sent_count} enviados
-          </span>
-        </div>
-
-        {rule.total_recipients > 0 && (
-          <div className="mb-3">
-            <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
-              <div className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }}
-              />
-            </div>
-            <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid rgba(63,176,108,0.07)" }}
-          onClick={(e) => e.stopPropagation()}>
-          {canToggle && (
-            <button
-              disabled={isActing}
-              onClick={() => handleToggle(rule)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 hover:bg-white/5"
-              style={{ color: rule.status === "active" ? "#fbbf24" : "#3fb06c", border: "1px solid rgba(63,176,108,0.15)" }}>
-              {rule.status === "active" ? <><Pause className="w-3 h-3" /> Pausar</> : <><Play className="w-3 h-3" /> Ativar</>}
-            </button>
-          )}
-          <button
-            disabled={isActing}
-            onClick={() => setConfirm(rule.id)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-agro-muted-2 hover:text-red-400 transition-colors disabled:opacity-50"
-            style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
-            <Trash2 className="w-3 h-3" /> Excluir
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  function Section({ title, items }: { title: string; items: AutomationRule[] }) {
-    if (items.length === 0) return null;
-    return (
-      <div>
-        <p className="text-[11px] font-bold text-agro-muted-2 uppercase tracking-widest mb-3">{title}</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((r) => <RuleCard key={r.id} rule={r} />)}
-        </div>
-      </div>
-    );
-  }
+  const sharedProps = {
+    acting,
+    onToggle: handleToggle,
+    onDelete: (id: string) => setConfirm(id),
+    onNav:    (id: string) => navigate(`/automations/${id}`),
+  };
 
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
@@ -219,10 +251,10 @@ export function Automations() {
         {/* Rule sections */}
         {!loading && (
           <div className="space-y-8">
-            <Section title="Ativas" items={active} />
-            <Section title="Pausadas" items={paused} />
-            <Section title="Rascunhos" items={drafts} />
-            <Section title="Concluídas" items={completed} />
+            <Section title="Ativas"     items={active}    {...sharedProps} />
+            <Section title="Pausadas"   items={paused}    {...sharedProps} />
+            <Section title="Rascunhos"  items={drafts}    {...sharedProps} />
+            <Section title="Concluídas" items={completed} {...sharedProps} />
           </div>
         )}
       </div>

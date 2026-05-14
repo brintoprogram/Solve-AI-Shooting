@@ -80,12 +80,17 @@ export function AutomationDetail() {
   }
 
   async function removeRecipient(recipientId: string) {
-    const { error } = await db
+    const { data, error } = await db
       .from("automation_recipients")
       .update({ removed: true })
-      .eq("id", recipientId);
-    if (!error) setRecipients((prev) => prev.filter((r) => r.id !== recipientId));
-    else toast({ title: "Erro ao remover destinatário", variant: "destructive" });
+      .eq("id", recipientId)
+      .select("id");
+    if (error || !data?.length) {
+      toast({ title: "Erro ao remover destinatário", description: error?.message ?? "Nenhuma linha afetada.", variant: "destructive" });
+    } else {
+      setRecipients((prev) => prev.filter((r) => r.id !== recipientId));
+      toast({ title: "Destinatário removido", variant: "success" });
+    }
   }
 
   const filteredLogs = logFilter ? logs.filter((l) => l.status === logFilter) : logs;

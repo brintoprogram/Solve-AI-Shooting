@@ -112,6 +112,8 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
       <div
         className="px-5 py-3 shrink-0"
         style={{
+          position: "relative",
+          zIndex: 20,
           borderBottom: "1px solid rgba(63,176,108,0.1)",
           background: "rgba(10,17,14,0.9)",
           backdropFilter: "blur(8px)",
@@ -488,7 +490,7 @@ function AgentQuickPicker({ agents, currentId, saving, onChange }: AgentQuickPic
       {open && (
         <div
           className="absolute right-0 top-10 z-50 w-52 rounded-2xl py-1 shadow-2xl"
-          style={{ background: "rgba(10,18,13,0.97)", border: "1px solid rgba(63,176,108,0.18)", backdropFilter: "blur(12px)" }}
+          style={{ background: "#0c1810", border: "1px solid rgba(63,176,108,0.25)", boxShadow: "0 12px 40px rgba(0,0,0,0.85)" }}
         >
           <p className="text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest px-3 pt-2 pb-1">Agente de IA</p>
 
@@ -605,9 +607,9 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
         <div
           className="absolute right-0 top-full mt-1 z-50 rounded-xl overflow-hidden"
           style={{
-            background: "#0d1a11",
-            border:     "1px solid rgba(63,176,108,0.2)",
-            boxShadow:  "0 8px 32px rgba(0,0,0,0.6)",
+            background: "#0c1810",
+            border:     "1px solid rgba(63,176,108,0.25)",
+            boxShadow:  "0 12px 40px rgba(0,0,0,0.85)",
             minWidth:   220,
           }}
         >
@@ -930,9 +932,9 @@ function TransferDropdown({ conversation, teamMembers, myId, onTransfer, saving 
         <div
           className="absolute top-full left-0 mt-1 z-50 rounded-xl overflow-hidden"
           style={{
-            background: "rgba(13,26,17,0.98)",
-            border: "1px solid rgba(63,176,108,0.2)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            background: "#0c1810",
+            border: "1px solid rgba(63,176,108,0.25)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.85)",
             minWidth: 180,
           }}
         >
@@ -1029,9 +1031,9 @@ function DeptTransferDropdown({ conversation, departments, onTransfer, saving }:
         <div
           className="absolute top-full left-0 mt-1 z-50 rounded-xl overflow-hidden"
           style={{
-            background: "rgba(13,26,17,0.98)",
-            border: "1px solid rgba(63,176,108,0.2)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            background: "#0c1810",
+            border: "1px solid rgba(63,176,108,0.25)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.85)",
             minWidth: 180,
           }}
         >
