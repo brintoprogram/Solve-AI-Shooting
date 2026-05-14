@@ -222,14 +222,7 @@ const PENDING = ["pendente", "vencido", "aberto", "em_aberto"];
 // ── Process one trigger + recipient pair ──────────────────────────────────
 
 async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): Promise<void> {
-  // 1. Check invoice still pending
-  const { data: invoice } = await db
-    .from("contact_invoices")
-    .select("status")
-    .eq("id", recipient.id)  // we stored invoice_id but recipient.id is the automation_recipients row
-    .maybeSingle();
-  // If we can't find the invoice row, still proceed (recipient.id is automation_recipients.id, not invoice_id)
-  // We check via invoice_id stored on automation_recipients
+  // 1. Check invoice still pending (via invoice_id on the automation_recipients row)
   const { data: recipRow } = await db
     .from("automation_recipients")
     .select("invoice_id")
