@@ -30,7 +30,8 @@ export interface WizardState {
   minDelaySeconds: number;
   maxDelaySeconds: number;
   // Step 2
-  selectedContacts: string[];
+  selectedContacts:  string[];
+  selectedInvoices:  Record<string, string>;  // contactId → invoiceId (pinned); empty = use most urgent
   uploadId: string | null;
   // Step 3 — Meta
   templateId: string;
@@ -55,7 +56,8 @@ export const initialWizardState: WizardState = {
   sendingSpeedMode: "fixed",
   minDelaySeconds: 5,
   maxDelaySeconds: 30,
-  selectedContacts: [],
+  selectedContacts:  [],
+  selectedInvoices:  {},
   uploadId: null,
   templateId: "",
   columnMapping: { phone_column: "" },

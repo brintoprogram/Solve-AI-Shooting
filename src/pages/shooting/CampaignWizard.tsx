@@ -113,16 +113,21 @@ export function CampaignWizard() {
           .select("*, contact_invoices(*)")
           .in("id", state.selectedContacts);
 
-        const messages = (contactRows ?? []).map((c: Record<string, unknown>) => ({
-          campaign_id:     campaign.id,
-          workspace_id:    WORKSPACE_ID,
-          recipient_phone: String(c.phone ?? ""),
-          recipient_name:  String(c.name ?? ""),
-          recipient_data:  aggregateInvoices(c as Parameters<typeof aggregateInvoices>[0]),
-          status:          "pending" as const,
-          retry_count:     0,
-          max_retries:     3,
-        }));
+        const messages = (contactRows ?? []).map((c: Record<string, unknown>) => {
+          const contactId  = c.id as string;
+          const pinnedId   = state.selectedInvoices[contactId];
+          const selectedIds = pinnedId ? new Set([pinnedId]) : undefined;
+          return {
+            campaign_id:     campaign.id,
+            workspace_id:    WORKSPACE_ID,
+            recipient_phone: String(c.phone ?? ""),
+            recipient_name:  String(c.name ?? ""),
+            recipient_data:  aggregateInvoices(c as Parameters<typeof aggregateInvoices>[0], undefined, selectedIds),
+            status:          "pending" as const,
+            retry_count:     0,
+            max_retries:     3,
+          };
+        });
 
         for (let i = 0; i < messages.length; i += 500) {
           await supabase.from("shooting_messages").insert(messages.slice(i, i + 500));

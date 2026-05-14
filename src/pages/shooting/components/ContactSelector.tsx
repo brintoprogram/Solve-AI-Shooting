@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Search, Users, Loader2 } from "lucide-react";
+import { Search, Users, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -12,6 +12,7 @@ interface Invoice {
   valor:      number;
   vencimento: string | null;
   status:     string;
+  numero_nf?: string | null;
 }
 
 interface Contact {
@@ -23,13 +24,14 @@ interface Contact {
 }
 
 interface ContactSelectorProps {
-  selected: string[];
-  onChange: (ids: string[]) => void;
+  selected:         string[];
+  selectedInvoices: Record<string, string>;  // contactId → pinnedInvoiceId
+  onChange:         (ids: string[]) => void;
+  onInvoiceChange:  (inv: Record<string, string>) => void;
 }
 
 const PAGE_SIZE = 25;
 
-// Returns pending invoices sorted by vencimento asc
 function pendingInvoices(contact: Contact): Invoice[] {
   return (contact.contact_invoices ?? [])
     .filter((inv) => PENDING_STATUSES.includes((inv.status ?? "").toLowerCase()))
@@ -49,13 +51,14 @@ function formatDate(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
+export function ContactSelector({ selected, selectedInvoices, onChange, onInvoiceChange }: ContactSelectorProps) {
   const { workspaceId } = useAuth();
   const [search,   setSearch]   = useState("");
   const [page,     setPage]     = useState(0);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total,    setTotal]    = useState(0);
   const [loading,  setLoading]  = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -67,7 +70,7 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
     let q = (supabase as any)
       .from("inbox_contacts")
       .select(
-        "id, name, phone, tags, contact_invoices(id, valor, vencimento, status)",
+        "id, name, phone, tags, contact_invoices(id, valor, vencimento, status, numero_nf)",
         { count: "exact" },
       )
       .eq("workspace_id", workspaceId)
@@ -88,12 +91,26 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(0); }, [search]);
 
-  function toggle(id: string) {
+  function toggleContact(id: string) {
     if (selected.includes(id)) {
       onChange(selected.filter((s) => s !== id));
+      // clear pinned invoice when deselecting
+      const next = { ...selectedInvoices };
+      delete next[id];
+      onInvoiceChange(next);
     } else {
       onChange([...selected, id]);
     }
+  }
+
+  function pinInvoice(contactId: string, invoiceId: string | null) {
+    const next = { ...selectedInvoices };
+    if (invoiceId === null) {
+      delete next[contactId];
+    } else {
+      next[contactId] = invoiceId;
+    }
+    onInvoiceChange(next);
   }
 
   const totalPages      = Math.ceil(total / PAGE_SIZE);
@@ -120,7 +137,7 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
           Todos
         </button>
         <button
-          onClick={() => onChange([])}
+          onClick={() => { onChange([]); onInvoiceChange({}); }}
           className="px-4 py-2 rounded-xl text-xs font-semibold text-agro-muted hover:text-agro-text transition-colors"
         >
           Limpar
@@ -140,9 +157,7 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl overflow-hidden"
-        style={{ border: "1px solid rgba(63,176,108,0.12)" }}
-      >
+      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
@@ -150,7 +165,11 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
                 <div
                   onClick={() => {
                     if (allPageSelected) {
-                      onChange(selected.filter((s) => !contacts.find((c) => c.id === s)));
+                      const removed = contacts.map((c) => c.id);
+                      onChange(selected.filter((s) => !removed.includes(s)));
+                      const next = { ...selectedInvoices };
+                      removed.forEach((id) => delete next[id]);
+                      onInvoiceChange(next);
                     } else {
                       onChange([...new Set([...selected, ...contacts.map((c) => c.id)])]);
                     }
@@ -166,80 +185,90 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
               </th>
               <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
               <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Telefone</th>
-              <th className="px-4 py-3 text-right text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Valor pendente</th>
-              <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Próx. vencimento</th>
+              <th className="px-4 py-3 text-right text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Valor</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Vencimento</th>
+              <th className="w-8" />
             </tr>
           </thead>
           <tbody>
             {loading && contacts.length === 0 ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
-                  <td className="px-4 py-3"><div className="w-4 h-4 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.1)" }} /></td>
-                  <td className="px-4 py-3"><div className="h-3.5 w-32 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.08)" }} /></td>
-                  <td className="px-4 py-3"><div className="h-3.5 w-28 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.08)" }} /></td>
-                  <td className="px-4 py-3"><div className="h-3.5 w-20 rounded animate-pulse ml-auto" style={{ background: "rgba(63,176,108,0.08)" }} /></td>
-                  <td className="px-4 py-3"><div className="h-3.5 w-20 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.08)" }} /></td>
+                  {Array.from({ length: 6 }).map((__, j) => (
+                    <td key={j} className="px-4 py-3">
+                      <div className="h-3.5 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.08)", width: j === 0 ? 16 : j === 5 ? 12 : "80%" }} />
+                    </td>
+                  ))}
                 </tr>
               ))
             ) : contacts.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-agro-muted">
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-agro-muted">
                   Nenhum contato encontrado
                 </td>
               </tr>
             ) : (
-              contacts.map((contact, i) => {
-                const isSelected = selected.includes(contact.id);
-                const pending    = pendingInvoices(contact);
-                const total      = pending.reduce((s, inv) => s + (Number(inv.valor) || 0), 0);
-                const mostUrgent = pending[0] ?? null;
-                const isOverdue  = mostUrgent?.vencimento ? mostUrgent.vencimento < TODAY : false;
+              contacts.flatMap((contact, i) => {
+                const isSelected  = selected.includes(contact.id);
+                const isExpanded  = expanded === contact.id;
+                const pending     = pendingInvoices(contact);
+                const hasPending  = pending.length > 0;
+                const pinnedId    = selectedInvoices[contact.id] ?? null;
+                const pinnedInv   = pinnedId ? pending.find((inv) => inv.id === pinnedId) ?? null : null;
 
-                return (
+                // What to display in the collapsed row
+                const displayInv    = pinnedInv ?? pending[0] ?? null;
+                const displayValor  = pinnedInv
+                  ? Number(pinnedInv.valor)
+                  : pending.reduce((s, inv) => s + (Number(inv.valor) || 0), 0);
+                const isOverdue     = displayInv?.vencimento ? displayInv.vencimento < TODAY : false;
+
+                const rows = [
+                  // ── Contact row ──────────────────────────────────
                   <tr
                     key={contact.id}
-                    className="cursor-pointer transition-all duration-200"
+                    className="cursor-pointer transition-all duration-150"
                     style={{
-                      borderBottom: i < contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
+                      borderBottom: isExpanded ? "none" : i < contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
                       background: isSelected ? "rgba(63,176,108,0.06)" : "transparent",
                     }}
-                    onClick={() => toggle(contact.id)}
+                    onClick={() => toggleContact(contact.id)}
                   >
-                    <td className="px-4 py-3">
+                    {/* Checkbox */}
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div
-                        className={cn(
-                          "w-4 h-4 rounded flex items-center justify-center transition-all",
-                          isSelected ? "glow-green-sm" : "border border-agro-muted/40",
-                        )}
+                        className={cn("w-4 h-4 rounded flex items-center justify-center transition-all cursor-pointer",
+                          isSelected ? "glow-green-sm" : "border border-agro-muted/40")}
                         style={isSelected ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)" } : { background: "transparent" }}
-                        onClick={(e) => { e.stopPropagation(); toggle(contact.id); }}
+                        onClick={() => toggleContact(contact.id)}
                       >
                         {isSelected && <span className="text-white text-[10px] leading-none">✓</span>}
                       </div>
                     </td>
 
-                    <td className={cn(
-                      "px-4 py-3 font-medium text-sm transition-colors",
-                      isSelected ? "text-agro-text" : "text-agro-text-2",
-                    )}>
+                    {/* Name */}
+                    <td className={cn("px-4 py-3 font-medium text-sm", isSelected ? "text-agro-text" : "text-agro-text-2")}>
                       {contact.name}
+                      {pinnedId && (
+                        <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                          style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
+                          boleto fixado
+                        </span>
+                      )}
                     </td>
 
-                    <td className="px-4 py-3 text-agro-muted font-mono text-xs">
-                      {contact.phone}
-                    </td>
+                    {/* Phone */}
+                    <td className="px-4 py-3 text-agro-muted font-mono text-xs">{contact.phone}</td>
 
-                    {/* Valor pendente */}
+                    {/* Valor */}
                     <td className="px-4 py-3 text-right">
-                      {pending.length > 0 ? (
-                        <div>
+                      {hasPending ? (
+                        <div className="flex items-center justify-end gap-1">
                           <span className="text-xs font-semibold" style={{ color: isOverdue ? "#f87171" : "#3fb06c" }}>
-                            {formatBRL(total)}
+                            {formatBRL(displayValor)}
                           </span>
-                          {pending.length > 1 && (
-                            <span className="ml-1 text-[10px] text-agro-muted-2">
-                              ({pending.length} bol.)
-                            </span>
+                          {!pinnedId && pending.length > 1 && (
+                            <span className="text-[10px] text-agro-muted-2">({pending.length})</span>
                           )}
                         </div>
                       ) : (
@@ -247,9 +276,9 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
                       )}
                     </td>
 
-                    {/* Próx. vencimento */}
+                    {/* Vencimento */}
                     <td className="px-4 py-3">
-                      {mostUrgent?.vencimento ? (
+                      {displayInv?.vencimento ? (
                         <span
                           className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
                           style={isOverdue
@@ -257,14 +286,112 @@ export function ContactSelector({ selected, onChange }: ContactSelectorProps) {
                             : { background: "rgba(63,176,108,0.08)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.2)" }
                           }
                         >
-                          {isOverdue ? "vencido · " : ""}{formatDate(mostUrgent.vencimento)}
+                          {isOverdue ? "vencido · " : ""}{formatDate(displayInv.vencimento)}
                         </span>
                       ) : (
                         <span className="text-xs text-agro-muted-2">—</span>
                       )}
                     </td>
-                  </tr>
-                );
+
+                    {/* Expand toggle */}
+                    <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                      {hasPending && (
+                        <button
+                          onClick={() => setExpanded((prev) => prev === contact.id ? null : contact.id)}
+                          className="w-6 h-6 flex items-center justify-center rounded text-agro-muted-2 hover:text-agro-text transition-colors"
+                          title={isExpanded ? "Fechar boletos" : "Ver boletos"}
+                        >
+                          {isExpanded
+                            ? <ChevronDown className="w-3.5 h-3.5" />
+                            : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </td>
+                  </tr>,
+                ];
+
+                // ── Invoice sub-rows (expanded) ──────────────────
+                if (isExpanded && hasPending) {
+                  rows.push(
+                    <tr
+                      key={`${contact.id}-invoices`}
+                      style={{ borderBottom: i < contacts.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                    >
+                      <td colSpan={6} className="px-0 pb-2 pt-0">
+                        <div className="mx-4 rounded-xl overflow-hidden"
+                          style={{ background: "rgba(8,14,10,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}>
+
+                          {/* "Automático" option */}
+                          <button
+                            onClick={() => pinInvoice(contact.id, null)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
+                            style={{ borderBottom: "1px solid rgba(63,176,108,0.07)" }}
+                          >
+                            <span
+                              className="w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center border transition-colors"
+                              style={!pinnedId
+                                ? { background: "#3fb06c", borderColor: "#3fb06c" }
+                                : { background: "transparent", borderColor: "rgba(255,255,255,0.2)" }}
+                            >
+                              {!pinnedId && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
+                            </span>
+                            <div>
+                              <p className="text-xs font-semibold text-agro-text">Automático</p>
+                              <p className="text-[10px] text-agro-muted-2">
+                                Usa o boleto mais urgente · total {formatBRL(pending.reduce((s, inv) => s + (Number(inv.valor) || 0), 0))}
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Individual invoices */}
+                          {pending.map((inv, j) => {
+                            const isPinned   = pinnedId === inv.id;
+                            const invOverdue = inv.vencimento ? inv.vencimento < TODAY : false;
+                            return (
+                              <button
+                                key={inv.id}
+                                onClick={() => pinInvoice(contact.id, inv.id)}
+                                className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
+                                style={{ borderBottom: j < pending.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                              >
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center border transition-colors"
+                                  style={isPinned
+                                    ? { background: "#f59e0b", borderColor: "#f59e0b" }
+                                    : { background: "transparent", borderColor: "rgba(255,255,255,0.2)" }}
+                                >
+                                  {isPinned && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-semibold text-agro-text">
+                                      {formatBRL(Number(inv.valor) || 0)}
+                                    </span>
+                                    {inv.vencimento && (
+                                      <span
+                                        className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                                        style={invOverdue
+                                          ? { background: "rgba(239,68,68,0.1)", color: "#f87171" }
+                                          : { background: "rgba(63,176,108,0.08)", color: "#3fb06c" }}
+                                      >
+                                        {invOverdue ? "vencido · " : ""}{formatDate(inv.vencimento)}
+                                      </span>
+                                    )}
+                                    {inv.numero_nf && (
+                                      <span className="text-[10px] text-agro-muted-2 font-mono">NF {inv.numero_nf}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return rows;
               })
             )}
           </tbody>

@@ -21,7 +21,9 @@ export function StepRecipients({
     return (
       <ContactSelector
         selected={state.selectedContacts}
+        selectedInvoices={state.selectedInvoices}
         onChange={(ids) => onChange({ selectedContacts: ids, totalRecipients: ids.length })}
+        onInvoiceChange={(inv) => onChange({ selectedInvoices: inv })}
       />
     );
   }
