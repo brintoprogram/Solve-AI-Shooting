@@ -1,11 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Zap, Clock, Users, ChevronRight, Pause, Play, Trash2, RefreshCw } from "lucide-react";
+import {
+  Plus, Zap, Clock, Users, ChevronRight, Pause, Play, Trash2, RefreshCw,
+  ChevronDown, ChevronUp, CalendarDays, X, Loader2,
+} from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAutomationRules } from "@/hooks/useAutomationRules";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import type { AutomationRule } from "@/types/automations";
+import { supabase } from "@/lib/supabase";
+import type { AutomationRule, AutomationTrigger, AutomationRecipient } from "@/types/automations";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; label: string }> = {
   draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)",  label: "Rascunho"  },
@@ -15,6 +21,34 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; 
 };
 
 function padHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
+
+function addDays(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatFireDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const months = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+  return `${String(d).padStart(2, "0")} de ${months[m - 1]}. ${y}`;
+}
+
+function formatBRL(v: number | null): string {
+  if (!v) return "—";
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function resolveTriggerLabel(t: AutomationTrigger): string {
+  if (t.label) return t.label;
+  if (t.day_offset < 0) return `${Math.abs(t.day_offset)}d antes`;
+  if (t.day_offset === 0) return "No dia";
+  return `+${t.day_offset}d depois`;
+}
 
 /** Returns "em Xh Ym" or "em menos de 1 min" until the next HH:00 UTC that matches send_hour. */
 function nextFireCountdown(sendHour: number): string {
@@ -44,6 +78,76 @@ function useCountdown(sendHour: number, active: boolean) {
   return label;
 }
 
+// ── Schedule types ───────────────────────────────────────────────────────────
+interface UpcomingEntry {
+  trigger:      AutomationTrigger;
+  recipient:    AutomationRecipient;
+  fireDate:     string;
+  triggerLabel: string;
+}
+
+interface FireGroup {
+  date:    string;
+  entries: UpcomingEntry[];
+}
+
+interface ScheduleData {
+  groups:     FireGroup[];
+  totalCount: number;
+}
+
+// ── Schedule loader ──────────────────────────────────────────────────────────
+async function loadRuleSchedule(ruleId: string): Promise<ScheduleData> {
+  const today = todayISO();
+
+  const [{ data: triggers }, { data: recipients }, { data: logs }] = await Promise.all([
+    supabase
+      .from("automation_triggers")
+      .select("*")
+      .eq("rule_id", ruleId)
+      .eq("enabled", true),
+    supabase
+      .from("automation_recipients")
+      .select("*")
+      .eq("rule_id", ruleId)
+      .eq("removed", false),
+    supabase
+      .from("automation_logs")
+      .select("trigger_id, recipient_id")
+      .eq("rule_id", ruleId)
+      .eq("status", "sent"),
+  ]);
+
+  const sentSet = new Set<string>(
+    (logs ?? []).map((l: { trigger_id: string | null; recipient_id: string | null }) =>
+      `${l.trigger_id}:${l.recipient_id}`
+    )
+  );
+
+  const entries: UpcomingEntry[] = [];
+
+  for (const t of (triggers ?? []) as AutomationTrigger[]) {
+    for (const r of (recipients ?? []) as AutomationRecipient[]) {
+      const fireDate = addDays(r.vencimento, t.day_offset);
+      if (fireDate < today) continue;
+      if (sentSet.has(`${t.id}:${r.id}`)) continue;
+      entries.push({ trigger: t, recipient: r, fireDate, triggerLabel: resolveTriggerLabel(t) });
+    }
+  }
+
+  entries.sort((a, b) => a.fireDate.localeCompare(b.fireDate) || a.recipient.contact_name.localeCompare(b.recipient.contact_name));
+
+  const grouped = new Map<string, UpcomingEntry[]>();
+  for (const e of entries) {
+    const arr = grouped.get(e.fireDate) ?? [];
+    arr.push(e);
+    grouped.set(e.fireDate, arr);
+  }
+
+  const groups: FireGroup[] = Array.from(grouped.entries()).map(([date, ents]) => ({ date, entries: ents }));
+  return { groups, totalCount: entries.length };
+}
+
 // ── Rule card ────────────────────────────────────────────────────────────────
 interface RuleCardProps {
   rule:     AutomationRule;
@@ -65,9 +169,49 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
     ? Math.round((rule.sent_count / rule.total_recipients) * 100)
     : 0;
 
+  // ── Schedule panel state ─────────────────────────────────────────────────
+  const [expanded,    setExpanded]    = useState(false);
+  const [schedule,    setSchedule]    = useState<ScheduleData | null>(null);
+  const [schedLoading, setSchedLoading] = useState(false);
+  const [removingId,  setRemovingId]  = useState<string | null>(null);
+
+  async function handleToggleSchedule(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!expanded) {
+      setExpanded(true);
+      if (!schedule) {
+        setSchedLoading(true);
+        const data = await loadRuleSchedule(rule.id);
+        setSchedule(data);
+        setSchedLoading(false);
+      }
+    } else {
+      setExpanded(false);
+    }
+  }
+
+  async function handleRemove(e: React.MouseEvent, recipientId: string) {
+    e.stopPropagation();
+    setRemovingId(recipientId);
+    await supabase
+      .from("automation_recipients")
+      .update({ removed: true })
+      .eq("id", recipientId);
+    setSchedule((prev) => {
+      if (!prev) return prev;
+      const groups = prev.groups
+        .map((g) => ({ ...g, entries: g.entries.filter((en) => en.recipient.id !== recipientId) }))
+        .filter((g) => g.entries.length > 0);
+      return { groups, totalCount: prev.totalCount - 1 };
+    });
+    setRemovingId(null);
+  }
+
+  const pendingCount = schedule?.totalCount ?? null;
+
   return (
     <div
-      className="rounded-2xl p-5 hover:border-agro-green/30 transition-all cursor-pointer group relative overflow-hidden"
+      className="rounded-2xl hover:border-agro-green/30 transition-all cursor-pointer group relative overflow-hidden"
       style={{
         background: "rgba(13,26,17,0.85)",
         border: `1px solid ${isActive ? "rgba(63,176,108,0.18)" : "rgba(63,176,108,0.1)"}`,
@@ -81,82 +225,203 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
           style={{ background: "linear-gradient(90deg, transparent, rgba(63,176,108,0.4), transparent)" }} />
       )}
 
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Icon + pulse for active */}
-          <div className="relative shrink-0">
-            {isActive && (
-              <span className="absolute inset-0 rounded-xl animate-ping opacity-20"
-                style={{ background: "#3fb06c" }} />
-            )}
-            <div className="relative w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: isActive ? "rgba(63,176,108,0.15)" : "rgba(63,176,108,0.07)", border: `1px solid ${isActive ? "rgba(63,176,108,0.25)" : "rgba(63,176,108,0.12)"}` }}>
-              <Zap className="w-4 h-4 text-agro-green" />
+      <div className="p-5">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Icon + pulse for active */}
+            <div className="relative shrink-0">
+              {isActive && (
+                <span className="absolute inset-0 rounded-xl animate-ping opacity-20"
+                  style={{ background: "#3fb06c" }} />
+              )}
+              <div className="relative w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: isActive ? "rgba(63,176,108,0.15)" : "rgba(63,176,108,0.07)", border: `1px solid ${isActive ? "rgba(63,176,108,0.25)" : "rgba(63,176,108,0.12)"}` }}>
+                <Zap className="w-4 h-4 text-agro-green" />
+              </div>
             </div>
-          </div>
 
-          <div className="min-w-0">
-            <p className="font-semibold text-agro-text text-sm truncate group-hover:text-agro-green transition-colors">
-              {rule.name}
-            </p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                style={{ background: statusStyle.bg, color: statusStyle.color, border: `1px solid ${statusStyle.border}` }}>
-                {/* Live dot for active */}
-                {isActive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-agro-green mr-1 animate-pulse" />}
-                {statusStyle.label}
-              </span>
-              <span className="text-[10px] text-agro-muted-2">{rule.channel === "z_api" ? "Z-API" : "Meta"}</span>
-              <span className="text-[10px] text-agro-muted flex items-center gap-0.5">
-                <Clock className="w-2.5 h-2.5" /> {padHour(rule.send_hour)}
-              </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-agro-text text-sm truncate group-hover:text-agro-green transition-colors">
+                {rule.name}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: statusStyle.bg, color: statusStyle.color, border: `1px solid ${statusStyle.border}` }}>
+                  {isActive && <span className="inline-block w-1.5 h-1.5 rounded-full bg-agro-green mr-1 animate-pulse" />}
+                  {statusStyle.label}
+                </span>
+                <span className="text-[10px] text-agro-muted-2">{rule.channel === "z_api" ? "Z-API" : "Meta"}</span>
+                <span className="text-[10px] text-agro-muted flex items-center gap-0.5">
+                  <Clock className="w-2.5 h-2.5" /> {padHour(rule.send_hour)}
+                </span>
+              </div>
             </div>
           </div>
+          <ChevronRight className="w-4 h-4 text-agro-muted-2 group-hover:text-agro-green transition-colors shrink-0 mt-1" />
         </div>
-        <ChevronRight className="w-4 h-4 text-agro-muted-2 group-hover:text-agro-green transition-colors shrink-0 mt-1" />
+
+        {/* Recipient count */}
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-[10px] text-agro-muted flex items-center gap-1">
+            <Users className="w-3 h-3" /> {rule.total_recipients} destinatários
+          </span>
+          <span className="text-[10px] text-agro-muted">{rule.sent_count} enviados</span>
+        </div>
+
+        {/* Progress */}
+        {rule.total_recipients > 0 && (
+          <div className="mb-3">
+            <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
+            </div>
+            <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
+          </div>
+        )}
+
+        {/* Next fire countdown (only for active) */}
+        {isActive && (
+          <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-agro-green animate-pulse shrink-0" />
+            <span className="text-[11px] text-agro-muted">Próximo disparo em</span>
+            <span className="text-[11px] font-bold text-agro-green ml-auto">{countdown}</span>
+          </div>
+        )}
+
+        {/* Paused badge */}
+        {rule.status === "paused" && (
+          <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
+            style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
+            <span className="text-[11px] text-amber-400/80">Pausada — disparos suspensos</span>
+          </div>
+        )}
       </div>
 
-      {/* Recipient count */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-[10px] text-agro-muted flex items-center gap-1">
-          <Users className="w-3 h-3" /> {rule.total_recipients} destinatários
+      {/* ── Schedule toggle ──────────────────────────────────────────────────── */}
+      <button
+        onClick={handleToggleSchedule}
+        className="w-full flex items-center gap-2 px-5 py-2.5 text-left transition-colors hover:bg-white/[0.03]"
+        style={{ borderTop: "1px solid rgba(63,176,108,0.08)", borderBottom: expanded ? "1px solid rgba(63,176,108,0.08)" : "none" }}
+      >
+        <CalendarDays className="w-3.5 h-3.5 shrink-0" style={{ color: expanded ? "#3fb06c" : "#5a7a66" }} />
+        <span className="text-[11px] font-medium flex-1" style={{ color: expanded ? "#3fb06c" : "#5a7a66" }}>
+          {schedLoading
+            ? "Carregando agenda..."
+            : pendingCount === null
+              ? "Ver agenda de disparos"
+              : pendingCount === 0
+                ? "Nenhum disparo pendente"
+                : `${pendingCount} disparo${pendingCount !== 1 ? "s" : ""} pendente${pendingCount !== 1 ? "s" : ""}`}
         </span>
-        <span className="text-[10px] text-agro-muted">{rule.sent_count} enviados</span>
-      </div>
+        {schedLoading
+          ? <Loader2 className="w-3 h-3 animate-spin" style={{ color: "#5a7a66" }} />
+          : expanded
+            ? <ChevronUp className="w-3.5 h-3.5" style={{ color: "#3fb06c" }} />
+            : <ChevronDown className="w-3.5 h-3.5" style={{ color: "#5a7a66" }} />}
+      </button>
 
-      {/* Progress */}
-      {rule.total_recipients > 0 && (
-        <div className="mb-3">
-          <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
-            <div className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
-          </div>
-          <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
+      {/* ── Schedule panel ───────────────────────────────────────────────────── */}
+      {expanded && (
+        <div
+          className="overflow-y-auto"
+          style={{ maxHeight: "320px" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {schedLoading ? (
+            <div className="flex items-center justify-center h-24">
+              <Loader2 className="w-5 h-5 animate-spin text-agro-green" />
+            </div>
+          ) : !schedule || schedule.totalCount === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-2">
+              <CalendarDays className="w-6 h-6 text-agro-muted-2" />
+              <p className="text-[11px] text-agro-muted text-center px-4">
+                Nenhum disparo pendente.<br />Todos foram enviados ou os boletos estão fora do período.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-0">
+              {schedule.groups.map((group) => (
+                <div key={group.date}>
+                  {/* Date header */}
+                  <div className="flex items-center gap-2 px-5 py-2 sticky top-0"
+                    style={{ background: "rgba(10,20,14,0.95)", borderBottom: "1px solid rgba(63,176,108,0.07)" }}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-agro-green/60 shrink-0" />
+                    <span className="text-[10px] font-bold text-agro-muted-2 uppercase tracking-wider">
+                      {formatFireDate(group.date)}
+                    </span>
+                    <span className="text-[10px] text-agro-muted ml-1">às {padHour(rule.send_hour)}</span>
+                    <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+                      style={{ background: "rgba(63,176,108,0.1)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.15)" }}>
+                      {group.entries.length}
+                    </span>
+                  </div>
+
+                  {/* Entries */}
+                  {group.entries.map((entry) => (
+                    <div
+                      key={`${entry.trigger.id}:${entry.recipient.id}`}
+                      className="flex items-center gap-2 px-5 py-2.5 hover:bg-white/[0.025] transition-colors group/row"
+                      style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}
+                    >
+                      {/* Trigger label pill */}
+                      <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md font-bold whitespace-nowrap"
+                        style={{
+                          background: entry.trigger.day_offset < 0
+                            ? "rgba(59,130,246,0.1)"
+                            : entry.trigger.day_offset === 0
+                              ? "rgba(63,176,108,0.12)"
+                              : "rgba(239,68,68,0.1)",
+                          color: entry.trigger.day_offset < 0
+                            ? "#60a5fa"
+                            : entry.trigger.day_offset === 0
+                              ? "#3fb06c"
+                              : "#f87171",
+                          border: `1px solid ${entry.trigger.day_offset < 0 ? "rgba(59,130,246,0.2)" : entry.trigger.day_offset === 0 ? "rgba(63,176,108,0.2)" : "rgba(239,68,68,0.2)"}`,
+                        }}>
+                        {entry.triggerLabel}
+                      </span>
+
+                      {/* Contact info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold text-agro-text truncate">{entry.recipient.contact_name}</p>
+                        <p className="text-[10px] text-agro-muted-2 truncate">{entry.recipient.contact_phone}</p>
+                      </div>
+
+                      {/* Valor + vencimento */}
+                      <div className="text-right shrink-0 hidden sm:block">
+                        <p className="text-[11px] font-semibold text-agro-text">{formatBRL(entry.recipient.valor)}</p>
+                        <p className="text-[9px] text-agro-muted-2">venc. {entry.recipient.vencimento.slice(5).replace("-", "/")}</p>
+                      </div>
+
+                      {/* Remove button */}
+                      <button
+                        disabled={removingId === entry.recipient.id}
+                        onClick={(e) => handleRemove(e, entry.recipient.id)}
+                        title="Remover dos disparos"
+                        className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-all hover:bg-red-500/20 disabled:opacity-30"
+                        style={{ border: "1px solid rgba(239,68,68,0.2)", color: "#f87171" }}
+                      >
+                        {removingId === entry.recipient.id
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <X className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Next fire countdown (only for active) ── */}
-      {isActive && (
-        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
-          style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.12)" }}>
-          <span className="w-1.5 h-1.5 rounded-full bg-agro-green animate-pulse shrink-0" />
-          <span className="text-[11px] text-agro-muted">Próximo disparo em</span>
-          <span className="text-[11px] font-bold text-agro-green ml-auto">{countdown}</span>
-        </div>
-      )}
-
-      {/* Paused badge */}
-      {rule.status === "paused" && (
-        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl"
-          style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)" }}>
-          <span className="text-[11px] text-amber-400/80">Pausada — disparos suspensos</span>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid rgba(63,176,108,0.07)" }}
-        onClick={(e) => e.stopPropagation()}>
+      {/* ── Actions ──────────────────────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-2 px-5 py-3"
+        style={{ borderTop: "1px solid rgba(63,176,108,0.07)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {canToggle && (
           <button
             disabled={isActing}
@@ -247,7 +512,6 @@ export function Automations() {
     onNav:    (id: string) => navigate(`/automations/${id}`),
   };
 
-  // Aggregate stats across all rules
   const totalRecipients = rules.reduce((s, r) => s + r.total_recipients, 0);
   const totalSent       = rules.reduce((s, r) => s + r.sent_count, 0);
 
@@ -281,10 +545,10 @@ export function Automations() {
         {rules.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Ativas",        value: active.length,    color: "#3fb06c", sub: "réguas" },
-              { label: "Destinatários", value: totalRecipients,  color: "#7fc49a", sub: "total"  },
-              { label: "Enviados",      value: totalSent,        color: "#7fc49a", sub: "disparos" },
-              { label: "Pausadas",      value: paused.length,    color: "#fbbf24", sub: "réguas" },
+              { label: "Ativas",        value: active.length,   color: "#3fb06c", sub: "réguas"   },
+              { label: "Destinatários", value: totalRecipients, color: "#7fc49a", sub: "total"    },
+              { label: "Enviados",      value: totalSent,       color: "#7fc49a", sub: "disparos" },
+              { label: "Pausadas",      value: paused.length,   color: "#fbbf24", sub: "réguas"   },
             ].map(({ label, value, color, sub }) => (
               <div key={label} className="p-4 rounded-xl text-center"
                 style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}>
