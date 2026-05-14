@@ -7,6 +7,7 @@ import {
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { ContactFormModal } from "./contacts/ContactFormModal";
@@ -563,6 +564,7 @@ export function Contacts() {
   const [globalTotalLoading, setGlobalTotalLoading] = useState(false);
 
   const workspaceId = useAuth().workspaceId ?? "";
+  const { toast } = useToast();
 
   // contacts must be declared before the selection helpers that reference it.
   // useContacts is a hook so it must be called unconditionally at the top level.
@@ -600,31 +602,66 @@ export function Contacts() {
     try {
       const ids = [...selectedIds];
 
-      // Collect phones for notes deletion (contact_notes references phone, not contact_id)
       const phones = contacts
         .filter((c) => ids.includes(c.id) && c.phone)
         .map((c) => c.phone as string);
 
-      // 1. Delete invoices linked to these contacts
-      await db.from("contact_invoices").delete().in("contact_id", ids);
+      // 1. Get conversation IDs for these contacts (needed for campaign_alerts)
+      const { data: convRows } = await db
+        .from("inbox_conversations")
+        .select("id")
+        .in("contact_id", ids);
+      const convIds = (convRows ?? []).map((r: { id: string }) => r.id);
 
-      // 2. Delete notes linked by phone
+      // 2. Delete campaign_alerts linked to these conversations (NO ACTION FK)
+      if (convIds.length > 0) {
+        const { error: alertsErr } = await db
+          .from("campaign_alerts")
+          .delete()
+          .in("conversation_id", convIds);
+        if (alertsErr) throw new Error(`campaign_alerts: ${alertsErr.message}`);
+      }
+
+      // 3. Delete conversations (inbox_messages cascade-delete automatically)
+      if (convIds.length > 0) {
+        const { error: convsErr } = await db
+          .from("inbox_conversations")
+          .delete()
+          .in("id", convIds);
+        if (convsErr) throw new Error(`inbox_conversations: ${convsErr.message}`);
+      }
+
+      // 4. Delete invoices
+      const { error: invErr } = await db
+        .from("contact_invoices")
+        .delete()
+        .in("contact_id", ids);
+      if (invErr) throw new Error(`contact_invoices: ${invErr.message}`);
+
+      // 5. Delete notes
       if (phones.length > 0) {
-        await db.from("contact_notes")
+        const { error: notesErr } = await db
+          .from("contact_notes")
           .delete()
           .eq("workspace_id", workspaceId)
           .in("contact_phone", phones);
+        if (notesErr) throw new Error(`contact_notes: ${notesErr.message}`);
       }
 
-      // 3. Delete the contacts themselves
-      await db.from("inbox_contacts")
+      // 6. Delete contacts
+      const { error: contactsErr } = await db
+        .from("inbox_contacts")
         .delete()
         .eq("workspace_id", workspaceId)
         .in("id", ids);
+      if (contactsErr) throw new Error(`inbox_contacts: ${contactsErr.message}`);
 
       setSelectedIds(new Set());
       setShowDeleteConfirm(false);
       refresh();
+      toast({ title: `${ids.length} contato${ids.length !== 1 ? "s" : ""} excluído${ids.length !== 1 ? "s" : ""}`, variant: "success" });
+    } catch (err) {
+      toast({ title: "Erro ao excluir contatos", description: (err as Error).message, variant: "destructive" });
     } finally {
       setDeleting(false);
     }
