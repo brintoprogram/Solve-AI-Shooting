@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Search, Users, Loader2, ArrowUpDown, SlidersHorizontal } from "lucide-react";
+import { Search, FileText, Loader2, ArrowUpDown, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -14,10 +14,12 @@ interface RawRow {
   valor:         number | null;
   numero_nf:     string | null;
   codigo_barras: string | null;
+  status:        string;
 }
 
 const PENDING = ["pendente", "vencido", "aberto", "em_aberto"];
 const PAGE_SIZE = 25;
+const TODAY = new Date().toISOString().slice(0, 10);
 
 type SortField = "name_asc" | "name_desc" | "valor_asc" | "valor_desc" | "venc_asc" | "venc_desc";
 
@@ -43,7 +45,6 @@ export function InvoiceSelector({ selected, onChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [page,    setPage]    = useState(0);
 
-  // Filters
   const [search,    setSearch]    = useState("");
   const [minValor,  setMinValor]  = useState("");
   const [maxValor,  setMaxValor]  = useState("");
@@ -52,13 +53,13 @@ export function InvoiceSelector({ selected, onChange }: Props) {
   const [sortBy,    setSortBy]    = useState<SortField>("venc_asc");
   const [showFilts, setShowFilts] = useState(false);
 
-  const selectedIds = new Set(selected.map((r) => r.contact_id));
+  // Key by invoice_id — each invoice is independent
+  const selectedIds = new Set(selected.map((r) => r.invoice_id));
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
 
-    // Query contact_invoices with contact join
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q = (supabase as any)
       .from("contact_invoices")
@@ -73,39 +74,32 @@ export function InvoiceSelector({ selected, onChange }: Props) {
 
     const { data } = await q;
 
-    // Flatten and deduplicate: one row per contact (most urgent invoice)
-    const byContact = new Map<string, RawRow>();
+    const result: RawRow[] = [];
     for (const inv of (data ?? [])) {
       const contact = inv.inbox_contacts as { id: string; name: string; phone: string } | null;
       if (!contact) continue;
+
       const name  = (contact.name  ?? "").toLowerCase();
       const phone = (contact.phone ?? "");
 
-      // Apply name/phone search client-side
       if (search.trim()) {
         const s = search.trim().toLowerCase();
         if (!name.includes(s) && !phone.includes(s)) continue;
       }
 
-      const existing = byContact.get(contact.id);
-      const venc     = inv.vencimento ?? "";
-      if (!existing || venc < existing.vencimento) {
-        byContact.set(contact.id, {
-          contact_id:    contact.id,
-          contact_name:  contact.name,
-          contact_phone: phone,
-          invoice_id:    inv.id,
-          vencimento:    venc,
-          valor:         inv.valor,
-          numero_nf:     inv.numero_nf    ?? null,
-          codigo_barras: inv.codigo_barras ?? null,
-        });
-      }
+      result.push({
+        contact_id:    contact.id,
+        contact_name:  contact.name,
+        contact_phone: phone,
+        invoice_id:    inv.id,
+        vencimento:    inv.vencimento ?? "",
+        valor:         inv.valor,
+        status:        inv.status,
+        numero_nf:     inv.numero_nf    ?? null,
+        codigo_barras: inv.codigo_barras ?? null,
+      });
     }
 
-    let result = Array.from(byContact.values());
-
-    // Sort
     result.sort((a, b) => {
       switch (sortBy) {
         case "name_asc":   return a.contact_name.localeCompare(b.contact_name);
@@ -127,11 +121,11 @@ export function InvoiceSelector({ selected, onChange }: Props) {
 
   const totalPages  = Math.ceil(rows.length / PAGE_SIZE);
   const pageItems   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const allSelected = pageItems.length > 0 && pageItems.every((r) => selectedIds.has(r.contact_id));
+  const allSelected = pageItems.length > 0 && pageItems.every((r) => selectedIds.has(r.invoice_id));
 
   function toggle(row: RawRow) {
-    if (selectedIds.has(row.contact_id)) {
-      onChange(selected.filter((s) => s.contact_id !== row.contact_id));
+    if (selectedIds.has(row.invoice_id)) {
+      onChange(selected.filter((s) => s.invoice_id !== row.invoice_id));
     } else {
       onChange([...selected, toDraft(row)]);
     }
@@ -139,9 +133,9 @@ export function InvoiceSelector({ selected, onChange }: Props) {
 
   function selectAllPage() {
     if (allSelected) {
-      onChange(selected.filter((s) => !pageItems.find((r) => r.contact_id === s.contact_id)));
+      onChange(selected.filter((s) => !pageItems.find((r) => r.invoice_id === s.invoice_id)));
     } else {
-      const toAdd = pageItems.filter((r) => !selectedIds.has(r.contact_id)).map(toDraft);
+      const toAdd = pageItems.filter((r) => !selectedIds.has(r.invoice_id)).map(toDraft);
       onChange([...selected, ...toAdd]);
     }
   }
@@ -152,12 +146,19 @@ export function InvoiceSelector({ selected, onChange }: Props) {
 
   function toDraft(r: RawRow): RecipientDraft {
     return {
-      contact_id: r.contact_id, invoice_id: r.invoice_id,
-      contact_name: r.contact_name, contact_phone: r.contact_phone,
-      vencimento: r.vencimento, valor: r.valor,
-      numero_nf: r.numero_nf, codigo_barras: r.codigo_barras,
+      contact_id:    r.contact_id,
+      invoice_id:    r.invoice_id,
+      contact_name:  r.contact_name,
+      contact_phone: r.contact_phone,
+      vencimento:    r.vencimento,
+      valor:         r.valor,
+      numero_nf:     r.numero_nf,
+      codigo_barras: r.codigo_barras,
     };
   }
+
+  // Group count: how many distinct contacts are selected
+  const selectedContacts = new Set(selected.map((r) => r.contact_id)).size;
 
   return (
     <div className="space-y-4">
@@ -236,10 +237,13 @@ export function InvoiceSelector({ selected, onChange }: Props) {
       {/* Counter */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
         style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}>
-        <Users className="w-4 h-4 text-agro-green shrink-0" />
+        <FileText className="w-4 h-4 text-agro-green shrink-0" />
         <span className="text-sm text-agro-muted">
-          <span className="font-bold text-agro-text">{selected.length}</span> selecionados de{" "}
-          <span className="font-bold text-agro-text">{rows.length}</span> contatos com boleto pendente
+          <span className="font-bold text-agro-text">{selected.length}</span> boleto{selected.length !== 1 ? "s" : ""} selecionado{selected.length !== 1 ? "s" : ""}
+          {selectedContacts > 0 && (
+            <span className="text-agro-muted-2"> · {selectedContacts} cliente{selectedContacts !== 1 ? "s" : ""}</span>
+          )}
+          <span className="text-agro-muted-2"> de {rows.length} boletos pendentes</span>
         </span>
         {loading && <Loader2 className="w-3.5 h-3.5 text-agro-muted-2 animate-spin ml-auto" />}
       </div>
@@ -262,6 +266,7 @@ export function InvoiceSelector({ selected, onChange }: Props) {
               <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
               <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Telefone</th>
               <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Vencimento</th>
+              <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Status</th>
               <th className="px-4 py-3 text-right text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Valor</th>
             </tr>
           </thead>
@@ -269,7 +274,7 @@ export function InvoiceSelector({ selected, onChange }: Props) {
             {loading && rows.length === 0 ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
-                  {[10, 32, 28, 20, 20].map((w, j) => (
+                  {[10, 32, 24, 16, 12, 16].map((w, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className={`h-3.5 w-${w} rounded animate-pulse`} style={{ background: "rgba(63,176,108,0.08)" }} />
                     </td>
@@ -278,16 +283,17 @@ export function InvoiceSelector({ selected, onChange }: Props) {
               ))
             ) : pageItems.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-agro-muted">
-                  {loading ? "Carregando..." : "Nenhum contato com boleto pendente encontrado"}
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-agro-muted">
+                  {loading ? "Carregando..." : "Nenhum boleto pendente encontrado"}
                 </td>
               </tr>
             ) : (
               pageItems.map((row, i) => {
-                const isSel = selectedIds.has(row.contact_id);
+                const isSel      = selectedIds.has(row.invoice_id);
+                const isOverdue  = row.vencimento < TODAY;
                 return (
                   <tr
-                    key={row.contact_id}
+                    key={row.invoice_id}
                     className="cursor-pointer transition-all duration-150"
                     style={{
                       borderBottom: i < pageItems.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
@@ -308,7 +314,22 @@ export function InvoiceSelector({ selected, onChange }: Props) {
                       {row.contact_name}
                     </td>
                     <td className="px-4 py-3 text-agro-muted font-mono text-xs">{row.contact_phone}</td>
-                    <td className="px-4 py-3 text-agro-muted text-xs">{formatDate(row.vencimento)}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <span className={isOverdue ? "text-red-400 font-semibold" : "text-agro-muted"}>
+                        {formatDate(row.vencimento)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                        isOverdue
+                          ? "text-red-400"
+                          : "text-amber-400",
+                      )}
+                        style={{ background: isOverdue ? "rgba(239,68,68,0.1)" : "rgba(245,158,11,0.1)" }}>
+                        {isOverdue ? "vencido" : "pendente"}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right text-sm font-semibold text-agro-text">{formatBRL(row.valor)}</td>
                   </tr>
                 );

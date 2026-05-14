@@ -1,4 +1,4 @@
-import { Clock, Users, Zap, MessageSquare } from "lucide-react";
+import { Clock, Users, Zap, MessageSquare, AlertTriangle } from "lucide-react";
 import type { AutomationWizardState } from "@/types/automations";
 import type { ZApiConnection } from "@/hooks/useZApiConnections";
 import type { MetaConnection } from "@/types/shooting";
@@ -13,6 +13,12 @@ interface Props {
 }
 
 function padHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
+
+function addDays(dateIso: string, days: number): string {
+  const d = new Date(dateIso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function formatBRL(v: number | null): string {
   if (v === null || isNaN(Number(v))) return "—";
@@ -32,10 +38,64 @@ export function StepReview({ state, zApiConnections, metaConnections, saving, on
     : metaConnections.find((c) => c.id === state.meta_connection_id)?.display_phone ?? "—";
 
   const sortedTriggers = [...state.triggers].sort((a, b) => a.day_offset - b.day_offset);
+  const enabledTriggers = sortedTriggers.filter((t) => t.enabled);
+
+  // Warn: recipients where ALL enabled trigger dates are already in the past
+  const today = new Date().toISOString().slice(0, 10);
+  const deadRecipients = state.selectedRecipients.filter((r) =>
+    enabledTriggers.length > 0 &&
+    enabledTriggers.every((t) => addDays(r.vencimento, t.day_offset) < today)
+  );
+
+  // Warn: recipients with vencimento already past (useful even if some triggers are "after")
+  const overdueRecipients = state.selectedRecipients.filter((r) => r.vencimento < today);
 
   return (
     <div className="space-y-6">
       <p className="text-xs text-agro-muted">Revise as configurações antes de ativar a régua.</p>
+
+      {/* Warning: recipients that will never fire */}
+      {deadRecipients.length > 0 && (
+        <div className="p-4 rounded-xl space-y-2"
+          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+            <p className="text-sm font-semibold text-red-400">
+              {deadRecipients.length} boleto{deadRecipients.length !== 1 ? "s" : ""} não serão disparados
+            </p>
+          </div>
+          <p className="text-xs text-red-300/70 leading-relaxed">
+            As datas de todos os gatilhos ativos já passaram para {deadRecipients.length === 1 ? "este boleto" : "estes boletos"}.
+            Eles permanecem na régua mas nenhuma mensagem será enviada.
+          </p>
+          <ul className="space-y-0.5 mt-1">
+            {deadRecipients.slice(0, 5).map((r) => (
+              <li key={r.invoice_id} className="text-xs text-red-300/60 font-mono">
+                • {r.contact_name} — venc. {formatDate(r.vencimento)}
+              </li>
+            ))}
+            {deadRecipients.length > 5 && (
+              <li className="text-xs text-red-300/50">e mais {deadRecipients.length - 5}…</li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* Warning: overdue but with "after" triggers that may still fire */}
+      {overdueRecipients.length > 0 && deadRecipients.length === 0 && (
+        <div className="p-4 rounded-xl flex items-start gap-3"
+          style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}>
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-400">
+              {overdueRecipients.length} boleto{overdueRecipients.length !== 1 ? "s" : ""} já vencido{overdueRecipients.length !== 1 ? "s" : ""}
+            </p>
+            <p className="text-xs text-amber-300/70 mt-0.5">
+              Gatilhos "antes do vencimento" não dispararão para estes boletos. Apenas gatilhos "depois" ainda podem disparar.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 gap-3">
