@@ -31,7 +31,7 @@ export interface WizardState {
   maxDelaySeconds: number;
   // Step 2
   selectedContacts:  string[];
-  selectedInvoices:  Record<string, string>;  // contactId → invoiceId (pinned); empty = use most urgent
+  selectedInvoices:  Record<string, string[]>;  // contactId → invoiceIds (pinned, same vencimento); empty = use all pending
   uploadId: string | null;
   // Step 3 — Meta
   templateId: string;

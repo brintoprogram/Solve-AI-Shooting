@@ -115,8 +115,8 @@ export function CampaignWizard() {
 
         const messages = (contactRows ?? []).map((c: Record<string, unknown>) => {
           const contactId  = c.id as string;
-          const pinnedId   = state.selectedInvoices[contactId];
-          const selectedIds = pinnedId ? new Set([pinnedId]) : undefined;
+          const pinnedIds   = state.selectedInvoices[contactId] ?? [];
+          const selectedIds = pinnedIds.length > 0 ? new Set(pinnedIds) : undefined;
           return {
             campaign_id:     campaign.id,
             workspace_id:    WORKSPACE_ID,

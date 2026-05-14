@@ -25,9 +25,9 @@ interface Contact {
 
 interface ContactSelectorProps {
   selected:         string[];
-  selectedInvoices: Record<string, string>;  // contactId → pinnedInvoiceId
+  selectedInvoices: Record<string, string[]>;  // contactId → invoiceIds (same vencimento)
   onChange:         (ids: string[]) => void;
-  onInvoiceChange:  (inv: Record<string, string>) => void;
+  onInvoiceChange:  (inv: Record<string, string[]>) => void;
 }
 
 const PAGE_SIZE = 25;
@@ -53,12 +53,14 @@ function formatDate(iso: string): string {
 
 export function ContactSelector({ selected, selectedInvoices, onChange, onInvoiceChange }: ContactSelectorProps) {
   const { workspaceId } = useAuth();
-  const [search,   setSearch]   = useState("");
-  const [page,     setPage]     = useState(0);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [total,    setTotal]    = useState(0);
-  const [loading,  setLoading]  = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [search,       setSearch]       = useState("");
+  const [page,         setPage]         = useState(0);
+  const [contacts,     setContacts]     = useState<Contact[]>([]);
+  const [total,        setTotal]        = useState(0);
+  const [loading,      setLoading]      = useState(false);
+  const [expanded,     setExpanded]     = useState<string | null>(null);
+  // contactId → error message when vencimento conflict is detected
+  const [vencConflict, setVencConflict] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -94,7 +96,6 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
   function toggleContact(id: string) {
     if (selected.includes(id)) {
       onChange(selected.filter((s) => s !== id));
-      // clear pinned invoice when deselecting
       const next = { ...selectedInvoices };
       delete next[id];
       onInvoiceChange(next);
@@ -103,14 +104,41 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
     }
   }
 
-  function pinInvoice(contactId: string, invoiceId: string | null) {
-    const next = { ...selectedInvoices };
-    if (invoiceId === null) {
-      delete next[contactId];
+  function toggleInvoice(contactId: string, invoiceId: string, invoiceVencimento: string | null) {
+    const current = selectedInvoices[contactId] ?? [];
+
+    if (current.includes(invoiceId)) {
+      // Deselect
+      const newArr = current.filter((id) => id !== invoiceId);
+      const next   = { ...selectedInvoices };
+      if (newArr.length === 0) delete next[contactId];
+      else next[contactId] = newArr;
+      onInvoiceChange(next);
+      setVencConflict((prev) => { const p = { ...prev }; delete p[contactId]; return p; });
     } else {
-      next[contactId] = invoiceId;
+      // Select — validate vencimento constraint
+      if (current.length > 0) {
+        const pending    = pendingInvoices(contacts.find((c) => c.id === contactId) ?? { id: "", name: "", phone: "" });
+        const firstInv   = pending.find((inv) => inv.id === current[0]);
+        if (firstInv?.vencimento !== invoiceVencimento) {
+          const locked = firstInv?.vencimento ? formatDate(firstInv.vencimento) : "?";
+          setVencConflict((prev) => ({
+            ...prev,
+            [contactId]: `Boletos com datas diferentes não podem ser combinados. Seleção atual: ${locked}.`,
+          }));
+          return;
+        }
+      }
+      setVencConflict((prev) => { const p = { ...prev }; delete p[contactId]; return p; });
+      onInvoiceChange({ ...selectedInvoices, [contactId]: [...current, invoiceId] });
     }
+  }
+
+  function clearInvoiceSelection(contactId: string) {
+    const next = { ...selectedInvoices };
+    delete next[contactId];
     onInvoiceChange(next);
+    setVencConflict((prev) => { const p = { ...prev }; delete p[contactId]; return p; });
   }
 
   const totalPages      = Math.ceil(total / PAGE_SIZE);
@@ -209,19 +237,20 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
               </tr>
             ) : (
               contacts.flatMap((contact, i) => {
-                const isSelected  = selected.includes(contact.id);
-                const isExpanded  = expanded === contact.id;
-                const pending     = pendingInvoices(contact);
-                const hasPending  = pending.length > 0;
-                const pinnedId    = selectedInvoices[contact.id] ?? null;
-                const pinnedInv   = pinnedId ? pending.find((inv) => inv.id === pinnedId) ?? null : null;
+                const isSelected     = selected.includes(contact.id);
+                const isExpanded     = expanded === contact.id;
+                const pending        = pendingInvoices(contact);
+                const hasPending     = pending.length > 0;
+                const pinnedIds      = selectedInvoices[contact.id] ?? [];
+                const hasPinned      = pinnedIds.length > 0;
+                const pinnedInvObjs  = hasPinned ? pending.filter((inv) => pinnedIds.includes(inv.id)) : [];
 
-                // What to display in the collapsed row
-                const displayInv    = pinnedInv ?? pending[0] ?? null;
-                const displayValor  = pinnedInv
-                  ? Number(pinnedInv.valor)
+                // What to show in collapsed row
+                const displayValor = hasPinned
+                  ? pinnedInvObjs.reduce((s, inv) => s + (Number(inv.valor) || 0), 0)
                   : pending.reduce((s, inv) => s + (Number(inv.valor) || 0), 0);
-                const isOverdue     = displayInv?.vencimento ? displayInv.vencimento < TODAY : false;
+                const displayInv   = hasPinned ? pinnedInvObjs[0] ?? null : pending[0] ?? null;
+                const isOverdue    = displayInv?.vencimento ? displayInv.vencimento < TODAY : false;
 
                 const rows = [
                   // ── Contact row ──────────────────────────────────
@@ -249,10 +278,10 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
                     {/* Name */}
                     <td className={cn("px-4 py-3 font-medium text-sm", isSelected ? "text-agro-text" : "text-agro-text-2")}>
                       {contact.name}
-                      {pinnedId && (
+                      {hasPinned && (
                         <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded font-semibold"
                           style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
-                          boleto fixado
+                          {pinnedIds.length === 1 ? "boleto fixado" : `${pinnedIds.length} boletos fixados`}
                         </span>
                       )}
                     </td>
@@ -267,7 +296,7 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
                           <span className="text-xs font-semibold" style={{ color: isOverdue ? "#f87171" : "#3fb06c" }}>
                             {formatBRL(displayValor)}
                           </span>
-                          {!pinnedId && pending.length > 1 && (
+                          {!hasPinned && pending.length > 1 && (
                             <span className="text-[10px] text-agro-muted-2">({pending.length})</span>
                           )}
                         </div>
@@ -312,6 +341,8 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
 
                 // ── Invoice sub-rows (expanded) ──────────────────
                 if (isExpanded && hasPending) {
+                  const conflictMsg = vencConflict[contact.id];
+
                   rows.push(
                     <tr
                       key={`${contact.id}-invoices`}
@@ -321,47 +352,78 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
                         <div className="mx-4 rounded-xl overflow-hidden"
                           style={{ background: "rgba(8,14,10,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}>
 
-                          {/* "Automático" option */}
-                          <button
-                            onClick={() => pinInvoice(contact.id, null)}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
-                            style={{ borderBottom: "1px solid rgba(63,176,108,0.07)" }}
-                          >
-                            <span
-                              className="w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center border transition-colors"
-                              style={!pinnedId
-                                ? { background: "#3fb06c", borderColor: "#3fb06c" }
-                                : { background: "transparent", borderColor: "rgba(255,255,255,0.2)" }}
-                            >
-                              {!pinnedId && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
-                            </span>
-                            <div>
-                              <p className="text-xs font-semibold text-agro-text">Automático</p>
-                              <p className="text-[10px] text-agro-muted-2">
-                                Usa o boleto mais urgente · total {formatBRL(pending.reduce((s, inv) => s + (Number(inv.valor) || 0), 0))}
-                              </p>
-                            </div>
-                          </button>
+                          {/* Header row: hint + clear button */}
+                          <div className="flex items-center justify-between px-4 py-2"
+                            style={{ borderBottom: "1px solid rgba(63,176,108,0.07)" }}>
+                            <p className="text-[10px] text-agro-muted-2">
+                              {hasPinned
+                                ? `${pinnedIds.length} boleto${pinnedIds.length > 1 ? "s" : ""} selecionado${pinnedIds.length > 1 ? "s" : ""} · soma ${formatBRL(displayValor)}`
+                                : "Automático — usa todos os boletos pendentes"}
+                            </p>
+                            {hasPinned && (
+                              <button
+                                onClick={() => clearInvoiceSelection(contact.id)}
+                                className="text-[10px] font-semibold transition-colors hover:opacity-80"
+                                style={{ color: "#f59e0b" }}
+                              >
+                                Limpar seleção
+                              </button>
+                            )}
+                          </div>
 
-                          {/* Individual invoices */}
+                          {/* Vencimento conflict error */}
+                          {conflictMsg && (
+                            <div className="px-4 py-2 text-[10px] font-medium"
+                              style={{ color: "#f87171", background: "rgba(239,68,68,0.06)", borderBottom: "1px solid rgba(239,68,68,0.12)" }}>
+                              ⚠ {conflictMsg}
+                            </div>
+                          )}
+
+                          {/* Individual invoices with checkboxes */}
                           {pending.map((inv, j) => {
-                            const isPinned   = pinnedId === inv.id;
+                            const isChecked  = pinnedIds.includes(inv.id);
                             const invOverdue = inv.vencimento ? inv.vencimento < TODAY : false;
+
+                            // Determine if this invoice can be selected
+                            // (must match vencimento of already-selected ones)
+                            const lockedVenc = hasPinned && !isChecked
+                              ? (pending.find((p) => pinnedIds.includes(p.id))?.vencimento ?? null)
+                              : null;
+                            const isBlocked  = lockedVenc !== null && inv.vencimento !== lockedVenc;
+
                             return (
                               <button
                                 key={inv.id}
-                                onClick={() => pinInvoice(contact.id, inv.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
+                                onClick={() => {
+                                  if (isBlocked) {
+                                    const locked = lockedVenc ? formatDate(lockedVenc) : "?";
+                                    setVencConflict((prev) => ({
+                                      ...prev,
+                                      [contact.id]: `Boletos com datas diferentes não podem ser combinados. Seleção atual: ${locked}.`,
+                                    }));
+                                    return;
+                                  }
+                                  setVencConflict((prev) => { const p = { ...prev }; delete p[contact.id]; return p; });
+                                  toggleInvoice(contact.id, inv.id, inv.vencimento);
+                                }}
+                                className={cn(
+                                  "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                                  isBlocked ? "opacity-35 cursor-not-allowed" : "hover:bg-white/5",
+                                )}
                                 style={{ borderBottom: j < pending.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
                               >
+                                {/* Checkbox */}
                                 <span
-                                  className="w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center border transition-colors"
-                                  style={isPinned
+                                  className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center border transition-colors"
+                                  style={isChecked
                                     ? { background: "#f59e0b", borderColor: "#f59e0b" }
-                                    : { background: "transparent", borderColor: "rgba(255,255,255,0.2)" }}
+                                    : isBlocked
+                                      ? { background: "transparent", borderColor: "rgba(255,255,255,0.1)" }
+                                      : { background: "transparent", borderColor: "rgba(255,255,255,0.2)" }}
                                 >
-                                  {isPinned && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
+                                  {isChecked && <span className="w-1.5 h-1.5 rounded-sm bg-white block" />}
                                 </span>
+
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-semibold text-agro-text">
