@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2, Pencil, Check, X, Wifi, Smartphone, Mail } from "lucide-react";
+import { ArrowLeft, Pause, Play, StopCircle, RefreshCw, FileText, Loader2, Pencil, Check, X, Wifi, Smartphone, Mail, Sun, Moon } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { ShootingMessage } from "@/types/shooting";
@@ -47,6 +47,43 @@ interface MsgTimestamps {
 }
 
 const BUCKET_MS = 30 * 60 * 1000; // 30-minute buckets
+
+// ── Theme ─────────────────────────────────────────────────────────
+type Theme = typeof DARK_THEME;
+const DARK_THEME = {
+  pageBg:        "#0a110e",
+  cardBg:        "rgba(13,26,17,0.7)",
+  cardBorder:    "rgba(63,176,108,0.1)",
+  cardShadow:    "none",
+  text:          undefined as string | undefined,
+  muted:         undefined as string | undefined,
+  muted2:        undefined as string | undefined,
+  gridStroke:    "rgba(63,176,108,0.08)",
+  axisStroke:    "rgba(63,176,108,0.12)",
+  tickFill:      "#6b8a75",
+  tooltipBg:     "rgba(13,26,17,0.97)",
+  tooltipBorder: "rgba(63,176,108,0.2)",
+  tooltipColor:  "#c8dac0",
+  btnBorder:     "rgba(63,176,108,0.12)",
+  btnHover:      "hover:bg-white/10",
+};
+const LIGHT_THEME: Theme = {
+  pageBg:        "#f0f2f1",
+  cardBg:        "#ffffff",
+  cardBorder:    "rgba(0,0,0,0.07)",
+  cardShadow:    "0 2px 12px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.04)",
+  text:          "#0a1f10",
+  muted:         "#4a7055",
+  muted2:        "#7a9b85",
+  gridStroke:    "rgba(63,176,108,0.14)",
+  axisStroke:    "rgba(63,176,108,0.2)",
+  tickFill:      "#4a7055",
+  tooltipBg:     "rgba(255,255,255,0.98)",
+  tooltipBorder: "rgba(63,176,108,0.25)",
+  tooltipColor:  "#0a1f10",
+  btnBorder:     "rgba(0,0,0,0.1)",
+  btnHover:      "hover:bg-black/5",
+};
 
 function buildTimeline(msgs: MsgTimestamps[]): TimelineBucket[] {
   const sent      = msgs.map((m) => m.sent_at      ? new Date(m.sent_at).getTime()      : null).filter(Boolean) as number[];
@@ -102,16 +139,17 @@ function useTimelineData(campaignId: string, isLive: boolean) {
   return { chartData, chartLoading, refetchTimeline: fetchTimeline };
 }
 
-function DarkCard({ title, children }: { title: string; children: React.ReactNode }) {
+function DarkCard({ title, children, T }: { title: string; children: React.ReactNode; T: Theme }) {
   return (
-    <div className="rounded-2xl p-6"
+    <div className="rounded-2xl p-6 transition-all duration-300"
       style={{
-        background: "rgba(13,26,17,0.7)",
+        background: T.cardBg,
         backdropFilter: "blur(20px)",
-        border: "1px solid rgba(63,176,108,0.1)",
+        border: `1px solid ${T.cardBorder}`,
+        boxShadow: T.cardShadow,
       }}
     >
-      <h2 className="text-sm font-semibold text-agro-text mb-5">{title}</h2>
+      <h2 className="text-sm font-semibold text-agro-text mb-5" style={{ color: T.text }}>{title}</h2>
       {children}
     </div>
   );
@@ -130,6 +168,9 @@ export function CampaignDetail() {
   const isAdmin = profile?.role === "admin";
   const [editingName, setEditingName] = useState<string | null>(null);
   const [savingName,  setSavingName]  = useState(false);
+  const [lightMode,   setLightMode]   = useState(false);
+
+  const T = lightMode ? LIGHT_THEME : DARK_THEME;
 
   async function handleRenameSave() {
     if (!campaign || !editingName) return;
@@ -463,7 +504,7 @@ export function CampaignDetail() {
 
   if (loading || !campaign) {
     return (
-      <div className="min-h-screen" style={{ background: "#0a110e" }}>
+      <div className="min-h-screen" style={{ background: T.pageBg }}>
         <Topbar breadcrumbs={[{ label: "Shooting" }, { label: "..." }]} />
         <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -479,7 +520,7 @@ export function CampaignDetail() {
   const st = STATUS_STYLE[campaign.status];
 
   return (
-    <div className="min-h-screen" style={{ background: "#0a110e" }}>
+    <div className="min-h-screen transition-colors duration-300" style={{ background: T.pageBg }}>
       <Topbar breadcrumbs={[{ label: "Shooting", href: "/shooting" }, { label: campaign.name }]} />
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -488,8 +529,8 @@ export function CampaignDetail() {
           <div className="flex items-start gap-4">
             <button
               onClick={() => navigate("/shooting")}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors hover:bg-white/10 mt-0.5"
-              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted transition-colors mt-0.5 ${T.btnHover}`}
+              style={{ border: `1px solid ${T.btnBorder}`, color: T.muted }}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -516,7 +557,7 @@ export function CampaignDetail() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 group">
-                    <h1 className="font-display text-2xl font-bold text-agro-text">{campaign.name}</h1>
+                    <h1 className="font-display text-2xl font-bold text-agro-text" style={{ color: T.text }}>{campaign.name}</h1>
                     {isAdmin && (
                       <button
                         onClick={() => setEditingName(campaign.name)}
@@ -537,7 +578,7 @@ export function CampaignDetail() {
                   {STATUS_LABELS[campaign.status]}
                 </span>
               </div>
-              <div className="flex items-center gap-2 mt-1 text-xs text-agro-muted flex-wrap">
+              <div className="flex items-center gap-2 mt-1 text-xs text-agro-muted flex-wrap" style={{ color: T.muted }}>
                 {campaign.dispatch_channel === "z_api" ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
                     style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.25)" }}
@@ -626,8 +667,8 @@ export function CampaignDetail() {
             )}
             <button
               onClick={exportPdf}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors hover:bg-white/5"
-              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted transition-colors ${T.btnHover}`}
+              style={{ border: `1px solid ${T.btnBorder}`, color: T.muted }}
               title="Exportar relatório PDF"
             >
               <FileText className="w-4 h-4" />
@@ -635,17 +676,31 @@ export function CampaignDetail() {
             </button>
             <button
               onClick={refetchTimeline}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors hover:bg-white/10"
-              style={{ border: "1px solid rgba(63,176,108,0.12)" }}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted transition-colors ${T.btnHover}`}
+              style={{ border: `1px solid ${T.btnBorder}`, color: T.muted }}
             >
               <RefreshCw className="w-4 h-4" />
+            </button>
+            {/* Light/dark toggle */}
+            <button
+              onClick={() => setLightMode((v) => !v)}
+              title={lightMode ? "Modo escuro" : "Modo claro"}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 hover:scale-105"
+              style={{
+                background: lightMode ? "rgba(255,255,255,0.9)" : "rgba(13,26,17,0.8)",
+                border: `1px solid ${T.cardBorder}`,
+                boxShadow: T.cardShadow,
+                color: lightMode ? "#a06b0a" : "#6b8a75",
+              }}
+            >
+              {lightMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
           </div>
         </div>
 
         {/* ── Metrics ─────────────────────────── */}
         <div className="animate-fade-up-delay-1">
-          <DarkCard title="Métricas em tempo real">
+          <DarkCard title="Métricas em tempo real" T={T}>
             <CampaignMetrics campaign={campaign} />
           </DarkCard>
         </div>
@@ -653,41 +708,41 @@ export function CampaignDetail() {
         {/* ── Chart ───────────────────────────── */}
         {campaign.status !== "draft" && campaign.dispatch_channel !== "n8n_email" && (
           <div className="animate-fade-up-delay-1">
-            <DarkCard title="Timeline de envios">
+            <DarkCard title="Timeline de envios" T={T}>
               {chartLoading ? (
-                <div className="flex items-center justify-center h-60 text-sm text-agro-muted-2">
+                <div className="flex items-center justify-center h-60 text-sm" style={{ color: T.muted2 }}>
                   Carregando timeline…
                 </div>
               ) : chartData.length === 0 ? (
-                <div className="flex items-center justify-center h-60 text-sm text-agro-muted-2">
+                <div className="flex items-center justify-center h-60 text-sm" style={{ color: T.muted2 }}>
                   Nenhum envio registrado ainda.
                 </div>
               ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,176,108,0.08)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.gridStroke} />
                   <XAxis
                     dataKey="time"
-                    tick={{ fontSize: 11, fill: "#6b8a75" }}
-                    axisLine={{ stroke: "rgba(63,176,108,0.12)" }}
+                    tick={{ fontSize: 11, fill: T.tickFill }}
+                    axisLine={{ stroke: T.axisStroke }}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: "#6b8a75" }}
-                    axisLine={{ stroke: "rgba(63,176,108,0.12)" }}
+                    tick={{ fontSize: 11, fill: T.tickFill }}
+                    axisLine={{ stroke: T.axisStroke }}
                     tickLine={false}
                   />
                   <Tooltip
                     contentStyle={{
-                      background: "rgba(13,26,17,0.97)",
-                      border: "1px solid rgba(63,176,108,0.2)",
+                      background: T.tooltipBg,
+                      border: `1px solid ${T.tooltipBorder}`,
                       borderRadius: "12px",
                       fontSize: "12px",
-                      color: "#c8dac0",
+                      color: T.tooltipColor,
                     }}
                     cursor={{ stroke: "rgba(63,176,108,0.2)", strokeWidth: 1 }}
                   />
-                  <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px", color: "#6b8a75" }} />
+                  <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px", color: T.tickFill }} />
                   <Line type="monotone" dataKey="enviadas"  stroke="#60a5fa" name="Enviadas"  strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="entregues" stroke="#3fb06c" name="Entregues" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="lidas"     stroke="#34d399" name="Lidas"     strokeWidth={2} dot={false} />
@@ -700,7 +755,7 @@ export function CampaignDetail() {
 
         {/* ── Messages table ───────────────────── */}
         <div className="animate-fade-up-delay-1">
-          <DarkCard title="Mensagens individuais">
+          <DarkCard title="Mensagens individuais" T={T}>
             <MessagesTable campaignId={campaign.id} dispatchChannel={campaign.dispatch_channel} />
           </DarkCard>
         </div>
