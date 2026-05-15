@@ -61,7 +61,7 @@ const DARK_THEME = {
 };
 const LIGHT_THEME: Theme = {
   pageBg:              "#eff6f2",
-  cardBg:              "#ffffff",
+  cardBg:              "#dce8e2",
   cardBorder:          "rgba(63,176,108,0.2)",
   cardShadow:          "0 1px 8px rgba(63,176,108,0.08), 0 0 0 1px rgba(63,176,108,0.06)",
   text:                "#0a1f10",
