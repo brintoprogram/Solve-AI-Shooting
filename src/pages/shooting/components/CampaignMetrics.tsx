@@ -50,6 +50,11 @@ export function CampaignMetrics({ campaign, light }: CampaignMetricsProps) {
     },
   ];
 
+  const isEmail = campaign.dispatch_channel === "n8n_email";
+  const visibleMetrics = isEmail
+    ? metrics.filter((m) => m.label !== "Entregues ✓✓" && m.label !== "Lidas ✓✓")
+    : metrics;
+
   const cardStyle = light
     ? { background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 1px 8px rgba(0,0,0,0.06)" }
     : { background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.1)" };
@@ -60,8 +65,8 @@ export function CampaignMetrics({ campaign, light }: CampaignMetricsProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {metrics.map((m) => (
+      <div className={`grid gap-4 ${isEmail ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4"}`}>
+        {visibleMetrics.map((m) => (
           <div key={m.label} className="p-4 rounded-xl transition-all duration-300" style={cardStyle}>
             <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3"
               style={{ background: `${m.glowColor}`, border: `1px solid ${m.glowColor}`, opacity: light ? 0.85 : 1 }}
