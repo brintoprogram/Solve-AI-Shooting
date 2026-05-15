@@ -4,9 +4,10 @@ import type { ShootingCampaign } from "@/types/shooting";
 
 interface CampaignMetricsProps {
   campaign: ShootingCampaign;
+  light?: boolean;
 }
 
-export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
+export function CampaignMetrics({ campaign, light }: CampaignMetricsProps) {
   const { sent_count, delivered_count, read_count, failed_count, total_recipients } = campaign;
 
   const metrics = [
@@ -49,32 +50,33 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
     },
   ];
 
+  const cardStyle = light
+    ? { background: "#ffffff", border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 1px 8px rgba(0,0,0,0.06)" }
+    : { background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.1)" };
+
+  const barTrack = light ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.05)";
+  const numColor = light ? "#0a1f10" : undefined;
+  const labelColor = light ? "#4a7055" : undefined;
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {metrics.map((m) => (
-          <div key={m.label} className="p-4 rounded-xl"
-            style={{
-              background: "rgba(13,26,17,0.6)",
-              border: "1px solid rgba(63,176,108,0.1)",
-            }}
-          >
+          <div key={m.label} className="p-4 rounded-xl transition-all duration-300" style={cardStyle}>
             <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3"
-              style={{ background: `${m.glowColor}20`, border: `1px solid ${m.glowColor}` }}
+              style={{ background: `${m.glowColor}`, border: `1px solid ${m.glowColor}`, opacity: light ? 0.85 : 1 }}
             >
               <m.icon className="w-4 h-4" style={{ color: m.color }} />
             </div>
-            <p className="text-2xl font-bold text-agro-text">{m.value.toLocaleString("pt-BR")}</p>
-            <p className="text-xs text-agro-muted mt-0.5">{m.label}</p>
+            <p className="text-2xl font-bold text-agro-text" style={{ color: numColor }}>
+              {m.value.toLocaleString("pt-BR")}
+            </p>
+            <p className="text-xs text-agro-muted mt-0.5" style={{ color: labelColor }}>{m.label}</p>
 
             {!m.hideBar && (
               <div className="mt-3 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold" style={{ color: m.color }}>{m.pct}%</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full overflow-hidden"
-                  style={{ background: "rgba(255,255,255,0.05)" }}
-                >
+                <span className="text-xs font-semibold" style={{ color: m.color }}>{m.pct}%</span>
+                <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: barTrack }}>
                   <div
                     className="h-full rounded-full transition-all duration-700"
                     style={{ width: `${m.pct}%`, background: m.barColor, boxShadow: `0 0 6px ${m.glowColor}` }}
@@ -97,24 +99,21 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
               {failed_count} falhas ({calcPercent(failed_count, total_recipients)}%)
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-4 text-xs text-agro-muted">
+          <div className="grid grid-cols-3 gap-4 text-xs" style={{ color: labelColor ?? "#6b8a75" }}>
             <div>
-              <span className="font-semibold text-agro-text">
+              <span className="font-semibold" style={{ color: numColor ?? "#c8dac0" }}>
                 {(campaign.error_summary as Record<string, number>)?.invalid_number ?? 0}
-              </span>{" "}
-              número inválido
+              </span>{" "}número inválido
             </div>
             <div>
-              <span className="font-semibold text-agro-text">
+              <span className="font-semibold" style={{ color: numColor ?? "#c8dac0" }}>
                 {(campaign.error_summary as Record<string, number>)?.rate_limited ?? 0}
-              </span>{" "}
-              rate limit
+              </span>{" "}rate limit
             </div>
             <div>
-              <span className="font-semibold text-agro-text">
+              <span className="font-semibold" style={{ color: numColor ?? "#c8dac0" }}>
                 {(campaign.error_summary as Record<string, number>)?.other ?? 0}
-              </span>{" "}
-              outros erros
+              </span>{" "}outros erros
             </div>
           </div>
         </div>
@@ -126,16 +125,14 @@ export function CampaignMetrics({ campaign }: CampaignMetricsProps) {
           style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.2)" }}
         >
           <div className="flex justify-between text-sm">
-            <span className="font-medium text-agro-text">
+            <span className="font-medium" style={{ color: numColor ?? "#c8dac0" }}>
               {sent_count.toLocaleString("pt-BR")} de {total_recipients.toLocaleString("pt-BR")} enviadas
             </span>
             <span className="font-bold text-blue-400">
               {calcPercent(sent_count, total_recipients)}%
             </span>
           </div>
-          <div className="h-2 w-full rounded-full overflow-hidden"
-            style={{ background: "rgba(59,130,246,0.12)" }}
-          >
+          <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: "rgba(59,130,246,0.12)" }}>
             <div
               className="h-full rounded-full transition-all duration-700"
               style={{

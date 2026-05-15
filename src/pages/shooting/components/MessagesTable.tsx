@@ -35,9 +35,10 @@ function getStatusStyle(status: string): StatusDef {
 interface MessagesTableProps {
   campaignId: string;
   dispatchChannel?: string;
+  light?: boolean;
 }
 
-export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProps) {
+export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTableProps) {
   const isEmail = dispatchChannel === "n8n_email";
   const [statusFilter, setStatusFilter] = useState<MessageStatus | "all">("all");
   const [detail, setDetail] = useState<ShootingMessage | null>(null);
@@ -46,7 +47,6 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
   const { messages, total, page, totalPages, loading, search, setSearch, setPage } =
     useCampaignMessages(campaignId, statusFilter === "all" ? undefined : statusFilter);
 
-  // Auto-detect whether this campaign has financial data in recipient_data
   const hasFinancialData = messages.some((m) => {
     const d = m.recipient_data as Record<string, unknown> | null;
     return d && d._financial_campaign === true;
@@ -106,14 +106,33 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
     return format(new Date(ts), "HH:mm");
   }
 
+  // ── Light mode token shortcuts ────────────────────────────────
+  const inputStyle = light ? {
+    background: "#ffffff",
+    color: "#0a1f10",
+    border: "1px solid rgba(0,0,0,0.12)",
+  } : undefined;
+
+  const mutedText  = light ? "#4a7055" : undefined;
+  const bodyText   = light ? "#0a1f10" : undefined;
+  const tableBorder = light ? "rgba(0,0,0,0.08)" : "rgba(63,176,108,0.1)";
+  const theadBg     = light ? "#f0f2f1"           : "rgba(13,26,17,0.9)";
+  const theadBorder = light ? "rgba(0,0,0,0.08)"  : "rgba(63,176,108,0.1)";
+  const theadColor  = light ? "#5a7a65"            : undefined;
+  const rowDivider  = light ? "rgba(0,0,0,0.05)"  : "rgba(63,176,108,0.05)";
+  const rowHover    = light ? "hover:bg-black/[0.025]" : "hover:bg-white/5";
+  const skeletonBg  = light ? "rgba(0,0,0,0.06)"  : "rgba(63,176,108,0.06)";
+  const paginBorder = light ? "rgba(0,0,0,0.1)"   : "rgba(63,176,108,0.15)";
+
   return (
     <>
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-agro-muted-2" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: mutedText ?? "#6b8a75" }} />
           <input
             className="input-agro w-full pl-9"
+            style={inputStyle}
             placeholder="Buscar por nome ou telefone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -122,6 +141,7 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
 
         <select
           className="input-agro w-44"
+          style={inputStyle}
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as MessageStatus | "all")}
         >
@@ -134,29 +154,26 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
         <button
           onClick={exportAllToXlsx}
           disabled={exporting}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors disabled:opacity-40"
-          style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-40"
+          style={{
+            border: light ? "1px solid rgba(0,0,0,0.12)" : "1px solid rgba(63,176,108,0.15)",
+            color: mutedText ?? "#6b8a75",
+          }}
         >
-          {exporting ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Download className="w-3.5 h-3.5" />
-          )}
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
           {exporting ? "Exportando…" : "Exportar tudo"}
         </button>
       </div>
 
-      <p className="text-xs text-agro-muted mb-3">
+      <p className="text-xs mb-3" style={{ color: mutedText ?? "#6b8a75" }}>
         {total.toLocaleString("pt-BR")} mensagens no total
       </p>
 
       {/* Table */}
-      <div className="rounded-xl overflow-hidden"
-        style={{ border: "1px solid rgba(63,176,108,0.1)" }}
-      >
+      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${tableBorder}` }}>
         <table className="w-full text-sm">
           <thead>
-            <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
+            <tr style={{ background: theadBg, borderBottom: `1px solid ${theadBorder}` }}>
               {[
                 "Destinatário",
                 ...(isEmail ? ["Email"] : ["Telefone"]),
@@ -165,7 +182,8 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                 ...(!isEmail ? ["Entregue", "Lido"] : []),
                 "Erro",
               ].map((h) => (
-                <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">
+                <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest"
+                  style={{ color: theadColor ?? "#6b8a75" }}>
                   {h}
                 </th>
               ))}
@@ -174,10 +192,10 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
           <tbody>
             {loading
               ? Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
+                  <tr key={i} style={{ borderBottom: `1px solid ${rowDivider}` }}>
                     {Array.from({ length: isEmail ? (hasFinancialData ? 7 : 5) : (hasFinancialData ? 9 : 7) }).map((_, j) => (
                       <td key={j} className="px-4 py-3">
-                        <Skeleton className="h-4 w-20" style={{ background: "rgba(63,176,108,0.06)" }} />
+                        <Skeleton className="h-4 w-20" style={{ background: skeletonBg }} />
                       </td>
                     ))}
                   </tr>
@@ -188,32 +206,32 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                   return (
                     <tr
                       key={msg.id}
-                      className="cursor-pointer transition-all duration-200 hover:bg-white/5"
-                      style={{ borderBottom: i < messages.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none" }}
+                      className={`cursor-pointer transition-all duration-200 ${rowHover}`}
+                      style={{ borderBottom: i < messages.length - 1 ? `1px solid ${rowDivider}` : "none" }}
                       onClick={() => setDetail(msg)}
                     >
-                      <td className="px-4 py-3 font-medium text-agro-text text-sm">
+                      <td className="px-4 py-3 font-medium text-sm" style={{ color: bodyText ?? "#c8dac0" }}>
                         {msg.recipient_name ?? "—"}
                       </td>
                       {isEmail ? (
-                        <td className="px-4 py-3 text-agro-muted font-mono text-xs">
+                        <td className="px-4 py-3 font-mono text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                           <div>{rd?.email as string ?? "—"}</div>
-                          {rd?.email2 && <div className="text-agro-muted-2">{rd.email2 as string}</div>}
-                          {rd?.email_representante && <div className="text-agro-muted-2 text-[10px]">Rep: {rd.email_representante as string}</div>}
-                          {rd?.gerente1_email && <div className="text-agro-muted-2 text-[10px]">G1: {rd.gerente1_email as string}</div>}
-                          {rd?.gerente2_email && <div className="text-agro-muted-2 text-[10px]">G2: {rd.gerente2_email as string}</div>}
+                          {rd?.email2 && <div style={{ color: mutedText ?? "#5a7a65" }}>{rd.email2 as string}</div>}
+                          {rd?.email_representante && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>Rep: {rd.email_representante as string}</div>}
+                          {rd?.gerente1_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G1: {rd.gerente1_email as string}</div>}
+                          {rd?.gerente2_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G2: {rd.gerente2_email as string}</div>}
                         </td>
                       ) : (
-                        <td className="px-4 py-3 text-agro-muted font-mono text-xs">
+                        <td className="px-4 py-3 font-mono text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                           {msg.recipient_phone}
                         </td>
                       )}
                       {hasFinancialData && (
                         <>
-                          <td className="px-4 py-3 text-xs font-semibold text-amber-400">
+                          <td className="px-4 py-3 text-xs font-semibold text-amber-500">
                             {rd?.valor_total_pendente as string ?? "—"}
                           </td>
-                          <td className="px-4 py-3 text-xs text-agro-muted">
+                          <td className="px-4 py-3 text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                             {rd?.proximo_vencimento as string ?? "—"}
                           </td>
                         </>
@@ -226,19 +244,19 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                           {s.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-agro-muted text-xs">
+                      <td className="px-4 py-3 text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                         {msg.sent_at ? (
                           <span className="flex items-center gap-1">
-                            <Check className="w-3 h-3 text-agro-muted-2" />
+                            <Check className="w-3 h-3" style={{ color: mutedText ?? "#6b8a75" }} />
                             {fmt(msg.sent_at)}
                           </span>
                         ) : "—"}
                       </td>
                       {!isEmail && (
-                        <td className="px-4 py-3 text-agro-muted text-xs">
+                        <td className="px-4 py-3 text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                           {msg.delivered_at ? (
                             <span className="flex items-center gap-1">
-                              <CheckCheck className="w-3.5 h-3.5 text-agro-muted-2" />
+                              <CheckCheck className="w-3.5 h-3.5" style={{ color: mutedText ?? "#6b8a75" }} />
                               {fmt(msg.delivered_at)}
                             </span>
                           ) : "—"}
@@ -251,11 +269,11 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
                               <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#34d4fb" }} />
                               {fmt(msg.read_at)}
                             </span>
-                          ) : "—"}
+                          ) : <span style={{ color: mutedText ?? "#6b8a75" }}>—</span>}
                         </td>
                       )}
                       <td className="px-4 py-3 text-xs text-red-400">
-                        {msg.error_code ? `#${msg.error_code}` : "—"}
+                        {msg.error_code ? `#${msg.error_code}` : <span style={{ color: mutedText ?? "#6b8a75" }}>—</span>}
                       </td>
                     </tr>
                   );
@@ -267,21 +285,21 @@ export function MessagesTable({ campaignId, dispatchChannel }: MessagesTableProp
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <p className="text-xs text-agro-muted">Página {page + 1} de {totalPages}</p>
+          <p className="text-xs" style={{ color: mutedText ?? "#6b8a75" }}>Página {page + 1} de {totalPages}</p>
           <div className="flex gap-2">
             <button
               disabled={page === 0}
               onClick={() => setPage(page - 1)}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text disabled:opacity-40 transition-colors"
-              style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 transition-colors"
+              style={{ border: `1px solid ${paginBorder}`, color: mutedText ?? "#6b8a75" }}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               disabled={page >= totalPages - 1}
               onClick={() => setPage(page + 1)}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-agro-muted hover:text-agro-text disabled:opacity-40 transition-colors"
-              style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 transition-colors"
+              style={{ border: `1px solid ${paginBorder}`, color: mutedText ?? "#6b8a75" }}
             >
               <ChevronRight className="w-4 h-4" />
             </button>

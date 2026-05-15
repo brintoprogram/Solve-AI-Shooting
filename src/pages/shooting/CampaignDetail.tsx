@@ -701,7 +701,7 @@ export function CampaignDetail() {
         {/* ── Metrics ─────────────────────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard title="Métricas em tempo real" T={T}>
-            <CampaignMetrics campaign={campaign} />
+            <CampaignMetrics campaign={campaign} light={lightMode} />
           </DarkCard>
         </div>
 
@@ -756,7 +756,7 @@ export function CampaignDetail() {
         {/* ── Messages table ───────────────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard title="Mensagens individuais" T={T}>
-            <MessagesTable campaignId={campaign.id} dispatchChannel={campaign.dispatch_channel} />
+            <MessagesTable campaignId={campaign.id} dispatchChannel={campaign.dispatch_channel} light={lightMode} />
           </DarkCard>
         </div>
       </div>
