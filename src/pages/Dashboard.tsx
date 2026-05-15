@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Send, Users, MessageSquare, Zap, Clock, DollarSign,
-  Download, FileText, Loader2,
+  Download, FileText, Loader2, Sun, Moon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -30,6 +30,61 @@ const DATE_OPTS: { id: DashboardDateRange; label: string }[] = [
   { id: "90d", label: "90 dias" },
   { id: "all", label: "Todos"   },
 ];
+
+// ── Theme ─────────────────────────────────────────────────────────
+type Theme = typeof DARK_THEME;
+const DARK_THEME = {
+  pageBg:              "#0a110e",
+  cardBg:              "rgba(13,26,17,0.7)",
+  cardBorder:          "rgba(63,176,108,0.1)",
+  cardShadow:          "none",
+  text:                undefined as string | undefined,
+  muted:               undefined as string | undefined,
+  muted2:              undefined as string | undefined,
+  gridStroke:          "rgba(63,176,108,0.06)",
+  tickFill:            "#6b8a75",
+  tooltipBg:           "rgba(13,26,17,0.97)",
+  tooltipBorder:       "rgba(63,176,108,0.2)",
+  tooltipColor:        "#c8dac0",
+  filterBg:            "rgba(13,26,17,0.8)",
+  filterBorder:        "rgba(63,176,108,0.1)",
+  filterActiveBg:      "rgba(63,176,108,0.18)",
+  filterActiveColor:   "#3fb06c",
+  filterInactiveColor: "#6b7f6e",
+  badgeBg:             "rgba(251,191,36,0.1)",
+  badgeColor:          "#fbbf24",
+  badgeBorder:         "rgba(251,191,36,0.2)",
+  badge2Bg:            "rgba(52,211,153,0.1)",
+  badge2Color:         "#34d399",
+  badge2Border:        "rgba(52,211,153,0.2)",
+  subtext:             undefined as string | undefined,
+};
+const LIGHT_THEME: Theme = {
+  pageBg:              "#eff6f2",
+  cardBg:              "#ffffff",
+  cardBorder:          "rgba(63,176,108,0.2)",
+  cardShadow:          "0 1px 8px rgba(63,176,108,0.08), 0 0 0 1px rgba(63,176,108,0.06)",
+  text:                "#0a1f10",
+  muted:               "#4a7055",
+  muted2:              "#7a9b85",
+  gridStroke:          "rgba(63,176,108,0.14)",
+  tickFill:            "#4a7055",
+  tooltipBg:           "rgba(255,255,255,0.98)",
+  tooltipBorder:       "rgba(63,176,108,0.25)",
+  tooltipColor:        "#0a1f10",
+  filterBg:            "#ffffff",
+  filterBorder:        "rgba(63,176,108,0.22)",
+  filterActiveBg:      "rgba(63,176,108,0.14)",
+  filterActiveColor:   "#1a6634",
+  filterInactiveColor: "#4a7055",
+  badgeBg:             "rgba(251,191,36,0.12)",
+  badgeColor:          "#a06b0a",
+  badgeBorder:         "rgba(251,191,36,0.25)",
+  badge2Bg:            "rgba(52,211,153,0.1)",
+  badge2Color:         "#1a6f4a",
+  badge2Border:        "rgba(52,211,153,0.25)",
+  subtext:             "#4a7055",
+};
 
 // ── Fetch campaign list for exports ──────────────────────────────
 async function fetchCampaignsForExport(workspaceId: string, periodStart: string | null) {
@@ -71,15 +126,21 @@ function campRate(c: { sent_count: number | null; delivered_count: number | null
 
 // ── StatCard ──────────────────────────────────────────────────────
 function StatCard({
-  icon: Icon, label, value, trend, color, glowColor, loading,
+  icon: Icon, label, value, trend, color, glowColor, loading, T,
 }: {
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   label: string; value: string; trend: string | null;
   color: string; glowColor: string; loading: boolean;
+  T: Theme;
 }) {
   return (
     <div className="p-5 rounded-2xl transition-all duration-300 hover:scale-[1.02]"
-      style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(16px)", border: "1px solid rgba(63,176,108,0.1)" }}
+      style={{
+        background: T.cardBg,
+        backdropFilter: "blur(16px)",
+        border: `1px solid ${T.cardBorder}`,
+        boxShadow: T.cardShadow,
+      }}
     >
       <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
         style={{ background: `${glowColor}20`, border: `1px solid ${glowColor}` }}
@@ -93,8 +154,8 @@ function StatCard({
         </>
       ) : (
         <>
-          <p className="font-display text-2xl font-bold text-agro-text">{value}</p>
-          <p className="text-xs text-agro-muted mt-0.5">{label}</p>
+          <p className="font-display text-2xl font-bold text-agro-text" style={{ color: T.text }}>{value}</p>
+          <p className="text-xs text-agro-muted mt-0.5" style={{ color: T.muted }}>{label}</p>
           {trend && <p className="text-xs font-semibold mt-2" style={{ color }}>{trend}</p>}
         </>
       )}
@@ -110,6 +171,9 @@ export function Dashboard() {
   const [dateRange,     setDateRange]     = useState<DashboardDateRange>("all");
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingPdf,  setExportingPdf]  = useState(false);
+  const [lightMode,     setLightMode]     = useState(false);
+
+  const T = lightMode ? LIGHT_THEME : DARK_THEME;
 
   const metrics = useDashboardMetrics(dateRange);
 
@@ -337,7 +401,6 @@ export function Dashboard() {
       y = (doc as never as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
 
       // ── CAMPANHAS DO PERÍODO ──────────────────────────────────
-      // May need a new page
       if (y > 165) { doc.addPage(); y = MX; }
       y = sectionBar("CAMPANHAS DO PERÍODO", y);
       const STATUS_PT: Record<string, string> = {
@@ -403,42 +466,61 @@ export function Dashboard() {
     : `Mensagens — ${periodRangeLabel(dateRange).toLowerCase()}`;
 
   return (
-    <div className="min-h-screen" style={{ background: "#0a110e" }}>
+    <div className="min-h-screen transition-colors duration-300" style={{ background: T.pageBg }}>
       <Topbar breadcrumbs={[{ label: "Dashboard" }]} />
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* ── Welcome + period filter ───────────────── */}
+        {/* ── Welcome + controls ────────────────────── */}
         <div className="flex items-start justify-between mb-6 animate-fade-up flex-wrap gap-4">
           <div>
-            <h1 className="font-display text-2xl font-bold text-agro-text">
+            <h1 className="font-display text-2xl font-bold text-agro-text" style={{ color: T.text }}>
               Bem-vindo, <span className="text-agro-green">Bruno</span>
             </h1>
-            <p className="text-agro-muted mt-1 text-sm">A inteligência que cultiva resultados</p>
+            <p className="text-agro-muted mt-1 text-sm" style={{ color: T.muted }}>A inteligência que cultiva resultados</p>
           </div>
 
-          {/* Period filter */}
-          <div className="flex gap-1 p-1 rounded-xl"
-            style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.1)" }}
-          >
-            {DATE_OPTS.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => setDateRange(o.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={dateRange === o.id
-                  ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c" }
-                  : { color: "#6b7f6e" }}
-              >
-                {o.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            {/* Light/dark toggle */}
+            <button
+              onClick={() => setLightMode((v) => !v)}
+              title={lightMode ? "Modo escuro" : "Modo claro"}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 hover:scale-105"
+              style={{
+                background: lightMode ? "rgba(255,255,255,0.9)" : "rgba(13,26,17,0.8)",
+                border: `1px solid ${T.cardBorder}`,
+                boxShadow: T.cardShadow,
+                color: lightMode ? "#a06b0a" : "#6b8a75",
+              }}
+            >
+              {lightMode
+                ? <Moon className="w-4 h-4" />
+                : <Sun  className="w-4 h-4" />}
+            </button>
+
+            {/* Period filter */}
+            <div className="flex gap-1 p-1 rounded-xl transition-colors duration-300"
+              style={{ background: T.filterBg, border: `1px solid ${T.filterBorder}` }}
+            >
+              {DATE_OPTS.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => setDateRange(o.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  style={dateRange === o.id
+                    ? { background: T.filterActiveBg,   color: T.filterActiveColor }
+                    : { color: T.filterInactiveColor }}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* ── Stats ────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4 animate-fade-up-delay-1">
           {stats.map((s) => (
-            <StatCard key={s.label} {...s} loading={metrics.loading} />
+            <StatCard key={s.label} {...s} loading={metrics.loading} T={T} />
           ))}
         </div>
 
@@ -446,7 +528,12 @@ export function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8 animate-fade-up-delay-1">
           {/* Economia de Tempo */}
           <div className="p-6 rounded-2xl transition-all duration-300 hover:scale-[1.01]"
-            style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(16px)", border: "1px solid rgba(63,176,108,0.1)" }}
+            style={{
+              background: T.cardBg,
+              backdropFilter: "blur(16px)",
+              border: `1px solid ${T.cardBorder}`,
+              boxShadow: T.cardShadow,
+            }}
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -455,7 +542,7 @@ export function Dashboard() {
                 <Clock className="w-4.5 h-4.5" style={{ color: "#fbbf24" }} />
               </div>
               <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-1 rounded-full"
-                style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}
+                style={{ background: T.badgeBg, color: T.badgeColor, border: `1px solid ${T.badgeBorder}` }}
               >
                 vs envio manual
               </span>
@@ -467,9 +554,9 @@ export function Dashboard() {
               </>
             ) : (
               <>
-                <p className="font-display text-3xl font-bold text-agro-text">{fmtTime(metrics.timeSavedMinutes)}</p>
-                <p className="text-sm text-agro-muted mt-1">Economia de tempo</p>
-                <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed">
+                <p className="font-display text-3xl font-bold text-agro-text" style={{ color: T.text }}>{fmtTime(metrics.timeSavedMinutes)}</p>
+                <p className="text-sm text-agro-muted mt-1" style={{ color: T.muted }}>Economia de tempo</p>
+                <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed" style={{ color: T.muted2 }}>
                   Enviar {fmtCount(metrics.messagesSent)} mensagens manualmente levaria ~{fmtTime(metrics.messagesSent * 5)} (5 min/msg).
                   A automação executa cada envio em ~30 segundos.
                 </p>
@@ -479,7 +566,12 @@ export function Dashboard() {
 
           {/* Valor Disparado */}
           <div className="p-6 rounded-2xl transition-all duration-300 hover:scale-[1.01]"
-            style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(16px)", border: "1px solid rgba(63,176,108,0.1)" }}
+            style={{
+              background: T.cardBg,
+              backdropFilter: "blur(16px)",
+              border: `1px solid ${T.cardBorder}`,
+              boxShadow: T.cardShadow,
+            }}
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -488,7 +580,7 @@ export function Dashboard() {
                 <DollarSign className="w-4.5 h-4.5" style={{ color: "#34d399" }} />
               </div>
               <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-1 rounded-full"
-                style={{ background: "rgba(52,211,153,0.1)", color: "#34d399", border: "1px solid rgba(52,211,153,0.2)" }}
+                style={{ background: T.badge2Bg, color: T.badge2Color, border: `1px solid ${T.badge2Border}` }}
               >
                 somatória total
               </span>
@@ -500,11 +592,11 @@ export function Dashboard() {
               </>
             ) : (
               <>
-                <p className="font-display text-3xl font-bold text-agro-text">
+                <p className="font-display text-3xl font-bold text-agro-text" style={{ color: T.text }}>
                   {metrics.valueDispatched > 0 ? fmtBRL(metrics.valueDispatched) : "—"}
                 </p>
-                <p className="text-sm text-agro-muted mt-1">Valor disparado</p>
-                <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed">
+                <p className="text-sm text-agro-muted mt-1" style={{ color: T.muted }}>Valor disparado</p>
+                <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed" style={{ color: T.muted2 }}>
                   {metrics.valueDispatched > 0
                     ? `Soma do campo "Valor total" em todos os disparos enviados com sucesso.`
                     : `Mapeie o placeholder "Valor total" num template para rastrear o valor cobrado por disparo.`}
@@ -515,36 +607,38 @@ export function Dashboard() {
         </div>
 
         {/* ── Area Chart ──────────────────────────── */}
-        <div className="rounded-2xl p-6 animate-fade-up-delay-1"
-          style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(20px)", border: "1px solid rgba(63,176,108,0.1)" }}
+        <div className="rounded-2xl p-6 animate-fade-up-delay-1 transition-all duration-300"
+          style={{
+            background: T.cardBg,
+            backdropFilter: "blur(20px)",
+            border: `1px solid ${T.cardBorder}`,
+            boxShadow: T.cardShadow,
+          }}
         >
           <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-agro-text">{chartTitle}</h2>
-              <p className="text-xs text-agro-muted-2 mt-0.5">Enviadas e lidas por dia</p>
+              <h2 className="text-sm font-semibold text-agro-text" style={{ color: T.text }}>{chartTitle}</h2>
+              <p className="text-xs text-agro-muted-2 mt-0.5" style={{ color: T.muted2 }}>Enviadas e lidas por dia</p>
             </div>
             <div className="flex items-center gap-2">
-              {/* XLSX export */}
               <button
                 onClick={exportXlsx}
                 disabled={metrics.loading || exportingXlsx}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-muted transition-colors hover:text-agro-text hover:bg-white/5 disabled:opacity-40"
-                style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                style={{ border: `1px solid ${T.cardBorder}`, color: T.muted }}
               >
                 {exportingXlsx ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                 XLSX
               </button>
-              {/* PDF export */}
               <button
                 onClick={exportPdf}
                 disabled={metrics.loading || exportingPdf}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-muted transition-colors hover:text-agro-text hover:bg-white/5 disabled:opacity-40"
-                style={{ border: "1px solid rgba(63,176,108,0.15)" }}
+                style={{ border: `1px solid ${T.cardBorder}`, color: T.muted }}
               >
                 {exportingPdf ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
                 PDF
               </button>
-              {/* Ver disparos */}
               <button
                 onClick={() => navigate("/shooting")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-agro-green transition-colors hover:opacity-80"
@@ -559,7 +653,7 @@ export function Dashboard() {
           {metrics.loading ? (
             <div className="h-52 rounded-xl animate-pulse" style={{ background: "rgba(63,176,108,0.04)" }} />
           ) : metrics.dailyMessages.every((d) => d.enviadas === 0) ? (
-            <div className="h-52 flex items-center justify-center text-sm text-agro-muted-2">
+            <div className="h-52 flex items-center justify-center text-sm" style={{ color: T.muted2 }}>
               Nenhum envio no período selecionado.
             </div>
           ) : (
@@ -567,11 +661,11 @@ export function Dashboard() {
               <svg width="0" height="0" style={{ position: "absolute" }}>
                 <defs>
                   <linearGradient id="gradEnviadas" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#60a5fa" stopOpacity={0.25} />
+                    <stop offset="5%"  stopColor="#60a5fa" stopOpacity={lightMode ? 0.15 : 0.25} />
                     <stop offset="95%" stopColor="#60a5fa" stopOpacity={0}    />
                   </linearGradient>
                   <linearGradient id="gradLidas" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#34d399" stopOpacity={0.2} />
+                    <stop offset="5%"  stopColor="#34d399" stopOpacity={lightMode ? 0.12 : 0.2} />
                     <stop offset="95%" stopColor="#34d399" stopOpacity={0}   />
                   </linearGradient>
                 </defs>
@@ -579,32 +673,32 @@ export function Dashboard() {
 
               <ResponsiveContainer width="100%" height={210}>
                 <AreaChart data={metrics.dailyMessages} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(63,176,108,0.06)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.gridStroke} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: "#6b8a75" }}
+                    tick={{ fontSize: 10, fill: T.tickFill }}
                     axisLine={false}
                     tickLine={false}
                     interval={Math.max(0, Math.floor(metrics.chartDays / 10) - 1)}
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: "#6b8a75" }}
+                    tick={{ fontSize: 10, fill: T.tickFill }}
                     axisLine={false}
                     tickLine={false}
                     allowDecimals={false}
                   />
                   <Tooltip
                     contentStyle={{
-                      background: "rgba(13,26,17,0.97)",
-                      border: "1px solid rgba(63,176,108,0.2)",
+                      background: T.tooltipBg,
+                      border: `1px solid ${T.tooltipBorder}`,
                       borderRadius: "10px",
                       fontSize: "12px",
-                      color: "#c8dac0",
+                      color: T.tooltipColor,
                     }}
                     cursor={{ stroke: "rgba(63,176,108,0.15)", strokeWidth: 1 }}
                   />
                   <Legend
-                    wrapperStyle={{ fontSize: "11px", paddingTop: "10px", color: "#6b8a75" }}
+                    wrapperStyle={{ fontSize: "11px", paddingTop: "10px", color: T.tickFill }}
                     formatter={(value) => value === "enviadas" ? "Enviadas" : "Lidas"}
                   />
                   <Area type="monotone" dataKey="enviadas" stroke="#60a5fa" strokeWidth={2}
