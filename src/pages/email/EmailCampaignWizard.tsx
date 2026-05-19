@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Settings2, Users, FileText, CheckCircle,
   ChevronLeft, ChevronRight, Search, Mail, X, Plus,
-  AlertCircle, Info, Zap, Loader2,
+  AlertCircle, Info, Zap, Loader2, ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +56,7 @@ interface WizardState {
   invoiceVencFrom: string;
   invoiceVencTo: string;
   contactInvoices: Record<string, ContactInvoice[]>;
+  selectedInvoices: Record<string, string[]>;  // contactId → selected invoice IDs
 }
 
 const INITIAL: WizardState = {
@@ -76,6 +77,7 @@ const INITIAL: WizardState = {
   invoiceVencFrom: "",
   invoiceVencTo: "",
   contactInvoices: {},
+  selectedInvoices: {},
 };
 
 const SMTP_STEPS = [
@@ -264,7 +266,11 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
       if (camErr) throw new Error(camErr.message);
 
       const msgs = state.contacts.map((c) => {
-        const invs      = state.contactInvoices[c.id] ?? [];
+        const allInvs    = state.contactInvoices[c.id] ?? [];
+        const selInvIds  = state.selectedInvoices?.[c.id];
+        const invs       = selInvIds && selInvIds.length > 0
+          ? allInvs.filter((inv) => selInvIds.includes(inv.id))
+          : allInvs;
         const hasInv    = invs.length > 0;
         const valorTotal = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
         const proximoVenc = invs
@@ -854,6 +860,7 @@ function Step2({ state, onChange }: {
   const [loading, setLoading]               = useState(true);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [page, setPage]                     = useState(0);
+  const [expandedContacts, setExpandedContacts] = useState<Set<string>>(new Set());
   const PAGE_SIZE = 10;
 
   // Load contacts
@@ -902,6 +909,19 @@ function Step2({ state, onChange }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isN8N, state.invoiceVencFrom, state.invoiceVencTo, allContacts.length, workspaceId]);
 
+  // Auto-expand all contacts with multiple invoices whenever the invoice map changes
+  useEffect(() => {
+    if (!isN8N || Object.keys(state.contactInvoices).length === 0) return;
+    setExpandedContacts((prev) => {
+      const n = new Set(prev);
+      for (const [cid, invs] of Object.entries(state.contactInvoices)) {
+        if (invs.length > 1) n.add(cid);
+      }
+      return n;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.contactInvoices, isN8N]);
+
   const hasInvoiceFilter = isN8N && (!!state.invoiceVencFrom || !!state.invoiceVencTo);
 
   const filtered = allContacts.filter((c) => {
@@ -921,27 +941,47 @@ function Step2({ state, onChange }: {
     const isSelected = selectedIds.includes(contact.id);
     let nextIds: string[];
     let nextContacts: Contact[];
+    const nextSelInvoices = { ...(state.selectedInvoices ?? {}) };
     if (isSelected) {
       nextIds      = selectedIds.filter((id) => id !== contact.id);
       nextContacts = state.contacts.filter((c) => c.id !== contact.id);
+      delete nextSelInvoices[contact.id];
+      setExpandedContacts((prev) => { const n = new Set(prev); n.delete(contact.id); return n; });
     } else {
       nextIds      = [...selectedIds, contact.id];
       nextContacts = [...state.contacts, contact];
+      const invs = state.contactInvoices[contact.id] ?? [];
+      if (invs.length > 0) nextSelInvoices[contact.id] = invs.map((inv) => inv.id);
+      if (invs.length > 1) setExpandedContacts((prev) => new Set([...prev, contact.id]));
     }
-    onChange({ selectedContactIds: nextIds, contacts: nextContacts, totalRecipients: nextIds.length });
+    onChange({ selectedContactIds: nextIds, contacts: nextContacts, totalRecipients: nextIds.length, selectedInvoices: nextSelInvoices });
   }
 
   function selectAll() {
     const newIds      = [...new Set([...selectedIds, ...filtered.map((c) => c.id)])];
-    const newContacts = [
-      ...state.contacts,
-      ...filtered.filter((c) => !selectedIds.includes(c.id)),
-    ];
-    onChange({ selectedContactIds: newIds, contacts: newContacts, totalRecipients: newIds.length });
+    const newContacts = [...state.contacts, ...filtered.filter((c) => !selectedIds.includes(c.id))];
+    const nextSelInvoices = { ...(state.selectedInvoices ?? {}) };
+    for (const c of filtered) {
+      if (!selectedIds.includes(c.id)) {
+        const invs = state.contactInvoices[c.id] ?? [];
+        if (invs.length > 0) nextSelInvoices[c.id] = invs.map((inv) => inv.id);
+      }
+    }
+    onChange({ selectedContactIds: newIds, contacts: newContacts, totalRecipients: newIds.length, selectedInvoices: nextSelInvoices });
   }
 
   function clearAll() {
-    onChange({ selectedContactIds: [], contacts: [], totalRecipients: 0 });
+    onChange({ selectedContactIds: [], contacts: [], totalRecipients: 0, selectedInvoices: {} });
+    setExpandedContacts(new Set());
+  }
+
+  function toggleInvoice(contactId: string, invoiceId: string) {
+    const allInvIds = (state.contactInvoices[contactId] ?? []).map((inv) => inv.id);
+    const current = state.selectedInvoices?.[contactId] ?? allInvIds;
+    const next = current.includes(invoiceId)
+      ? current.filter((id) => id !== invoiceId)
+      : [...current, invoiceId];
+    onChange({ selectedInvoices: { ...(state.selectedInvoices ?? {}), [contactId]: next } });
   }
 
   if (loading) {
@@ -1100,7 +1140,7 @@ function Step2({ state, onChange }: {
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email</th>
                   {isN8N && (
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">Valor</th>
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">Boleto(s)</th>
                   )}
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Representante</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 1</th>
@@ -1108,13 +1148,21 @@ function Step2({ state, onChange }: {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map((c, i) => {
-                  const isSelected = selectedIds.includes(c.id);
-                  return (
+                {paginated.flatMap((c, i) => {
+                  const isSelected   = selectedIds.includes(c.id);
+                  const invs         = isN8N ? (state.contactInvoices[c.id] ?? []) : [];
+                  const selInvIds    = state.selectedInvoices?.[c.id];
+                  const activeInvIds = selInvIds ?? invs.map((inv) => inv.id);
+                  const activeInvs   = invs.filter((inv) => activeInvIds.includes(inv.id));
+                  const selectedValor = activeInvs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+                  const isExpanded   = expandedContacts.has(c.id);
+                  const totalCols    = isN8N ? 7 : 6;
+
+                  const mainRow = (
                     <tr key={c.id}
                       className="cursor-pointer transition-all duration-200"
                       style={{
-                        borderBottom: i < paginated.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
+                        borderBottom: isExpanded ? "none" : i < paginated.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
                         background: isSelected ? "rgba(63,176,108,0.06)" : "transparent",
                       }}
                       onClick={() => toggle(c)}
@@ -1132,20 +1180,106 @@ function Step2({ state, onChange }: {
                         {c.name}
                       </td>
                       <td className="px-4 py-3 text-agro-muted text-xs font-mono">{c.email}</td>
-                      {isN8N && (() => {
-                        const invs  = state.contactInvoices[c.id] ?? [];
-                        const valor = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
-                        return (
-                          <td className="px-4 py-3 text-xs font-semibold text-amber-400">
-                            {invs.length > 0 ? formatBRL(valor) : "—"}
-                          </td>
-                        );
-                      })()}
+                      {isN8N && (
+                        <td className="px-4 py-3 text-xs" onClick={(e) => { if (invs.length > 1) e.stopPropagation(); }}>
+                          {invs.length === 0 ? (
+                            <span className="text-agro-muted-2">—</span>
+                          ) : invs.length === 1 ? (
+                            <span className="font-semibold text-amber-400">{formatBRL(selectedValor)}</span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedContacts((prev) => { const n = new Set(prev); isExpanded ? n.delete(c.id) : n.add(c.id); return n; });
+                              }}
+                              className="flex items-center gap-1 font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+                            >
+                              <span>
+                                {selInvIds && selInvIds.length < invs.length
+                                  ? `${selInvIds.length}/${invs.length} bol.`
+                                  : `${invs.length} bol.`}
+                              </span>
+                              <span className="text-agro-muted mx-0.5">·</span>
+                              <span>{formatBRL(selectedValor)}</span>
+                              <ChevronDown className={cn("w-3 h-3 transition-transform ml-0.5", isExpanded && "rotate-180")} />
+                            </button>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.email_representante ?? "—"}</td>
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente1_email ?? "—"}</td>
                       <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente2_email ?? "—"}</td>
                     </tr>
                   );
+
+                  if (!isExpanded || invs.length <= 1) return [mainRow];
+
+                  const invoiceRows = invs.map((inv, ii) => {
+                    const invSelected = activeInvIds.includes(inv.id);
+                    return (
+                      <tr
+                        key={`inv-${inv.id}`}
+                        style={{
+                          background: "rgba(245,158,11,0.03)",
+                          borderBottom: ii < invs.length - 1
+                            ? "1px solid rgba(245,158,11,0.07)"
+                            : "1px solid rgba(63,176,108,0.06)",
+                        }}
+                      >
+                        <td colSpan={totalCols} style={{ padding: "5px 16px 5px 56px" }}>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div
+                              onClick={() => toggleInvoice(c.id, inv.id)}
+                              className={cn(
+                                "w-3.5 h-3.5 rounded cursor-pointer flex items-center justify-center shrink-0 transition-all",
+                                invSelected ? "" : "border border-amber-500/30 hover:border-amber-400",
+                              )}
+                              style={invSelected
+                                ? { background: "linear-gradient(135deg, #f59e0b, #d97706)", boxShadow: "0 0 6px rgba(245,158,11,0.4)" }
+                                : { background: "transparent" }}
+                            >
+                              {invSelected && <span className="text-white text-[8px] leading-none">✓</span>}
+                            </div>
+                            <span className="text-xs font-medium text-agro-muted-2">
+                              {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
+                            </span>
+                            {inv.vencimento && (
+                              <span className="text-xs text-agro-muted">
+                                Venc. <span className="text-amber-400/80 font-medium">{formatDateBR(inv.vencimento)}</span>
+                              </span>
+                            )}
+                            {inv.status && (
+                              <span className={cn(
+                                "text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide",
+                                inv.status === "vencido"
+                                  ? "bg-red-500/15 text-red-400"
+                                  : inv.status === "pago"
+                                  ? "bg-green-500/15 text-green-400"
+                                  : "bg-amber-500/15 text-amber-400/80",
+                              )}>
+                                {inv.status}
+                              </span>
+                            )}
+                            {inv.codigo_barras && (
+                              <span className="text-[10px] text-agro-muted-2/50 font-mono truncate max-w-[160px]" title={inv.codigo_barras}>
+                                {inv.codigo_barras.slice(0, 20)}…
+                              </span>
+                            )}
+                            {inv.valor != null && (
+                              <span className={cn(
+                                "text-xs font-semibold ml-auto pr-2",
+                                invSelected ? "text-amber-400" : "text-agro-muted-2 line-through opacity-50",
+                              )}>
+                                {formatBRL(inv.valor)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+
+                  return [mainRow, ...invoiceRows];
                 })}
               </tbody>
             </table>
