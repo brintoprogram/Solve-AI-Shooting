@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState, Fragment } from "react";
 import {
   BarChart2, Download, RefreshCw, Shield, Send,
   CheckCircle2, Eye, Loader2, ChevronDown, ChevronUp,
-  MessageSquare,
+  MessageSquare, FileText, X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { format, subDays, startOfDay } from "date-fns";
 import { Topbar } from "@/components/layout/Topbar";
 import { supabase } from "@/lib/supabase";
@@ -129,11 +131,13 @@ function StatCard({ label, value, sub, icon: Icon, color, bg, border }: {
 
 function CampaignReport({ workspaceId }: { workspaceId: string }) {
   const { toast } = useToast();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading,   setLoading]   = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange>("all");
-  const [status,    setStatus]    = useState<CampStatus>("all");
+  const [campaigns,    setCampaigns]    = useState<Campaign[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [exporting,    setExporting]    = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [dateRange,    setDateRange]    = useState<DateRange>("all");
+  const [status,       setStatus]       = useState<CampStatus>("all");
+  const [selected,     setSelected]     = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,36 +160,60 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Clear selection when filters change
+  useEffect(() => { setSelected(new Set()); }, [dateRange, status]);
+
   const totalSent      = campaigns.reduce((a, c) => a + (c.sent_count ?? 0), 0);
   const totalDelivered = campaigns.reduce((a, c) => a + effectiveDelivered(c), 0);
   const totalRead      = campaigns.reduce((a, c) => a + (c.read_count ?? 0), 0);
   const totalRecip     = campaigns.reduce((a, c) => a + (c.total_recipients ?? 0), 0);
   const deliveryRate   = totalRecip > 0 ? Math.round((totalDelivered / totalRecip) * 100) : 0;
 
-  async function exportXlsx() {
+  const allIds      = campaigns.map((c) => c.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someSelected = selected.size > 0 && !allSelected;
+
+  function toggleAll() {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(allIds));
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // ── Shared paginated fetch ────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function fetchAll(baseQuery: any): Promise<any[]> {
+    const PAGE = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const all: any[] = [];
+    let offset = 0;
+    while (true) {
+      const { data } = await baseQuery.range(offset, offset + PAGE - 1);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }
+
+  // ── XLSX export (all or selected) ────────────────────────────
+  async function exportXlsx(ids?: string[]) {
     setExporting(true);
     try {
-      // Fetch all rows paginated (Supabase caps at 1000/request)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      async function fetchAll(baseQuery: any): Promise<any[]> {
-        const PAGE = 1000;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const all: any[] = [];
-        let offset = 0;
-        while (true) {
-          const { data } = await baseQuery.range(offset, offset + PAGE - 1);
-          if (!data || data.length === 0) break;
-          all.push(...data);
-          if (data.length < PAGE) break;
-          offset += PAGE;
-        }
-        return all;
-      }
+      const target      = ids ? campaigns.filter((c) => ids.includes(c.id)) : campaigns;
+      const campNameMap = Object.fromEntries(target.map((c) => [c.id, c.name]));
+      const suffix      = ids ? `_${ids.length}campanhas` : "";
 
-      const campNameMap = Object.fromEntries(campaigns.map((c) => [c.id, c.name]));
-
-      // ── Aba 1: Resumo campanhas ──────────────────────────────────
-      const summaryRows = campaigns.map((c) => ({
+      // ── Aba 1: Resumo campanhas ────────────────────────────────
+      const summaryRows = target.map((c) => ({
         "Nome":             c.name,
         "Canal":            isEmailCamp(c) ? "Email Automático" : "WhatsApp",
         "Template":         c.meta_templates?.template_name ?? "",
@@ -202,8 +230,8 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         "Concluída em":     c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy HH:mm") : "",
       }));
 
-      // ── Aba 2: WhatsApp — mensagens individuais ──────────────────
-      const waCampIds = campaigns.filter((c) => !isEmailCamp(c)).map((c) => c.id);
+      // ── Aba 2: WhatsApp — mensagens individuais ────────────────
+      const waCampIds = target.filter((c) => !isEmailCamp(c)).map((c) => c.id);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let waRows: Record<string, any>[] = [];
       if (waCampIds.length > 0) {
@@ -214,26 +242,26 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             .order("campaign_id,created_at", { ascending: true }),
         );
         waRows = msgs.map((m) => ({
-          "Campanha":           campNameMap[m.campaign_id] ?? m.campaign_id,
-          "Nome":               m.recipient_name ?? "",
-          "Telefone":           m.recipient_phone ?? "",
-          "Email":              m.recipient_data?.email ?? "",
-          "Valor Pendente":     m.recipient_data?.valor_total_pendente ?? "",
-          "Próx. Vencimento":   m.recipient_data?.proximo_vencimento ?? "",
-          "Status":             m.status ?? "",
-          "Erro":               m.error_message ?? "",
-          "Criada em":          m.created_at  ? format(new Date(m.created_at),  "dd/MM/yyyy HH:mm") : "",
-          "Enviada em":         m.sent_at     ? format(new Date(m.sent_at),     "dd/MM/yyyy HH:mm") : "",
-          "Entregue em":        m.delivered_at ? format(new Date(m.delivered_at),"dd/MM/yyyy HH:mm") : "",
-          "Lida em":            m.read_at     ? format(new Date(m.read_at),     "dd/MM/yyyy HH:mm") : "",
+          "Campanha":         campNameMap[m.campaign_id] ?? m.campaign_id,
+          "Nome":             m.recipient_name ?? "",
+          "Telefone":         m.recipient_phone ?? "",
+          "Email":            m.recipient_data?.email ?? "",
+          "Valor Pendente":   m.recipient_data?.valor_total_pendente ?? "",
+          "Próx. Vencimento": m.recipient_data?.proximo_vencimento ?? "",
+          "Status":           m.status ?? "",
+          "Erro":             m.error_message ?? "",
+          "Criada em":        m.created_at   ? format(new Date(m.created_at),   "dd/MM/yyyy HH:mm") : "",
+          "Enviada em":       m.sent_at      ? format(new Date(m.sent_at),      "dd/MM/yyyy HH:mm") : "",
+          "Entregue em":      m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
+          "Lida em":          m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
         }));
       }
 
-      // ── Aba 3: Email — automático (shooting_messages) + SMTP (email_messages) ──
+      // ── Aba 3: Email ───────────────────────────────────────────
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let emailRows: Record<string, any>[] = [];
 
-      const n8nCampIds = campaigns.filter((c) => isEmailCamp(c)).map((c) => c.id);
+      const n8nCampIds = target.filter((c) => isEmailCamp(c)).map((c) => c.id);
       if (n8nCampIds.length > 0) {
         const msgs = await fetchAll(
           db.from("shooting_messages")
@@ -242,18 +270,18 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             .order("campaign_id,created_at", { ascending: true }),
         );
         emailRows.push(...msgs.map((m) => ({
-          "Campanha":              campNameMap[m.campaign_id] ?? m.campaign_id,
-          "Canal":                 "Automático",
-          "Nome":                  m.recipient_name ?? "",
-          "Email":                 m.recipient_data?.email ?? m.recipient_phone ?? "",
-          "Email Representante":   m.recipient_data?.email_representante ?? "",
-          "Email Gerente 1":       m.recipient_data?.gerente1_email ?? "",
-          "Email Gerente 2":       m.recipient_data?.gerente2_email ?? "",
-          "Valor Pendente":        m.recipient_data?.valor_total_pendente ?? "",
-          "Próx. Vencimento":      m.recipient_data?.proximo_vencimento ?? "",
-          "Status":                m.status ?? "",
-          "Erro":                  m.error_message ?? "",
-          "Enviada em":            m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
+          "Campanha":            campNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":               "Automático",
+          "Nome":                m.recipient_name ?? "",
+          "Email":               m.recipient_data?.email ?? m.recipient_phone ?? "",
+          "Email Representante": m.recipient_data?.email_representante ?? "",
+          "Email Gerente 1":     m.recipient_data?.gerente1_email ?? "",
+          "Email Gerente 2":     m.recipient_data?.gerente2_email ?? "",
+          "Valor Pendente":      m.recipient_data?.valor_total_pendente ?? "",
+          "Próx. Vencimento":    m.recipient_data?.proximo_vencimento ?? "",
+          "Status":              m.status ?? "",
+          "Erro":                m.error_message ?? "",
+          "Enviada em":          m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
         })));
       }
 
@@ -271,29 +299,28 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             .order("campaign_id,created_at", { ascending: true }),
         );
         emailRows.push(...msgs.map((m) => ({
-          "Campanha":              smtpNameMap[m.campaign_id] ?? m.campaign_id,
-          "Canal":                 "SMTP",
-          "Nome":                  m.recipient_name ?? "",
-          "Email":                 m.recipient_email ?? "",
-          "Email Representante":   "",
-          "Email Gerente 1":       "",
-          "Email Gerente 2":       "",
-          "Valor Pendente":        "",
-          "Próx. Vencimento":      "",
-          "Status":                m.status ?? "",
-          "Erro":                  m.error_message ?? "",
-          "Enviada em":            m.sent_at    ? format(new Date(m.sent_at),    "dd/MM/yyyy HH:mm")
-                                 : m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
+          "Campanha":            smtpNameMap[m.campaign_id] ?? m.campaign_id,
+          "Canal":               "SMTP",
+          "Nome":                m.recipient_name ?? "",
+          "Email":               m.recipient_email ?? "",
+          "Email Representante": "",
+          "Email Gerente 1":     "",
+          "Email Gerente 2":     "",
+          "Valor Pendente":      "",
+          "Próx. Vencimento":    "",
+          "Status":              m.status ?? "",
+          "Erro":                m.error_message ?? "",
+          "Enviada em":          m.sent_at    ? format(new Date(m.sent_at),    "dd/MM/yyyy HH:mm")
+                               : m.created_at ? format(new Date(m.created_at), "dd/MM/yyyy HH:mm") : "",
         })));
       }
 
-      // ── Montar workbook ──────────────────────────────────────────
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows.length ? summaryRows : [{}]), "Campanhas");
       if (waRows.length > 0)    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(waRows),    "WhatsApp");
       if (emailRows.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emailRows), "Email");
 
-      XLSX.writeFile(wb, `relatorio_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      XLSX.writeFile(wb, `relatorio${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       toast({
         title:       "Relatório exportado!",
         description: `${waRows.length} msgs WhatsApp · ${emailRows.length} msgs Email`,
@@ -303,6 +330,146 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
       toast({ title: "Erro ao exportar", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
     } finally {
       setExporting(false);
+    }
+  }
+
+  // ── PDF export (selected only) ────────────────────────────────
+  async function exportPdf() {
+    setExportingPdf(true);
+    try {
+      const ids    = Array.from(selected);
+      const target = campaigns.filter((c) => ids.includes(c.id));
+
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+
+      // ── Cabeçalho ──────────────────────────────────────────────
+      doc.setFillColor(22, 101, 52);
+      doc.rect(0, 0, pageW, 18, "F");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.text("Relatório de Campanhas — Solve AI", 14, 12);
+
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 230, 210);
+      doc.text(
+        `Gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}  ·  ${target.length} campanha${target.length !== 1 ? "s" : ""} selecionada${target.length !== 1 ? "s" : ""}`,
+        pageW - 14,
+        12,
+        { align: "right" },
+      );
+
+      // ── Tabela resumo ──────────────────────────────────────────
+      const head = [["Campanha", "Canal", "Status", "Destinatários", "Enviadas", "Entregues", "Falhas", "Lidas", "Taxa %", "Criada em", "Concluída em"]];
+      const body = target.map((c) => [
+        c.name,
+        isEmailCamp(c) ? "Email" : "WhatsApp",
+        CAMP_STATUS[c.status]?.label ?? c.status,
+        (c.total_recipients ?? 0).toLocaleString("pt-BR"),
+        (c.sent_count ?? 0).toLocaleString("pt-BR"),
+        effectiveDelivered(c).toLocaleString("pt-BR"),
+        (c.failed_count ?? 0).toLocaleString("pt-BR"),
+        isEmailCamp(c) ? "—" : (c.read_count ?? 0).toLocaleString("pt-BR"),
+        effectiveRate(c) !== null ? `${effectiveRate(c)}%` : "—",
+        format(new Date(c.created_at), "dd/MM/yyyy"),
+        c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy") : "—",
+      ]);
+
+      autoTable(doc, {
+        startY:            22,
+        head,
+        body,
+        headStyles:        { fillColor: [22, 101, 52], textColor: 255, fontStyle: "bold", fontSize: 7 },
+        bodyStyles:        { fontSize: 7, textColor: [30, 30, 30] },
+        alternateRowStyles:{ fillColor: [240, 248, 243] },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 20 },
+          2: { cellWidth: 20 },
+          9: { cellWidth: 22 },
+          10:{ cellWidth: 22 },
+        },
+        styles: { overflow: "linebreak", cellPadding: 2.5 },
+        didDrawPage: (data) => {
+          // Footer with page number
+          const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
+          doc.setFontSize(7);
+          doc.setTextColor(150, 150, 150);
+          doc.text(
+            `Página ${data.pageNumber} de ${pageCount}  ·  Solve AI Shooting`,
+            pageW / 2,
+            doc.internal.pageSize.getHeight() - 6,
+            { align: "center" },
+          );
+        },
+      });
+
+      // ── Seção de destaque por campanha ─────────────────────────
+      // (apenas se ≤ 10 selecionadas para não criar PDF gigante)
+      if (target.length <= 10) {
+        target.forEach((c) => {
+          doc.addPage();
+
+          // Mini-cabeçalho por campanha
+          doc.setFillColor(240, 248, 243);
+          doc.rect(0, 0, pageW, 14, "F");
+          doc.setFontSize(11);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(22, 101, 52);
+          doc.text(c.name, 14, 10);
+
+          const st = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(100, 100, 100);
+          doc.text(`Status: ${st.label}  ·  Canal: ${isEmailCamp(c) ? "Email Automático" : "WhatsApp"}`, 14, 18);
+
+          // KPIs como tabela 2-colunas
+          const kpis = [
+            ["Destinatários",  (c.total_recipients ?? 0).toLocaleString("pt-BR")],
+            ["Enviadas",       (c.sent_count ?? 0).toLocaleString("pt-BR")],
+            ["Entregues",      effectiveDelivered(c).toLocaleString("pt-BR")],
+            ["Falhas",         (c.failed_count ?? 0).toLocaleString("pt-BR")],
+            ["Lidas",          isEmailCamp(c) ? "—" : (c.read_count ?? 0).toLocaleString("pt-BR")],
+            ["Respondidas",    isEmailCamp(c) ? "—" : (c.replied_count ?? 0).toLocaleString("pt-BR")],
+            ["Taxa de entrega", effectiveRate(c) !== null ? `${effectiveRate(c)}%` : "—"],
+            ["Criada em",      format(new Date(c.created_at), "dd/MM/yyyy HH:mm")],
+            ["Iniciada em",    c.started_at   ? format(new Date(c.started_at),   "dd/MM/yyyy HH:mm") : "—"],
+            ["Concluída em",   c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy HH:mm") : "—"],
+          ];
+
+          autoTable(doc, {
+            startY:     24,
+            head:       [["Métrica", "Valor"]],
+            body:       kpis,
+            headStyles: { fillColor: [22, 101, 52], textColor: 255, fontStyle: "bold", fontSize: 8 },
+            bodyStyles: { fontSize: 8 },
+            alternateRowStyles: { fillColor: [240, 248, 243] },
+            tableWidth: 100,
+            styles:     { cellPadding: 3 },
+            didDrawPage: (data) => {
+              const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
+              doc.setFontSize(7);
+              doc.setTextColor(150, 150, 150);
+              doc.text(
+                `Página ${data.pageNumber} de ${pageCount}  ·  Solve AI Shooting`,
+                pageW / 2,
+                doc.internal.pageSize.getHeight() - 6,
+                { align: "center" },
+              );
+            },
+          });
+        });
+      }
+
+      doc.save(`relatorio_campanhas_${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast({ title: "PDF gerado!", description: `${target.length} campanha${target.length !== 1 ? "s" : ""} exportada${target.length !== 1 ? "s" : ""}.`, variant: "success" });
+    } catch (err) {
+      toast({ title: "Erro ao gerar PDF", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -322,6 +489,8 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
     { id: "draft",     label: "Rascunho"         },
     { id: "scheduled", label: "Agendado"         },
   ];
+
+  const busy = exporting || exportingPdf;
 
   return (
     <div className="space-y-6">
@@ -361,7 +530,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
         </button>
 
-        <button onClick={exportXlsx} disabled={!campaigns.length || loading || exporting}
+        <button onClick={() => exportXlsx()} disabled={!campaigns.length || loading || busy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#3fb06c] hover:bg-[#1e2e22] disabled:opacity-40 transition-colors"
           style={{ border: "1px solid rgba(63,176,108,0.25)" }}
         >
@@ -370,11 +539,68 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         </button>
       </div>
 
+      {/* Selection action bar */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl transition-all"
+          style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.3)" }}>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#3fb06c] animate-pulse" />
+            <span className="text-sm font-semibold text-[#3fb06c]">
+              {selected.size} campanha{selected.size !== 1 ? "s" : ""} selecionada{selected.size !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          <div className="flex-1" />
+
+          <button
+            onClick={() => exportXlsx(Array.from(selected))}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            style={{ background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }}
+          >
+            {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Exportar XLSX
+          </button>
+
+          <button
+            onClick={exportPdf}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.25)" }}
+          >
+            {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+            {exportingPdf ? "Gerando PDF…" : "Exportar PDF"}
+          </button>
+
+          <button
+            onClick={() => setSelected(new Set())}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium text-[#6b7f6e] hover:text-white transition-colors disabled:opacity-40"
+          >
+            <X className="w-3.5 h-3.5" />
+            Limpar
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+              {/* Select-all checkbox */}
+              <th className="px-4 py-3 w-10">
+                <button
+                  onClick={toggleAll}
+                  className="w-4 h-4 rounded flex items-center justify-center transition-colors"
+                  style={allSelected || someSelected
+                    ? { background: "rgba(63,176,108,0.25)", border: "1px solid #3fb06c" }
+                    : { background: "transparent", border: "1px solid rgba(63,176,108,0.25)" }}
+                >
+                  {allSelected && <CheckCircle2 className="w-3 h-3 text-[#3fb06c]" />}
+                  {someSelected && <div className="w-2 h-0.5 bg-[#3fb06c] rounded" />}
+                </button>
+              </th>
               {["Campanha", "Status", "Destinatários", "Enviadas", "Entregues", "Falhas", "Lidas", "Entrega %", "Data"].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap">{h}</th>
               ))}
@@ -384,27 +610,45 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}>
-                  {Array.from({ length: 9 }).map((_, j) => (
+                  {Array.from({ length: 10 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
-                      <div className="h-4 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.06)", width: j === 0 ? "70%" : "50%" }} />
+                      <div className="h-4 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.06)", width: j === 1 ? "70%" : "50%" }} />
                     </td>
                   ))}
                 </tr>
               ))
             ) : campaigns.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-14 text-center text-[#6b7f6e]">Nenhuma campanha encontrada para os filtros selecionados</td>
+                <td colSpan={10} className="px-4 py-14 text-center text-[#6b7f6e]">Nenhuma campanha encontrada para os filtros selecionados</td>
               </tr>
             ) : campaigns.map((c, i) => {
-              const sent   = c.sent_count ?? 0;
-              const del    = effectiveDelivered(c);
-              const failed = c.failed_count ?? 0;
-              const rate   = effectiveRate(c);
-              const st     = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
+              const sent     = c.sent_count ?? 0;
+              const del      = effectiveDelivered(c);
+              const failed   = c.failed_count ?? 0;
+              const rate     = effectiveRate(c);
+              const st       = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
+              const isChecked = selected.has(c.id);
               return (
-                <tr key={c.id} className="hover:bg-white/[0.02] transition-colors"
-                  style={{ borderBottom: i < campaigns.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none" }}
+                <tr key={c.id}
+                  className="transition-colors cursor-pointer"
+                  style={{
+                    borderBottom: i < campaigns.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none",
+                    background: isChecked ? "rgba(63,176,108,0.06)" : undefined,
+                  }}
+                  onClick={() => toggleOne(c.id)}
                 >
+                  {/* Row checkbox */}
+                  <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => toggleOne(c.id)}
+                      className="w-4 h-4 rounded flex items-center justify-center transition-colors"
+                      style={isChecked
+                        ? { background: "rgba(63,176,108,0.25)", border: "1px solid #3fb06c" }
+                        : { background: "transparent", border: "1px solid rgba(63,176,108,0.2)" }}
+                    >
+                      {isChecked && <CheckCircle2 className="w-3 h-3 text-[#3fb06c]" />}
+                    </button>
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-white truncate max-w-[200px]">{c.name}</p>
                     {c.meta_templates?.template_name && (
