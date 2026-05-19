@@ -4,12 +4,14 @@ import type { ZApiConnection } from "@/hooks/useZApiConnections";
 import type { MetaConnection } from "@/types/shooting";
 
 interface Props {
-  state:           AutomationWizardState;
-  zApiConnections: ZApiConnection[];
-  metaConnections: MetaConnection[];
-  saving:          boolean;
-  onSaveDraft:     () => void;
-  onActivate:      () => void;
+  state:               AutomationWizardState;
+  zApiConnections:     ZApiConnection[];
+  metaConnections:     MetaConnection[];
+  saving:              boolean;
+  onSaveDraft:         () => void;
+  onActivate:          () => void;
+  editMode?:           boolean;
+  editRecipientCount?: number;
 }
 
 function padHour(h: number) { return `${String(h).padStart(2, "0")}:00`; }
@@ -30,7 +32,7 @@ function formatDate(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export function StepReview({ state, zApiConnections, metaConnections, saving, onSaveDraft, onActivate }: Props) {
+export function StepReview({ state, zApiConnections, metaConnections, saving, onSaveDraft, onActivate, editMode = false, editRecipientCount }: Props) {
   const isZApi = state.channel === "z_api";
 
   const connLabel = isZApi
@@ -103,7 +105,7 @@ export function StepReview({ state, zApiConnections, metaConnections, saving, on
           { icon: Zap,          label: "Canal",      value: isZApi ? "Z-API" : "Meta API" },
           { icon: MessageSquare, label: "Conexão",    value: connLabel },
           { icon: Clock,        label: "Disparo",    value: padHour(state.send_hour) },
-          { icon: Users,        label: "Destinatários", value: `${state.selectedRecipients.length} contatos` },
+          { icon: Users,        label: "Destinatários", value: `${editMode ? (editRecipientCount ?? 0) : state.selectedRecipients.length} contatos` },
         ].map(({ icon: Icon, label, value }) => (
           <div key={label} className="p-3 rounded-xl"
             style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.12)" }}>
@@ -188,7 +190,7 @@ export function StepReview({ state, zApiConnections, metaConnections, saving, on
           className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-agro-muted-2 hover:text-agro-text transition-colors disabled:opacity-50"
           style={{ border: "1px solid rgba(63,176,108,0.2)" }}
         >
-          {saving ? "Salvando..." : "Salvar rascunho"}
+          {saving ? "Salvando..." : editMode ? "Salvar alterações" : "Salvar rascunho"}
         </button>
         <button
           onClick={onActivate}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus, Zap, Clock, Users, ChevronRight, Pause, Play, Trash2, RefreshCw,
-  ChevronDown, ChevronUp, CalendarDays, X, Loader2,
+  ChevronDown, ChevronUp, CalendarDays, X, Loader2, Sparkles,
 } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAutomationRules } from "@/hooks/useAutomationRules";
@@ -473,8 +473,9 @@ export function Automations() {
   const wsId            = workspaceId ?? "";
 
   const { rules, loading, refetch, updateStatus, deleteRule } = useAutomationRules(wsId);
-  const [acting,  setActing]  = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<string | null>(null);
+  const [acting,       setActing]       = useState<string | null>(null);
+  const [confirm,      setConfirm]      = useState<string | null>(null);
+  const [creatingDemo, setCreatingDemo] = useState(false);
 
   async function handleToggle(rule: AutomationRule) {
     const next = rule.status === "active" ? "paused" : "active";
@@ -497,6 +498,132 @@ export function Automations() {
     } finally {
       setActing(null);
       setConfirm(null);
+    }
+  }
+
+  async function createDemoRule() {
+    if (!wsId) return;
+    setCreatingDemo(true);
+    try {
+      const t0 = new Date();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = supabase as any;
+
+      function dateOffset(days: number): string {
+        const d = new Date(t0);
+        d.setDate(d.getDate() + days);
+        return d.toISOString().slice(0, 10);
+      }
+
+      const { data: rule, error: ruleErr } = await db
+        .from("automation_rules")
+        .insert({
+          workspace_id:     wsId,
+          name:             `Demo — Régua de Cobrança ${t0.toLocaleDateString("pt-BR")}`,
+          status:           "active",
+          send_hour:        9,
+          channel:          "z_api",
+          template_mode:    "per_trigger",
+          total_recipients: 6,
+          sent_count:       0,
+        })
+        .select("id")
+        .single();
+
+      if (ruleErr || !rule) throw ruleErr ?? new Error("Falha ao criar demo");
+      const ruleId = (rule as { id: string }).id;
+
+      const { data: triggers, error: trigErr } = await db
+        .from("automation_triggers")
+        .insert([
+          { rule_id: ruleId, workspace_id: wsId, day_offset: -7, label: "7 dias antes",  message_body: "Olá {nome}! Seu boleto de {valor} vence em {dias} dias ({vencimento}). Pague em dia e evite juros.",                         enabled: true },
+          { rule_id: ruleId, workspace_id: wsId, day_offset:  0, label: "No dia",        message_body: "Bom dia, {nome}! Hoje é o vencimento do seu boleto de {valor}. Pague agora para evitar multas.",                               enabled: true },
+          { rule_id: ruleId, workspace_id: wsId, day_offset: +3, label: "3 dias depois", message_body: "Olá {nome}, identificamos que seu boleto de {valor} está em aberto há {dias} dias. Regularize para evitar negativação.",        enabled: true },
+        ])
+        .select("id, day_offset");
+
+      if (trigErr || !triggers) throw trigErr ?? new Error("Falha ao criar gatilhos");
+
+      const trigMap: Record<number, string> = {};
+      for (const t of (triggers as Array<{ id: string; day_offset: number }>)) {
+        trigMap[t.day_offset] = t.id;
+      }
+
+      const contacts = [
+        { name: "Maria Aparecida Santos", phone: "5511998752341", venc: dateOffset(+10), valor: 1250.00 },
+        { name: "João Carlos Oliveira",   phone: "5511987321560", venc: dateOffset(+3),  valor: 870.00  },
+        { name: "Ana Paula Rodrigues",    phone: "5519976543210", venc: dateOffset(-2),  valor: 2100.00 },
+        { name: "Carlos Eduardo Lima",    phone: "5521991234567", venc: dateOffset(-5),  valor: 560.00  },
+        { name: "Fernanda Costa Silva",   phone: "5511987654321", venc: dateOffset(+7),  valor: 3400.00 },
+        { name: "Roberto Alves Souza",    phone: "5551987654001", venc: dateOffset(-12), valor: 980.00  },
+      ];
+
+      const { data: recipients, error: recErr } = await db
+        .from("automation_recipients")
+        .insert(contacts.map((c) => ({
+          rule_id:       ruleId,
+          workspace_id:  wsId,
+          contact_id:    crypto.randomUUID(),
+          contact_name:  c.name,
+          contact_phone: c.phone,
+          vencimento:    c.venc,
+          valor:         c.valor,
+          removed:       false,
+        })))
+        .select("id, vencimento, contact_name, contact_phone");
+
+      if (recErr || !recipients) throw recErr ?? new Error("Falha ao criar destinatários");
+
+      const todayISO = t0.toISOString().slice(0, 10);
+      const logs: Record<string, unknown>[] = [];
+
+      for (const rec of (recipients as Array<{ id: string; vencimento: string; contact_name: string; contact_phone: string }>)) {
+        for (const [offsetStr, triggerId] of Object.entries(trigMap)) {
+          const dayOffset  = Number(offsetStr);
+          const fireDate   = new Date(rec.vencimento + "T12:00:00Z");
+          fireDate.setDate(fireDate.getDate() + dayOffset);
+
+          if (fireDate.toISOString().slice(0, 10) <= todayISO) {
+            const failed = Math.random() < 0.12;
+            logs.push({
+              rule_id:       ruleId,
+              trigger_id:    triggerId,
+              recipient_id:  rec.id,
+              workspace_id:  wsId,
+              contact_name:  rec.contact_name,
+              contact_phone: rec.contact_phone,
+              day_offset:    dayOffset,
+              channel:       "z_api",
+              status:        failed ? "failed" : "sent",
+              error_message: failed ? "Número inválido ou sem WhatsApp" : null,
+              scheduled_for: fireDate.toISOString(),
+              sent_at:       fireDate.toISOString(),
+            });
+          }
+        }
+      }
+
+      if (logs.length > 0) {
+        await db.from("automation_logs").insert(logs);
+      }
+
+      const sentCount = logs.filter((l) => l.status === "sent").length;
+      await db.from("automation_rules").update({ sent_count: sentCount }).eq("id", ruleId);
+
+      toast({
+        title:       "Demo criada!",
+        description: `Régua com ${contacts.length} contatos fictícios e ${logs.length} disparos gerados.`,
+        variant:     "success",
+      });
+      navigate(`/automations/${ruleId}`);
+    } catch (err) {
+      toast({
+        title:       "Erro ao criar demo",
+        description: err instanceof Error ? err.message : "Tente novamente.",
+        variant:     "destructive",
+      });
+    } finally {
+      setCreatingDemo(false);
     }
   }
 
@@ -532,6 +659,14 @@ export function Automations() {
               className="w-9 h-9 rounded-xl flex items-center justify-center text-agro-muted hover:text-agro-text transition-colors"
               style={{ border: "1px solid rgba(63,176,108,0.15)" }}>
               <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={createDemoRule}
+              disabled={creatingDemo}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 hover:bg-white/5"
+              style={{ color: "#7fc49a", border: "1px solid rgba(63,176,108,0.25)" }}>
+              <Sparkles className="w-4 h-4" />
+              {creatingDemo ? "Criando..." : "Criar demo"}
             </button>
             <button
               onClick={() => navigate("/automations/new")}

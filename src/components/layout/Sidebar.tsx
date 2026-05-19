@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import {
   Send,
   Settings,
@@ -14,6 +15,8 @@ import {
   Lock,
   LifeBuoy,
   Bot,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -57,9 +60,13 @@ function isAllowed(profile: ReturnType<typeof useAuth>["profile"], item: NavItem
 }
 
 export function Sidebar() {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, workspaces, workspaceId, switchWorkspace } = useAuth();
   const { unreadCount } = useCampaignAlerts();
   const navigate = useNavigate();
+  const [wsOpen, setWsOpen] = useState(false);
+
+  const current = workspaces.find((w) => w.id === workspaceId);
+  const isDemo = current?.name.toLowerCase().includes("demo") ?? false;
 
   async function handleSignOut() {
     await signOut();
@@ -74,8 +81,9 @@ export function Sidebar() {
 
   return (
     <aside
-      className="fixed left-0 top-0 h-screen w-60 flex flex-col z-30"
+      className="fixed left-0 h-screen w-60 flex flex-col z-30"
       style={{
+        top: isDemo ? 37 : 0,
         background: "linear-gradient(180deg, #0d1a11 0%, #0a110e 100%)",
         borderRight: "1px solid rgba(63,176,108,0.1)",
       }}
@@ -196,6 +204,39 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Workspace switcher — only when user belongs to multiple workspaces */}
+      {workspaces.length > 1 && (
+        <div className="relative px-3 pb-2">
+          <button
+            onClick={() => setWsOpen((o) => !o)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-all hover:bg-white/5"
+            style={{ border: "1px solid rgba(63,176,108,0.12)", color: isDemo ? "#3fb06c" : "#6b8a75" }}
+          >
+            <span className="flex-1 text-left truncate font-medium">{current?.name ?? "Workspace"}</span>
+            <ChevronsUpDown className="w-3 h-3 shrink-0" />
+          </button>
+          {wsOpen && (
+            <div
+              className="absolute bottom-full left-3 right-3 mb-1 rounded-xl overflow-hidden z-50"
+              style={{ background: "#0d1a11", border: "1px solid rgba(63,176,108,0.2)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+            >
+              {workspaces.map((ws) => (
+                <button
+                  key={ws.id}
+                  onClick={() => { switchWorkspace(ws.id); setWsOpen(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left transition-all hover:bg-white/5"
+                  style={{ color: ws.id === workspaceId ? "#3fb06c" : "#7a9e83" }}
+                >
+                  {ws.id === workspaceId && <Check className="w-3 h-3 shrink-0" />}
+                  {ws.id !== workspaceId && <span className="w-3 shrink-0" />}
+                  <span className="truncate font-medium">{ws.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer — user info + logout */}
       <div

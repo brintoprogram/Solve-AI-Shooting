@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+﻿import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -192,12 +192,21 @@ export function CampaignDetail() {
     setExportingPdf(true);
 
     try {
-      // A4 landscape
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const W  = 297;
       const MX = 14;
+      const FOOTER_Y = 203;
 
-      // ── Logo ──────────────────────────────────────
+      // Brand palette
+      const GREEN  = [22, 163, 74]   as [number,number,number];
+      const TEAL   = [16, 132, 163]  as [number,number,number];
+      const BLUE   = [37, 99, 235]   as [number,number,number];
+      const RED    = [220, 38, 38]   as [number,number,number];
+      const DARK   = [25, 25, 25]    as [number,number,number];
+      const MUTED  = [130, 130, 130] as [number,number,number];
+      const AMBER  = [180, 120, 0]   as [number,number,number];
+
+      // Logo
       let logo: string | null = null;
       try {
         const res  = await fetch("/logo.png");
@@ -209,7 +218,7 @@ export function CampaignDetail() {
         });
       } catch { /* sem logo */ }
 
-      // ── Fetch all messages ─────────────────────────
+      // Fetch all messages
       const { data: rawMsgs } = await db
         .from("shooting_messages")
         .select("*")
@@ -217,10 +226,9 @@ export function CampaignDetail() {
         .order("sent_at", { ascending: true, nullsFirst: false });
       const messages: ShootingMessage[] = rawMsgs ?? [];
 
-      // Compute total value from recipient_data (pt-BR currency parsing)
       function parseBRL(raw: unknown): number {
         if (typeof raw === "number") return raw;
-        const s = String(raw).replace(/[^\d,]/g, ""); // strip everything except digits + comma
+        const s = String(raw).replace(/[^\d,]/g, "");
         return parseFloat(s.replace(",", "."));
       }
       let totalValue = 0;
@@ -242,55 +250,66 @@ export function CampaignDetail() {
         if (!isNaN(n) && n > 0) totalValue += n;
       }
 
-      // ── HEADER ────────────────────────────────────
-      const LOGO_SIZE = 30;
+      // Computed metrics
+      const total      = campaign.total_recipients;
+      const sent       = campaign.sent_count - campaign.failed_count;
+      const delivered  = campaign.delivered_count;
+      const read       = campaign.read_count;
+      const failed     = campaign.failed_count;
+      const attempted  = campaign.sent_count;
+      const pending    = Math.max(0, total - attempted);
+      const sentPct    = total     > 0 ? (sent      / total     * 100) : 0;
+      const delivPct   = sent      > 0 ? (delivered / sent      * 100) : 0;
+      const readPct    = sent      > 0 ? (read      / sent      * 100) : 0;
+      const failPct    = attempted > 0 ? (failed    / attempted * 100) : 0;
+      const successPct = attempted > 0 ? (sent      / attempted * 100) : 0;
+      const isComplete = ["completed", "cancelled"].includes(campaign.status) || pending === 0;
+
+      // HEADER
+      const LOGO_SIZE = 26;
       let y = MX;
 
       if (logo) doc.addImage(logo, "PNG", MX, y, LOGO_SIZE, LOGO_SIZE);
       const tX = logo ? MX + LOGO_SIZE + 6 : MX;
 
-      doc.setFontSize(22);
+      doc.setFontSize(21);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(25, 25, 25);
-      doc.text("Relatório de Disparo", tX, y + 11);
+      doc.setTextColor(...DARK);
+      doc.text("Relatorio de Disparo", tX, y + 9);
 
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setFont("helvetica", "italic");
-      doc.setTextColor(120, 120, 120);
-      doc.text("Inteligência que cultiva resultados", tX, y + 19);
+      doc.setTextColor(...MUTED);
+      doc.text("Inteligencia que cultiva resultados", tX, y + 17);
 
       const now = new Date();
       const dateStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
-        + " às " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-      doc.setFontSize(9);
+        + " as " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(150, 150, 150);
-      doc.text(`Gerado em ${dateStr}`, tX, y + 26);
+      doc.setTextColor(...MUTED);
+      doc.text(`Gerado em ${dateStr}`, tX, y + 23);
 
-      y += LOGO_SIZE + 6;
-
-      // Thick separator
-      doc.setDrawColor(25, 25, 25);
-      doc.setLineWidth(1.2);
+      y += LOGO_SIZE + 4;
+      doc.setDrawColor(...DARK);
+      doc.setLineWidth(1);
       doc.line(MX, y, W - MX, y);
-      y += 10;
+      y += 7;
 
-      // ── Helper: section bar ────────────────────────
       const sectionBar = (label: string, sy: number): number => {
         doc.setFillColor(30, 30, 30);
-        doc.rect(MX, sy, W - MX * 2, 9, "F");
-        doc.setFontSize(9);
+        doc.rect(MX, sy, W - MX * 2, 8, "F");
+        doc.setFontSize(8.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text(label, MX + 4, sy + 6.3);
-        return sy + 13;
+        doc.text(label, MX + 4, sy + 5.5);
+        return sy + 12;
       };
 
-      // ── Helper: inline bold + normal text ─────────
       const infoLine = (label: string, value: string, x: number, iy: number): number => {
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(25, 25, 25);
+        doc.setTextColor(...DARK);
         doc.text(`${label}: `, x, iy);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(60, 60, 60);
@@ -298,8 +317,8 @@ export function CampaignDetail() {
         return iy + 7;
       };
 
-      // ── INFORMAÇÕES DO DISPARO ─────────────────────
-      y = sectionBar("INFORMAÇÕES DO DISPARO", y);
+      // INFORMACOES DO DISPARO
+      y = sectionBar("INFORMACOES DO DISPARO", y);
       const c2 = MX + (W - MX * 2) / 2 + 4;
       const SOURCE_PT: Record<string, string> = {
         contacts: "Contatos da base", xlsx_upload: "Planilha importada",
@@ -309,176 +328,267 @@ export function CampaignDetail() {
       yL = infoLine("Nome do Disparo", campaign.name, MX, yL);
       yL = infoLine(
         isPdfEmail ? "Canal" : "Template",
-        isPdfEmail ? "Email via N8N" : (campaign.meta_templates?.template_name ?? "—"),
+        isPdfEmail ? "Email via N8N" : (campaign.meta_templates?.template_name ?? "--"),
         MX, yL,
       );
       yR = infoLine("Tipo", SOURCE_PT[campaign.data_source] ?? campaign.data_source, c2, yR);
-      yR = infoLine("Limpeza de Base", "Não", c2, yR);
+      const statusLabel = isComplete
+        ? (campaign.status === "cancelled" ? "Cancelada" : "Concluida")
+        : `Em andamento (${pending} mensagem${pending !== 1 ? "s" : ""} na fila)`;
+      yR = infoLine("Status", statusLabel, c2, yR);
       if (campaign.started_at)   yR = infoLine("Iniciada em",  format(new Date(campaign.started_at),   "dd/MM/yyyy HH:mm"), c2, yR);
-      if (campaign.completed_at) yR = infoLine("Concluída em", format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm"), c2, yR);
-      y = Math.max(yL, yR) + 8;
+      if (campaign.completed_at) yR = infoLine("Concluida em", format(new Date(campaign.completed_at), "dd/MM/yyyy HH:mm"), c2, yR);
+      y = Math.max(yL, yR) + 6;
 
-      // ── RESUMO DE RESULTADOS ───────────────────────
+      // RESUMO DE RESULTADOS
       y = sectionBar("RESUMO DE RESULTADOS", y);
 
-      const successRate = campaign.sent_count > 0
-        ? ((campaign.sent_count - campaign.failed_count) / campaign.sent_count * 100).toFixed(1) + "%"
-        : "—";
+      // 2-column layout: cards left (52%) | funnel right (48%)
+      const splitX     = MX + (W - MX * 2) * 0.52;
+      const cardsAreaW = splitX - MX - 4;
+      const funnelX    = splitX + 4;
+      const funnelAreaW = W - MX - funnelX;
 
-      const ROW1 = [
-        { label: "Total de Contatos",    value: campaign.total_recipients.toLocaleString("pt-BR"),                        color: [25, 25, 25]     as [number,number,number] },
-        { label: "Enviados com Sucesso", value: (campaign.sent_count - campaign.failed_count).toLocaleString("pt-BR"),    color: [22, 163, 74]    as [number,number,number] },
-        { label: "Entregues ✓✓",         value: campaign.delivered_count.toLocaleString("pt-BR"),                         color: [16, 132, 163]   as [number,number,number] },
+      // Left: 6 metric cards
+      const CARDS = [
+        { label: "Total de Contatos", value: total.toLocaleString("pt-BR"),     sub: null,                                                       color: DARK  },
+        { label: "Enviados",          value: sent.toLocaleString("pt-BR"),      sub: `${sentPct.toFixed(1)}% do total`,                          color: GREEN },
+        { label: "Taxa de Sucesso",   value: `${successPct.toFixed(1)}%`,        sub: "dos tentados",                                             color: GREEN },
+        { label: "Entregues",         value: delivered.toLocaleString("pt-BR"), sub: `${delivPct.toFixed(1)}% dos enviados`,                     color: TEAL  },
+        { label: "Lidos",             value: read.toLocaleString("pt-BR"),      sub: `${readPct.toFixed(1)}% dos enviados`,                      color: BLUE  },
+        { label: "Falhas",            value: failed.toLocaleString("pt-BR"),    sub: failed > 0 ? `${failPct.toFixed(1)}% dos tentados` : "Nenhuma falha", color: failed > 0 ? RED : GREEN },
       ];
-      const ROW2 = [
-        { label: "Lidos ✓✓",             value: campaign.read_count.toLocaleString("pt-BR"),                              color: [37, 99, 235]    as [number,number,number] },
-        { label: "Falhas",               value: campaign.failed_count.toLocaleString("pt-BR"),                            color: [220, 38, 38]    as [number,number,number] },
-        { label: "Taxa de Sucesso",      value: successRate,                                                              color: [22, 163, 74]    as [number,number,number] },
-      ];
 
-      const cardW = (W - MX * 2 - 2 * 5) / 3;
-      const cardH = 28;
+      const cols  = 3;
+      const cardW = (cardsAreaW - (cols - 1) * 3) / cols;
+      const cardH = 22;
 
-      const drawCards = (cards: typeof ROW1, startY: number) => {
-        cards.forEach((card, i) => {
-          const cx = MX + i * (cardW + 5);
-          doc.setFillColor(250, 250, 250);
-          doc.setDrawColor(210, 210, 210);
-          doc.setLineWidth(0.3);
-          doc.roundedRect(cx, startY, cardW, cardH, 2, 2, "FD");
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(130, 130, 130);
-          doc.text(card.label, cx + cardW / 2, startY + 9, { align: "center" });
-          doc.setFontSize(20);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...card.color);
-          doc.text(card.value, cx + cardW / 2, startY + 22, { align: "center" });
-        });
-      };
+      CARDS.forEach((card, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const cx = MX + col * (cardW + 3);
+        const cy = y + row * (cardH + 3);
 
-      drawCards(ROW1, y);
-      y += cardH + 4;
-      drawCards(ROW2, y);
-      y += cardH + 6;
+        doc.setFillColor(250, 252, 250);
+        doc.setDrawColor(210, 225, 215);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "FD");
 
-      // Total value line
-      if (totalValue > 0) {
-        doc.setFontSize(10);
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...MUTED);
+        doc.text(card.label, cx + cardW / 2, cy + 6, { align: "center" });
+
+        doc.setFontSize(16);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(25, 25, 25);
+        doc.setTextColor(...card.color);
+        doc.text(card.value, cx + cardW / 2, cy + 15, { align: "center" });
+
+        if (card.sub) {
+          doc.setFontSize(6);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...MUTED);
+          doc.text(card.sub, cx + cardW / 2, cy + 20.5, { align: "center" });
+        }
+      });
+
+      const cardsBottom = y + 2 * (cardH + 3) - 3;
+
+      if (totalValue > 0) {
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...DARK);
         doc.text(
-          `Valor Total Disparado: ${totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
-          MX, y,
+          `Valor total disparado: ${totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+          MX, cardsBottom + 6,
         );
-        y += 10;
-      } else {
-        y += 4;
       }
 
-      // ── LISTA DE DESTINATÁRIOS ─────────────────────
-      y = sectionBar("LISTA DE DESTINATÁRIOS", y);
+      // Right: funnel visualization
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...MUTED);
+      doc.text("FUNIL DE ENTREGA", funnelX, y - 2);
+      doc.setDrawColor(...MUTED);
+      doc.setLineWidth(0.2);
+      doc.line(funnelX, y, funnelX + funnelAreaW, y);
 
-      // Detect whether any message has financial data from the new dispatch system
+      const funnelLabelW  = 28;
+      const funnelBarMaxW = funnelAreaW - funnelLabelW - 28;
+      const funnelBarH    = 10;
+      const funnelGap     = 4;
+
+      const FUNNEL_ROWS = [
+        { label: "Total",     value: total,     base: total, color: [200, 210, 205] as [number,number,number], textColor: MUTED  },
+        { label: "Enviados",  value: sent,      base: total, color: GREEN,                                     textColor: GREEN  },
+        { label: "Entregues", value: delivered, base: total, color: TEAL,                                      textColor: TEAL   },
+        { label: "Lidos",     value: read,      base: total, color: BLUE,                                      textColor: BLUE   },
+        { label: "Falhas",    value: failed,    base: total, color: RED,                                       textColor: RED    },
+      ];
+
+      let fy = y + 5;
+      for (const item of FUNNEL_ROWS) {
+        const pct  = item.base > 0 ? item.value / item.base : 0;
+        const barW = Math.max(funnelBarMaxW * pct, item.value > 0 ? 2 : 0);
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...MUTED);
+        doc.text(item.label, funnelX + funnelLabelW - 2, fy + funnelBarH / 2 + 2.5, { align: "right" });
+
+        doc.setFillColor(232, 238, 234);
+        doc.roundedRect(funnelX + funnelLabelW, fy, funnelBarMaxW, funnelBarH, 1.5, 1.5, "F");
+
+        if (barW > 0) {
+          doc.setFillColor(...item.color);
+          doc.roundedRect(funnelX + funnelLabelW, fy, barW, funnelBarH, 1.5, 1.5, "F");
+        }
+
+        const pctStr = pct > 0 && item.label !== "Total" ? ` (${(pct * 100).toFixed(1)}%)` : "";
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...item.textColor);
+        doc.text(
+          `${item.value.toLocaleString("pt-BR")}${pctStr}`,
+          funnelX + funnelLabelW + funnelBarMaxW + 3,
+          fy + funnelBarH / 2 + 2.5,
+        );
+
+        fy += funnelBarH + funnelGap;
+      }
+
+      y = Math.max(cardsBottom + (totalValue > 0 ? 14 : 5), fy + 4);
+
+      // Insight callout
+      if (attempted > 0) {
+        let insightText: string;
+        let iColor: [number,number,number];
+        let iBg:    [number,number,number];
+        let iBorder:[number,number,number];
+
+        if (successPct >= 95) {
+          insightText = `Taxa de sucesso de ${successPct.toFixed(1)}% -- excelente desempenho de entrega`;
+          iColor  = GREEN;
+          iBg     = [240, 253, 244];
+          iBorder = [187, 247, 208];
+        } else if (successPct >= 85) {
+          insightText = `Taxa de sucesso de ${successPct.toFixed(1)}% -- dentro da media esperada`;
+          iColor  = AMBER;
+          iBg     = [255, 251, 235];
+          iBorder = [253, 230, 138];
+        } else {
+          insightText = `Atencao: taxa de sucesso de ${successPct.toFixed(1)}% -- verifique a qualidade da base`;
+          iColor  = RED;
+          iBg     = [254, 242, 242];
+          iBorder = [252, 165, 165];
+        }
+
+        const boxH = 10;
+        doc.setFillColor(...iBg);
+        doc.setDrawColor(...iBorder);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(MX, y, W - MX * 2, boxH, 2, 2, "FD");
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...iColor);
+        doc.text(insightText, MX + 5, y + 6.8);
+
+        if (!isComplete && pending > 0) {
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...MUTED);
+          doc.text(
+            `Campanha em andamento -- ${pending} na fila`,
+            W - MX - 5, y + 6.8, { align: "right" },
+          );
+        }
+        y += boxH + 6;
+      }
+
+      // LISTA DE DESTINATARIOS
+      y = sectionBar("LISTA DE DESTINATARIOS", y);
+
       const hasFinancialRd = messages.some((m) => {
         const rd = m.recipient_data as Record<string, unknown> | null;
         return rd && rd._financial_campaign === true;
       });
 
-      // Non-financial campaigns skip all financial columns
-      const valorKey: string | null = null;
-      const nfKey:    string | null = null;
-      const vencKey:  string | null = null;
-
       const STATUS_PT: Record<string, string> = {
         pending: "Na fila", sent: "Enviado", delivered: "Entregue",
-        read: "Lido", replied: "Respondido", failed: "Falhou", undeliverable: "Não entregável",
+        read: "Lido", replied: "Respondido", failed: "Falhou", undeliverable: "Nao entregavel",
       };
 
       const isEmailCampaign = campaign.dispatch_channel === "n8n_email";
       const head: string[] = ["#", "Nome", isEmailCampaign ? "Email" : "Telefone"];
-      if (hasFinancialRd) {
-        head.push("Nº NF(s)", "Qtd", "Valor", "Vencimento");
-      } else {
-        if (nfKey)    head.push("Nº NF");
-        if (valorKey) head.push("Valor");
-        if (vencKey)  head.push("Vencimento");
-      }
+      if (hasFinancialRd) head.push("No NF(s)", "Qtd", "Valor", "Vencimento");
       head.push("Status", "Enviado em");
 
       const statusColIdx = head.indexOf("Status");
 
-      const body = messages.map((m, idx) => {
+      // Failures first, then chronological
+      const sortedMsgs = [...messages].sort((a, b) => {
+        if (a.status === "failed" && b.status !== "failed") return -1;
+        if (a.status !== "failed" && b.status === "failed") return 1;
+        return (a.sent_at ?? "").localeCompare(b.sent_at ?? "");
+      });
+
+      const body = sortedMsgs.map((m, idx) => {
         const rd = m.recipient_data as Record<string, unknown> | null ?? {};
-        const contactCol = isEmailCampaign ? ((rd.email as string) ?? "—") : m.recipient_phone;
-        const row: string[] = [`${idx + 1}`, m.recipient_name ?? "—", contactCol];
+        const contactCol = isEmailCampaign ? ((rd.email as string) ?? "--") : m.recipient_phone;
+        const row: string[] = [`${idx + 1}`, m.recipient_name ?? "--", contactCol];
 
         if (hasFinancialRd) {
-          // New system: extract NF numbers from contact_invoices filtered by _invoice_ids
           const invIds = rd._invoice_ids as string[] | null;
           const allInvs = rd.contact_invoices as Array<{ id: string; numero_nf: string | null }> | null;
           const nfs = invIds && allInvs
-            ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "—").join(", ")
-            : (rd.boleto_nf as string | null) ?? "—";
-          row.push(nfs || "—");
-          row.push(String(rd._invoice_count ?? (invIds?.length ?? "—")));
-          row.push(typeof rd.valor_total_pendente === "string" ? rd.valor_total_pendente : "—");
-          row.push(typeof rd.proximo_vencimento   === "string" ? rd.proximo_vencimento   : "—");
-        } else {
-          if (nfKey) row.push(String(rd[nfKey!] ?? "—"));
-          if (valorKey) {
-            const n = parseBRL(rd[valorKey!] ?? "");
-            const raw2 = rd[valorKey!];
-            const formatted = typeof raw2 === "string" && raw2.includes("R$")
-              ? raw2
-              : isNaN(n) ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-            row.push(formatted);
-          }
-          if (vencKey) {
-            const v = String(rd[vencKey!] ?? "");
-            const d = v ? new Date(v) : null;
-            row.push(d && !isNaN(d.getTime()) ? format(d, "dd/MM/yyyy") : (v || "—"));
-          }
+            ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "--").join(", ")
+            : (rd.boleto_nf as string | null) ?? "--";
+          row.push(nfs || "--");
+          row.push(String(rd._invoice_count ?? (invIds?.length ?? "--")));
+          row.push(typeof rd.valor_total_pendente === "string" ? rd.valor_total_pendente : "--");
+          row.push(typeof rd.proximo_vencimento   === "string" ? rd.proximo_vencimento   : "--");
         }
 
         row.push(STATUS_PT[m.status] ?? m.status);
-        row.push(m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy, HH:mm") : "—");
+        row.push(m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy, HH:mm") : "--");
         return row;
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       autoTable(doc, {
         head:  [head],
         body,
         startY: y,
         margin: { left: MX, right: MX },
-        styles:     { fontSize: 8, cellPadding: 3, textColor: [25, 25, 25], lineColor: [215, 215, 215], lineWidth: 0.2 },
+        styles:     { fontSize: 8, cellPadding: 2.5, textColor: [25, 25, 25], lineColor: [215, 215, 215], lineWidth: 0.2 },
         headStyles: { fillColor: [75, 75, 75], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
         alternateRowStyles: { fillColor: [248, 250, 248] },
-        columnStyles: { 0: { cellWidth: 8, halign: "center" } },
-        didParseCell: (data: { column: { index: number }; section: string; cell: { raw: unknown; styles: { textColor: number[] } } }) => {
+        columnStyles: { 0: { cellWidth: 12, halign: "center" } },
+        didParseCell: (data: { column: { index: number }; section: string; cell: { raw: unknown; styles: { textColor: number[]; fontStyle: string } } }) => {
           if (data.section !== "body" || data.column.index !== statusColIdx) return;
           const v = data.cell.raw as string;
           if (["Enviado", "Entregue", "Lido", "Respondido"].includes(v)) {
             data.cell.styles.textColor = [22, 163, 74];
-          } else if (["Falhou", "Não entregável"].includes(v)) {
+          } else if (["Falhou", "Nao entregavel"].includes(v)) {
             data.cell.styles.textColor = [220, 38, 38];
+            data.cell.styles.fontStyle = "bold";
+          } else if (v === "Na fila") {
+            data.cell.styles.textColor = [130, 130, 130];
           }
         },
       } as never);
 
-      // ── Footer ────────────────────────────────────
+      // Footer
       const pages = doc.getNumberOfPages();
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i);
         doc.setDrawColor(200, 200, 200);
         doc.setLineWidth(0.2);
-        doc.line(MX, 203, W - MX, 203);
+        doc.line(MX, FOOTER_Y, W - MX, FOOTER_Y);
         doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(150, 150, 150);
-        doc.text("Solve AI — solveai.consulting", MX, 207);
-        doc.text(`Página ${i} / ${pages}`, W - MX, 207, { align: "right" });
+        doc.text("Solve AI -- solveai.consulting", MX, FOOTER_Y + 4);
+        doc.text(`Pagina ${i} / ${pages}`, W - MX, FOOTER_Y + 4, { align: "right" });
       }
 
       doc.save(`relatorio_${campaign.name.replace(/\s+/g, "_")}.pdf`);
@@ -486,6 +596,7 @@ export function CampaignDetail() {
       setExportingPdf(false);
     }
   }
+
 
   async function handleAction(action: "pause" | "resume" | "cancel") {
     if (!id || actionLoading) return;

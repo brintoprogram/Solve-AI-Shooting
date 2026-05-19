@@ -20,6 +20,7 @@ import { Alerts }      from "@/pages/Alerts";
 import { Reports }     from "@/pages/Reports";
 import { Support }     from "@/pages/Support";
 import { Agents }      from "@/pages/Agents";
+import { AgentRoutingDemo } from "@/pages/agents/AgentRoutingDemo";
 import { Automations } from "@/pages/Automations";
 import { AutomationWizard } from "@/pages/automations/AutomationWizard";
 import { AutomationDetail } from "@/pages/automations/AutomationDetail";
@@ -133,6 +134,7 @@ function AppRoutes() {
         <Route path="/inbox"                  element={<PR permission="can_inbox" feature="Inbox"><Inbox /></PR>} />
         <Route path="/automations"             element={<Automations />} />
         <Route path="/automations/new"        element={<AutomationWizard />} />
+        <Route path="/automations/:id/edit"   element={<AutomationWizard />} />
         <Route path="/automations/:id"        element={<AutomationDetail />} />
         <Route path="/team"                   element={<PR permission="can_manage_team" feature="Equipe"><Team /></PR>} />
         <Route path="/templates"              element={<Templates />} />
@@ -140,6 +142,7 @@ function AppRoutes() {
         <Route path="/reports"                element={<Reports />} />
         <Route path="/support"                element={<Support />} />
         <Route path="/agents"                 element={<PR permission="can_settings" feature="Agentes de IA"><Agents /></PR>} />
+        <Route path="/agents/demo"            element={<PR permission="can_settings" feature="Demo Roteamento"><AgentRoutingDemo /></PR>} />
         <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}
