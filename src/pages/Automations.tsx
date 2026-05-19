@@ -165,8 +165,9 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
 
   const countdown = useCountdown(rule.send_hour, isActive);
 
-  const progress = rule.total_recipients > 0
-    ? Math.round((rule.sent_count / rule.total_recipients) * 100)
+  // sent_count = total message dispatches (triggers × recipients), so never divide for %
+  const progressBar = rule.total_recipients > 0 && rule.sent_count > 0
+    ? Math.min(100, Math.round((rule.sent_count / rule.total_recipients) * 100))
     : 0;
 
   // ── Schedule panel state ─────────────────────────────────────────────────
@@ -274,9 +275,11 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
           <div className="mb-3">
             <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
               <div className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
+                style={{ width: `${progressBar}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
             </div>
-            <p className="text-[10px] text-agro-muted mt-1">{progress}% concluído</p>
+            <p className="text-[10px] text-agro-muted mt-1">
+              {rule.sent_count} disparo{rule.sent_count !== 1 ? "s" : ""} enviados · {rule.total_recipients} destinatário{rule.total_recipients !== 1 ? "s" : ""}
+            </p>
           </div>
         )}
 

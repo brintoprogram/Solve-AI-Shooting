@@ -17,6 +17,7 @@ import {
   Bot,
   ChevronsUpDown,
   Check,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -204,6 +205,33 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Demo shortcut — always visible for quick access during client calls */}
+      <div className="px-3 pb-2">
+        <NavLink
+          to="/agents/demo"
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl w-full transition-all group/demo"
+          style={({ isActive }) => ({
+            background:  isActive ? "rgba(63,176,108,0.18)" : "rgba(63,176,108,0.07)",
+            border:      `1px solid ${isActive ? "rgba(63,176,108,0.45)" : "rgba(63,176,108,0.2)"}`,
+            boxShadow:   isActive ? "0 0 16px rgba(63,176,108,0.12)" : "none",
+          })}
+        >
+          <div className="relative w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}>
+            <Sparkles className="w-3.5 h-3.5 text-black" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-agro-green animate-ping opacity-70" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-agro-green leading-none">Demo ao Vivo</p>
+            <p className="text-[9px] text-agro-muted leading-tight mt-0.5">Roteamento de IA</p>
+          </div>
+          <span className="text-[8px] font-black px-1.5 py-0.5 rounded shrink-0"
+            style={{ background: "#3fb06c", color: "#000", letterSpacing: "0.05em" }}>
+            DEMO
+          </span>
+        </NavLink>
+      </div>
 
       {/* Workspace switcher — only when user belongs to multiple workspaces */}
       {workspaces.length > 1 && (
