@@ -220,7 +220,10 @@ export function AgentRoutingDemo() {
   const scenario = SCENARIOS[scenarioIdx];
 
   const clearTimer = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
   };
 
   const advance = useCallback((from: Phase) => {

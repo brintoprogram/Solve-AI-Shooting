@@ -609,7 +609,7 @@ export function AutomationWizard() {
   async function handleSave(status: "draft" | "active") {
     setSaving(true);
     try {
-      const rulePayload = {
+      const basePayload = {
         workspace_id:        wsId,
         name:                s.name.trim(),
         status,
@@ -620,19 +620,19 @@ export function AutomationWizard() {
         template_mode:       s.template_mode,
         unified_message:     s.template_mode === "unified" ? s.unified_message || null : null,
         total_recipients:    s.selectedRecipients.length,
-        sent_count:          0,
         updated_at:          new Date().toISOString(),
       };
 
       let savedId = ruleId;
 
       if (ruleId) {
-        const { error } = await db.from("automation_rules").update(rulePayload).eq("id", ruleId);
+        // Edit mode: preserve sent_count (it reflects real dispatch history)
+        const { error } = await db.from("automation_rules").update(basePayload).eq("id", ruleId);
         if (error) throw error;
         await db.from("automation_triggers").delete().eq("rule_id", ruleId);
         await db.from("automation_recipients").delete().eq("rule_id", ruleId);
       } else {
-        const { data, error } = await db.from("automation_rules").insert(rulePayload).select("id").single();
+        const { data, error } = await db.from("automation_rules").insert({ ...basePayload, sent_count: 0 }).select("id").single();
         if (error || !data) throw error ?? new Error("Erro ao criar regua");
         savedId = data.id;
       }

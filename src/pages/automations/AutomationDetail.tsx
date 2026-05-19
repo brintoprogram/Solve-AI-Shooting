@@ -136,7 +136,9 @@ export function AutomationDetail() {
   if (!rule) return null;
 
   const ss      = STATUS_STYLE[rule.status] ?? STATUS_STYLE.draft;
-  const progress = rule.total_recipients > 0 ? Math.round((rule.sent_count / rule.total_recipients) * 100) : 0;
+  const progressBar = rule.total_recipients > 0 && rule.sent_count > 0
+    ? Math.min(100, Math.round((rule.sent_count / rule.total_recipients) * 100))
+    : 0;
   const canToggle = rule.status === "active" || rule.status === "paused";
   const filteredLogs = logFilter === "all" ? logs : logs.filter((l) => l.status === logFilter);
 
@@ -199,7 +201,7 @@ export function AutomationDetail() {
               { label: "Destinatarios", value: rule.total_recipients, icon: Users,  color: "#7fc49a" },
               { label: "Enviados",      value: rule.sent_count,       icon: Zap,    color: "#3fb06c" },
               { label: "Gatilhos",      value: triggers.length,       icon: GitBranch, color: "#60a5fa" },
-              { label: "Progresso",     value: `${progress}%`,        icon: CheckCircle2, color: "#3fb06c" },
+              { label: "Progresso",     value: `${progressBar}%`,     icon: CheckCircle2, color: "#3fb06c" },
             ].map(({ label, value, icon: Icon, color }) => (
               <div key={label} className="p-3 rounded-xl text-center" style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.08)" }}>
                 <Icon className="w-4 h-4 mx-auto mb-1" style={{ color }} />
@@ -213,9 +215,11 @@ export function AutomationDetail() {
           {rule.total_recipients > 0 && (
             <div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(63,176,108,0.1)" }}>
-                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progress}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progressBar}%`, background: "linear-gradient(90deg, #3fb06c, #16A34A)" }} />
               </div>
-              <p className="text-[10px] text-agro-muted mt-1">{progress}% dos disparos concluidos</p>
+              <p className="text-[10px] text-agro-muted mt-1">
+                {rule.sent_count} disparo{rule.sent_count !== 1 ? "s" : ""} enviados · {rule.total_recipients} destinatario{rule.total_recipients !== 1 ? "s" : ""}
+              </p>
             </div>
           )}
         </div>
