@@ -664,7 +664,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
       const contactColLabel = mixedChannels ? "Contato" : hasEmailCamps ? "Email" : "Telefone";
 
       const unifiedHead: string[] = ["#", "Campanha", "Nome", contactColLabel];
-      if (hasAnyFinancial) unifiedHead.push("No NF(s)", "Valor", "Vencimento");
+      if (hasAnyFinancial) unifiedHead.push("Valor", "Vencimento");
       unifiedHead.push("Status", "Enviado em");
       const unifiedStatusIdx = unifiedHead.indexOf("Status");
 
@@ -689,12 +689,6 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         const campShort  = campRaw.length > 30 ? campRaw.slice(0, 27) + "..." : campRaw;
         const row: string[] = [`${idx + 1}`, campShort, m.recipient_name ?? "--", contact];
         if (hasAnyFinancial) {
-          const invIds  = rd._invoice_ids as string[] | null;
-          const allInvs = rd.contact_invoices as Array<{ id: string; numero_nf: string | null }> | null;
-          const nfs = invIds && allInvs
-            ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "--").join(", ")
-            : (rd.boleto_nf as string | null) ?? "--";
-          row.push(nfs || "--");
           row.push(typeof rd.valor_total_pendente === "string" ? rd.valor_total_pendente : "--");
           row.push(typeof rd.proximo_vencimento   === "string" ? rd.proximo_vencimento   : "--");
         }
