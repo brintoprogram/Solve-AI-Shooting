@@ -4,11 +4,12 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket,
+  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket, Sparkles,
 } from "lucide-react";
 import { ALL_CONTACT_FIELDS } from "@/lib/contactFields";
 import { useContactFields }   from "@/hooks/useContactFields";
 import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
+import { DemoSeeder }          from "@/pages/settings/DemoSeeder";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
@@ -504,7 +505,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo">("perfil");
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);
@@ -1068,6 +1069,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "ia",        label: "IA",        icon: Zap        },
             { id: "disparo",   label: "Disparo",   icon: Rocket     },
             { id: "avancado",  label: "Avançado",  icon: Terminal   },
+            { id: "demo",      label: "Demo",      icon: Sparkles   },
           ];
           return (
             <div
@@ -2263,6 +2265,13 @@ CREATE POLICY "avatars_delete" ON storage.objects
         </div>
 
         </> /* end Avançado tab */}
+
+        {/* ══ Tab: Demo ════════════════════════════════════════ */}
+        {settingsTab === "demo" && (
+          <div className="animate-fade-up">
+            <DemoSeeder workspaceId={WORKSPACE_ID} />
+          </div>
+        )}
 
         </>) : (
           <div
