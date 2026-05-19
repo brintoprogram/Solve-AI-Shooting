@@ -333,139 +333,487 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
     }
   }
 
-  // ── PDF export (selected only) ────────────────────────────────
+  // ── PDF export (selected only) — replica o layout do relatório individual ─
   async function exportPdf() {
+    if (selected.size === 0) return;
     setExportingPdf(true);
     try {
       const ids    = Array.from(selected);
       const target = campaigns.filter((c) => ids.includes(c.id));
 
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pageW = doc.internal.pageSize.getWidth();
+      // ── Paleta idêntica ao CampaignDetail ─────────────────────
+      const GREEN  = [22, 163, 74]   as [number, number, number];
+      const TEAL   = [16, 132, 163]  as [number, number, number];
+      const BLUE   = [37, 99, 235]   as [number, number, number];
+      const RED    = [220, 38, 38]   as [number, number, number];
+      const DARK   = [25, 25, 25]    as [number, number, number];
+      const MUTED  = [130, 130, 130] as [number, number, number];
+      const AMBER  = [180, 120, 0]   as [number, number, number];
+      const W = 297, MX = 14, FOOTER_Y = 203;
 
-      // ── Cabeçalho ──────────────────────────────────────────────
-      doc.setFillColor(22, 101, 52);
-      doc.rect(0, 0, pageW, 18, "F");
-      doc.setFontSize(13);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
-      doc.text("Relatório de Campanhas — Solve AI", 14, 12);
-
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(200, 230, 210);
-      doc.text(
-        `Gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}  ·  ${target.length} campanha${target.length !== 1 ? "s" : ""} selecionada${target.length !== 1 ? "s" : ""}`,
-        pageW - 14,
-        12,
-        { align: "right" },
-      );
-
-      // ── Tabela resumo ──────────────────────────────────────────
-      const head = [["Campanha", "Canal", "Status", "Destinatários", "Enviadas", "Entregues", "Falhas", "Lidas", "Taxa %", "Criada em", "Concluída em"]];
-      const body = target.map((c) => [
-        c.name,
-        isEmailCamp(c) ? "Email" : "WhatsApp",
-        CAMP_STATUS[c.status]?.label ?? c.status,
-        (c.total_recipients ?? 0).toLocaleString("pt-BR"),
-        (c.sent_count ?? 0).toLocaleString("pt-BR"),
-        effectiveDelivered(c).toLocaleString("pt-BR"),
-        (c.failed_count ?? 0).toLocaleString("pt-BR"),
-        isEmailCamp(c) ? "—" : (c.read_count ?? 0).toLocaleString("pt-BR"),
-        effectiveRate(c) !== null ? `${effectiveRate(c)}%` : "—",
-        format(new Date(c.created_at), "dd/MM/yyyy"),
-        c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy") : "—",
-      ]);
-
-      autoTable(doc, {
-        startY:            22,
-        head,
-        body,
-        headStyles:        { fillColor: [22, 101, 52], textColor: 255, fontStyle: "bold", fontSize: 7 },
-        bodyStyles:        { fontSize: 7, textColor: [30, 30, 30] },
-        alternateRowStyles:{ fillColor: [240, 248, 243] },
-        columnStyles: {
-          0: { cellWidth: 50 },
-          1: { cellWidth: 20 },
-          2: { cellWidth: 20 },
-          9: { cellWidth: 22 },
-          10:{ cellWidth: 22 },
-        },
-        styles: { overflow: "linebreak", cellPadding: 2.5 },
-        didDrawPage: (data) => {
-          // Footer with page number
-          const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
-          doc.setFontSize(7);
-          doc.setTextColor(150, 150, 150);
-          doc.text(
-            `Página ${data.pageNumber} de ${pageCount}  ·  Solve AI Shooting`,
-            pageW / 2,
-            doc.internal.pageSize.getHeight() - 6,
-            { align: "center" },
-          );
-        },
-      });
-
-      // ── Seção de destaque por campanha ─────────────────────────
-      // (apenas se ≤ 10 selecionadas para não criar PDF gigante)
-      if (target.length <= 10) {
-        target.forEach((c) => {
-          doc.addPage();
-
-          // Mini-cabeçalho por campanha
-          doc.setFillColor(240, 248, 243);
-          doc.rect(0, 0, pageW, 14, "F");
-          doc.setFontSize(11);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(22, 101, 52);
-          doc.text(c.name, 14, 10);
-
-          const st = CAMP_STATUS[c.status] ?? CAMP_STATUS["draft"];
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(100, 100, 100);
-          doc.text(`Status: ${st.label}  ·  Canal: ${isEmailCamp(c) ? "Email Automático" : "WhatsApp"}`, 14, 18);
-
-          // KPIs como tabela 2-colunas
-          const kpis = [
-            ["Destinatários",  (c.total_recipients ?? 0).toLocaleString("pt-BR")],
-            ["Enviadas",       (c.sent_count ?? 0).toLocaleString("pt-BR")],
-            ["Entregues",      effectiveDelivered(c).toLocaleString("pt-BR")],
-            ["Falhas",         (c.failed_count ?? 0).toLocaleString("pt-BR")],
-            ["Lidas",          isEmailCamp(c) ? "—" : (c.read_count ?? 0).toLocaleString("pt-BR")],
-            ["Respondidas",    isEmailCamp(c) ? "—" : (c.replied_count ?? 0).toLocaleString("pt-BR")],
-            ["Taxa de entrega", effectiveRate(c) !== null ? `${effectiveRate(c)}%` : "—"],
-            ["Criada em",      format(new Date(c.created_at), "dd/MM/yyyy HH:mm")],
-            ["Iniciada em",    c.started_at   ? format(new Date(c.started_at),   "dd/MM/yyyy HH:mm") : "—"],
-            ["Concluída em",   c.completed_at ? format(new Date(c.completed_at), "dd/MM/yyyy HH:mm") : "—"],
-          ];
-
-          autoTable(doc, {
-            startY:     24,
-            head:       [["Métrica", "Valor"]],
-            body:       kpis,
-            headStyles: { fillColor: [22, 101, 52], textColor: 255, fontStyle: "bold", fontSize: 8 },
-            bodyStyles: { fontSize: 8 },
-            alternateRowStyles: { fillColor: [240, 248, 243] },
-            tableWidth: 100,
-            styles:     { cellPadding: 3 },
-            didDrawPage: (data) => {
-              const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
-              doc.setFontSize(7);
-              doc.setTextColor(150, 150, 150);
-              doc.text(
-                `Página ${data.pageNumber} de ${pageCount}  ·  Solve AI Shooting`,
-                pageW / 2,
-                doc.internal.pageSize.getHeight() - 6,
-                { align: "center" },
-              );
-            },
-          });
+      // ── Logo ───────────────────────────────────────────────────
+      let logo: string | null = null;
+      try {
+        const res  = await fetch("/logo.png");
+        const blob = await res.blob();
+        logo = await new Promise<string>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result as string);
+          r.readAsDataURL(blob);
         });
+      } catch { /* sem logo */ }
+
+      // ── Mensagens de todas as campanhas (batch único) ──────────
+      interface Msg {
+        campaign_id:    string;
+        recipient_name: string | null;
+        recipient_phone:string;
+        recipient_data: Record<string, unknown> | null;
+        status:         string;
+        error_message:  string | null;
+        sent_at:        string | null;
+      }
+      const allMsgs: Msg[] = await fetchAll(
+        db.from("shooting_messages")
+          .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,sent_at")
+          .in("campaign_id", ids)
+          .order("sent_at", { ascending: true, nullsFirst: false }),
+      );
+      const msgsByCamp = new Map<string, Msg[]>();
+      for (const m of allMsgs) {
+        if (!msgsByCamp.has(m.campaign_id)) msgsByCamp.set(m.campaign_id, []);
+        msgsByCamp.get(m.campaign_id)!.push(m);
       }
 
-      doc.save(`relatorio_campanhas_${new Date().toISOString().slice(0, 10)}.pdf`);
-      toast({ title: "PDF gerado!", description: `${target.length} campanha${target.length !== 1 ? "s" : ""} exportada${target.length !== 1 ? "s" : ""}.`, variant: "success" });
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+      // ── Helpers ────────────────────────────────────────────────
+      const sectionBar = (label: string, sy: number): number => {
+        doc.setFillColor(30, 30, 30);
+        doc.rect(MX, sy, W - MX * 2, 8, "F");
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text(label, MX + 4, sy + 5.5);
+        return sy + 12;
+      };
+
+      const infoLine = (label: string, value: string, x: number, iy: number): number => {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...DARK);
+        doc.text(`${label}: `, x, iy);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(60, 60, 60);
+        doc.text(value, x + doc.getTextWidth(`${label}: `), iy);
+        return iy + 7;
+      };
+
+      const drawCards = (
+        cards: { label: string; value: string; sub: string | null; color: [number,number,number] }[],
+        startY: number,
+        areaW: number,
+        startX: number,
+      ): number => {
+        const COLS  = 3;
+        const cardW = (areaW - (COLS - 1) * 3) / COLS;
+        const cardH = 22;
+        cards.forEach((card, i) => {
+          const col = i % COLS;
+          const row = Math.floor(i / COLS);
+          const cx  = startX + col * (cardW + 3);
+          const cy  = startY + row * (cardH + 3);
+          doc.setFillColor(250, 252, 250);
+          doc.setDrawColor(210, 225, 215);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cx, cy, cardW, cardH, 2, 2, "FD");
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...MUTED);
+          doc.text(card.label, cx + cardW / 2, cy + 6, { align: "center" });
+          doc.setFontSize(16);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...card.color);
+          doc.text(card.value, cx + cardW / 2, cy + 15, { align: "center" });
+          if (card.sub) {
+            doc.setFontSize(6);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...MUTED);
+            doc.text(card.sub, cx + cardW / 2, cy + 20.5, { align: "center" });
+          }
+        });
+        return startY + 2 * (cardH + 3) - 3; // bottom of cards
+      };
+
+      const drawFunnel = (
+        rows: { label: string; value: number; base: number; color: [number,number,number]; textColor: [number,number,number] }[],
+        startY: number,
+        fx: number,
+        fareaW: number,
+      ): number => {
+        const labelW  = 28;
+        const barMaxW = fareaW - labelW - 28;
+        const barH    = 10;
+        const gap     = 4;
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...MUTED);
+        doc.text("FUNIL DE ENTREGA", fx, startY - 2);
+        doc.setDrawColor(...MUTED);
+        doc.setLineWidth(0.2);
+        doc.line(fx, startY, fx + fareaW, startY);
+        let fy = startY + 5;
+        for (const item of rows) {
+          const pct  = item.base > 0 ? item.value / item.base : 0;
+          const barW = Math.max(barMaxW * pct, item.value > 0 ? 2 : 0);
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...MUTED);
+          doc.text(item.label, fx + labelW - 2, fy + barH / 2 + 2.5, { align: "right" });
+          doc.setFillColor(232, 238, 234);
+          doc.roundedRect(fx + labelW, fy, barMaxW, barH, 1.5, 1.5, "F");
+          if (barW > 0) {
+            doc.setFillColor(...item.color);
+            doc.roundedRect(fx + labelW, fy, barW, barH, 1.5, 1.5, "F");
+          }
+          const pctStr = pct > 0 && item.label !== "Total" ? ` (${(pct * 100).toFixed(1)}%)` : "";
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...item.textColor);
+          doc.text(`${item.value.toLocaleString("pt-BR")}${pctStr}`, fx + labelW + barMaxW + 3, fy + barH / 2 + 2.5);
+          fy += barH + gap;
+        }
+        return fy + 4;
+      };
+
+      // ── Layout constants ───────────────────────────────────────
+      const LOGO_SIZE  = 26;
+      const splitX     = MX + (W - MX * 2) * 0.52;
+      const cardsAreaW = splitX - MX - 4;
+      const funnelX    = splitX + 4;
+      const funnelAreaW= W - MX - funnelX;
+
+      const STATUS_PT: Record<string, string> = {
+        pending: "Na fila", sent: "Enviado", delivered: "Entregue",
+        read: "Lido", replied: "Respondido", failed: "Falhou", undeliverable: "Nao entregavel",
+      };
+
+      // ══════════════════════════════════════════════════════════
+      // PÁGINA DE CAPA — consolidado
+      // ══════════════════════════════════════════════════════════
+      let y = MX;
+      if (logo) doc.addImage(logo, "PNG", MX, y, LOGO_SIZE, LOGO_SIZE);
+      const tX = logo ? MX + LOGO_SIZE + 6 : MX;
+
+      doc.setFontSize(21);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...DARK);
+      doc.text("Relatorio Consolidado de Campanhas", tX, y + 9);
+
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...MUTED);
+      doc.text("Inteligencia que cultiva resultados", tX, y + 17);
+
+      const now     = new Date();
+      const dateStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+        + " as " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...MUTED);
+      doc.text(`Gerado em ${dateStr}  ·  ${target.length} campanha${target.length !== 1 ? "s" : ""} selecionada${target.length !== 1 ? "s" : ""}`, tX, y + 23);
+
+      y += LOGO_SIZE + 4;
+      doc.setDrawColor(...DARK);
+      doc.setLineWidth(1);
+      doc.line(MX, y, W - MX, y);
+      y += 7;
+
+      // Métricas agregadas
+      const aggTotal      = target.reduce((a, c) => a + (c.total_recipients ?? 0), 0);
+      const aggAttempted  = target.reduce((a, c) => a + (c.sent_count ?? 0), 0);
+      const aggFailed     = target.reduce((a, c) => a + (c.failed_count ?? 0), 0);
+      const aggSent       = aggAttempted - aggFailed;
+      const aggDelivered  = target.reduce((a, c) => a + effectiveDelivered(c), 0);
+      const aggRead       = target.reduce((a, c) => a + (c.read_count ?? 0), 0);
+      const aggSuccessPct = aggAttempted > 0 ? aggSent       / aggAttempted * 100 : 0;
+      const aggDelivPct   = aggSent      > 0 ? aggDelivered  / aggSent      * 100 : 0;
+      const aggReadPct    = aggSent      > 0 ? aggRead       / aggSent      * 100 : 0;
+      const aggFailPct    = aggAttempted > 0 ? aggFailed     / aggAttempted * 100 : 0;
+      const aggSentPct    = aggTotal     > 0 ? aggSent       / aggTotal     * 100 : 0;
+
+      y = sectionBar("VISAO GERAL — RESULTADO CONSOLIDADO", y);
+
+      const aggCards = [
+        { label: "Campanhas",       value: target.length.toLocaleString("pt-BR"),  sub: null,                                                           color: DARK  },
+        { label: "Enviados",        value: aggSent.toLocaleString("pt-BR"),         sub: `${aggSentPct.toFixed(1)}% do total`,                           color: GREEN },
+        { label: "Taxa de Sucesso", value: `${aggSuccessPct.toFixed(1)}%`,          sub: "dos tentados",                                                 color: GREEN },
+        { label: "Entregues",       value: aggDelivered.toLocaleString("pt-BR"),    sub: `${aggDelivPct.toFixed(1)}% dos enviados`,                      color: TEAL  },
+        { label: "Lidos",           value: aggRead.toLocaleString("pt-BR"),         sub: `${aggReadPct.toFixed(1)}% dos enviados`,                       color: BLUE  },
+        { label: "Falhas",          value: aggFailed.toLocaleString("pt-BR"),       sub: aggFailed > 0 ? `${aggFailPct.toFixed(1)}% dos tentados` : "Nenhuma falha", color: aggFailed > 0 ? RED : GREEN },
+      ];
+      const cardsBottom = drawCards(aggCards, y, cardsAreaW, MX);
+      const funnelBottom = drawFunnel([
+        { label: "Total",     value: aggTotal,    base: aggTotal, color: [200,210,205], textColor: MUTED },
+        { label: "Enviados",  value: aggSent,     base: aggTotal, color: GREEN,        textColor: GREEN },
+        { label: "Entregues", value: aggDelivered,base: aggTotal, color: TEAL,         textColor: TEAL  },
+        { label: "Lidos",     value: aggRead,     base: aggTotal, color: BLUE,         textColor: BLUE  },
+        { label: "Falhas",    value: aggFailed,   base: aggTotal, color: RED,          textColor: RED   },
+      ], y, funnelX, funnelAreaW);
+      y = Math.max(cardsBottom + 5, funnelBottom);
+
+      // Tabela resumo de campanhas
+      y = sectionBar("CAMPANHAS SELECIONADAS", y);
+      autoTable(doc, {
+        startY:  y,
+        margin:  { left: MX, right: MX },
+        head: [["#", "Nome", "Canal", "Status", "Destinatários", "Enviados", "Entregues", "Falhas", "Lidas", "Taxa %", "Criada em"]],
+        body: target.map((c, idx) => [
+          String(idx + 1),
+          c.name,
+          isEmailCamp(c) ? "Email" : "WhatsApp",
+          CAMP_STATUS[c.status]?.label ?? c.status,
+          (c.total_recipients ?? 0).toLocaleString("pt-BR"),
+          (c.sent_count ?? 0).toLocaleString("pt-BR"),
+          effectiveDelivered(c).toLocaleString("pt-BR"),
+          (c.failed_count ?? 0).toLocaleString("pt-BR"),
+          isEmailCamp(c) ? "—" : (c.read_count ?? 0).toLocaleString("pt-BR"),
+          effectiveRate(c) !== null ? `${effectiveRate(c)}%` : "—",
+          format(new Date(c.created_at), "dd/MM/yyyy"),
+        ]),
+        styles:             { fontSize: 8, cellPadding: 2.5, textColor: [25,25,25], lineColor: [215,215,215], lineWidth: 0.2 },
+        headStyles:         { fillColor: [75,75,75], textColor: [255,255,255], fontStyle: "bold", fontSize: 8 },
+        alternateRowStyles: { fillColor: [248,250,248] },
+        columnStyles:       { 0: { cellWidth: 8, halign: "center" }, 1: { cellWidth: 55 } },
+      } as never);
+
+      // ══════════════════════════════════════════════════════════
+      // UMA PÁGINA POR CAMPANHA — layout idêntico ao relatório individual
+      // ══════════════════════════════════════════════════════════
+      for (let ci = 0; ci < target.length; ci++) {
+        const c    = target[ci];
+        const msgs = msgsByCamp.get(c.id) ?? [];
+        doc.addPage();
+        y = MX;
+
+        // Cabeçalho da campanha
+        if (logo) doc.addImage(logo, "PNG", MX, y, LOGO_SIZE, LOGO_SIZE);
+        const tX2 = logo ? MX + LOGO_SIZE + 6 : MX;
+
+        doc.setFontSize(19);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...DARK);
+        // truncate long name to avoid overflow
+        const campTitle = c.name.length > 55 ? c.name.slice(0, 52) + "..." : c.name;
+        doc.text(campTitle, tX2, y + 9);
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...MUTED);
+        doc.text(`Campanha ${ci + 1} de ${target.length}`, W - MX, y + 9, { align: "right" });
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(...MUTED);
+        doc.text("Inteligencia que cultiva resultados", tX2, y + 17);
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...MUTED);
+        doc.text(`Gerado em ${dateStr}`, tX2, y + 23);
+
+        y += LOGO_SIZE + 4;
+        doc.setDrawColor(...DARK);
+        doc.setLineWidth(1);
+        doc.line(MX, y, W - MX, y);
+        y += 7;
+
+        // Métricas desta campanha
+        const total      = c.total_recipients ?? 0;
+        const attempted  = c.sent_count ?? 0;
+        const failed     = c.failed_count ?? 0;
+        const sent       = attempted - failed;
+        const delivered  = effectiveDelivered(c);
+        const read       = c.read_count ?? 0;
+        const pending    = Math.max(0, total - attempted);
+        const sentPct    = total     > 0 ? sent      / total     * 100 : 0;
+        const delivPct   = sent      > 0 ? delivered / sent      * 100 : 0;
+        const readPct    = sent      > 0 ? read      / sent      * 100 : 0;
+        const failPct    = attempted > 0 ? failed    / attempted * 100 : 0;
+        const successPct = attempted > 0 ? sent      / attempted * 100 : 0;
+        const isComplete = ["completed", "cancelled"].includes(c.status) || pending === 0;
+
+        // INFORMACOES DO DISPARO
+        y = sectionBar("INFORMACOES DO DISPARO", y);
+        const c2 = MX + (W - MX * 2) / 2 + 4;
+        let yL = y, yR = y;
+        yL = infoLine("Nome do Disparo", c.name, MX, yL);
+        yL = infoLine(
+          isEmailCamp(c) ? "Canal" : "Template",
+          isEmailCamp(c) ? "Email via N8N" : (c.meta_templates?.template_name ?? "--"),
+          MX, yL,
+        );
+        yR = infoLine("Status",
+          isComplete
+            ? (c.status === "cancelled" ? "Cancelada" : "Concluida")
+            : `Em andamento (${pending} mensagem${pending !== 1 ? "s" : ""} na fila)`,
+          c2, yR,
+        );
+        if (c.started_at)   yR = infoLine("Iniciada em",  format(new Date(c.started_at),   "dd/MM/yyyy HH:mm"), c2, yR);
+        if (c.completed_at) yR = infoLine("Concluida em", format(new Date(c.completed_at), "dd/MM/yyyy HH:mm"), c2, yR);
+        y = Math.max(yL, yR) + 6;
+
+        // RESUMO DE RESULTADOS
+        y = sectionBar("RESUMO DE RESULTADOS", y);
+
+        const campCards = [
+          { label: "Total de Contatos", value: total.toLocaleString("pt-BR"),     sub: null,                                                              color: DARK  },
+          { label: "Enviados",          value: sent.toLocaleString("pt-BR"),       sub: `${sentPct.toFixed(1)}% do total`,                                color: GREEN },
+          { label: "Taxa de Sucesso",   value: `${successPct.toFixed(1)}%`,        sub: "dos tentados",                                                   color: GREEN },
+          { label: "Entregues",         value: delivered.toLocaleString("pt-BR"),  sub: `${delivPct.toFixed(1)}% dos enviados`,                           color: TEAL  },
+          { label: "Lidos",             value: read.toLocaleString("pt-BR"),       sub: `${readPct.toFixed(1)}% dos enviados`,                            color: BLUE  },
+          { label: "Falhas",            value: failed.toLocaleString("pt-BR"),     sub: failed > 0 ? `${failPct.toFixed(1)}% dos tentados` : "Nenhuma falha", color: failed > 0 ? RED : GREEN },
+        ];
+        const campCardsBottom = drawCards(campCards, y, cardsAreaW, MX);
+
+        // Valor total (se houver)
+        let totalValue = 0;
+        for (const m of msgs) {
+          const rd  = m.recipient_data;
+          if (!rd) continue;
+          const raw = rd._financial_campaign === true
+            ? rd.valor_total_pendente
+            : (() => { const k = Object.keys(rd).find((kk) => ["valor","value","total","amount"].some((t) => kk.toLowerCase().includes(t)) && !kk.toLowerCase().includes("barras")); return k ? rd[k] : null; })();
+          if (raw == null) continue;
+          const n = typeof raw === "number" ? raw : parseFloat(String(raw).replace(/[^\d,]/g, "").replace(",", "."));
+          if (!isNaN(n) && n > 0) totalValue += n;
+        }
+        if (totalValue > 0) {
+          doc.setFontSize(8.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...DARK);
+          doc.text(`Valor total disparado: ${totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`, MX, campCardsBottom + 6);
+        }
+
+        const campFunnelBottom = drawFunnel([
+          { label: "Total",     value: total,     base: total, color: [200,210,205], textColor: MUTED },
+          { label: "Enviados",  value: sent,       base: total, color: GREEN,        textColor: GREEN },
+          { label: "Entregues", value: delivered,  base: total, color: TEAL,         textColor: TEAL  },
+          { label: "Lidos",     value: read,       base: total, color: BLUE,         textColor: BLUE  },
+          { label: "Falhas",    value: failed,     base: total, color: RED,          textColor: RED   },
+        ], y, funnelX, funnelAreaW);
+        y = Math.max(campCardsBottom + (totalValue > 0 ? 14 : 5), campFunnelBottom);
+
+        // Insight callout
+        if (attempted > 0) {
+          let insightText: string;
+          let iColor: [number,number,number], iBg: [number,number,number], iBorder: [number,number,number];
+          if (successPct >= 95) {
+            insightText = `Taxa de sucesso de ${successPct.toFixed(1)}% -- excelente desempenho de entrega`;
+            iColor = GREEN; iBg = [240,253,244]; iBorder = [187,247,208];
+          } else if (successPct >= 85) {
+            insightText = `Taxa de sucesso de ${successPct.toFixed(1)}% -- dentro da media esperada`;
+            iColor = AMBER; iBg = [255,251,235]; iBorder = [253,230,138];
+          } else {
+            insightText = `Atencao: taxa de sucesso de ${successPct.toFixed(1)}% -- verifique a qualidade da base`;
+            iColor = RED; iBg = [254,242,242]; iBorder = [252,165,165];
+          }
+          doc.setFillColor(...iBg);
+          doc.setDrawColor(...iBorder);
+          doc.setLineWidth(0.4);
+          doc.roundedRect(MX, y, W - MX * 2, 10, 2, 2, "FD");
+          doc.setFontSize(8.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...iColor);
+          doc.text(insightText, MX + 5, y + 6.8);
+          if (!isComplete && pending > 0) {
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...MUTED);
+            doc.text(`Campanha em andamento -- ${pending} na fila`, W - MX - 5, y + 6.8, { align: "right" });
+          }
+          y += 16;
+        }
+
+        // LISTA DE DESTINATARIOS
+        y = sectionBar("LISTA DE DESTINATARIOS", y);
+        const hasFinancialRd = msgs.some((m) => m.recipient_data?._financial_campaign === true);
+        const isEmailCampaign = isEmailCamp(c);
+        const thead: string[] = ["#", "Nome", isEmailCampaign ? "Email" : "Telefone"];
+        if (hasFinancialRd) thead.push("No NF(s)", "Qtd", "Valor", "Vencimento");
+        thead.push("Status", "Enviado em");
+        const statusColIdx = thead.indexOf("Status");
+
+        const sortedMsgs = [...msgs].sort((a, b) => {
+          if (a.status === "failed" && b.status !== "failed") return -1;
+          if (a.status !== "failed" && b.status === "failed") return 1;
+          return (a.sent_at ?? "").localeCompare(b.sent_at ?? "");
+        });
+
+        const tbody = sortedMsgs.map((m, idx) => {
+          const rd  = m.recipient_data ?? {};
+          const contactCol = isEmailCampaign ? ((rd.email as string) ?? "--") : m.recipient_phone;
+          const row: string[] = [`${idx + 1}`, m.recipient_name ?? "--", contactCol];
+          if (hasFinancialRd) {
+            const invIds = rd._invoice_ids as string[] | null;
+            const allInvs= rd.contact_invoices as Array<{ id: string; numero_nf: string | null }> | null;
+            const nfs = invIds && allInvs
+              ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "--").join(", ")
+              : (rd.boleto_nf as string | null) ?? "--";
+            row.push(nfs || "--");
+            row.push(String(rd._invoice_count ?? (invIds?.length ?? "--")));
+            row.push(typeof rd.valor_total_pendente === "string" ? rd.valor_total_pendente : "--");
+            row.push(typeof rd.proximo_vencimento   === "string" ? rd.proximo_vencimento   : "--");
+          }
+          row.push(STATUS_PT[m.status] ?? m.status);
+          row.push(m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy, HH:mm") : "--");
+          return row;
+        });
+
+        autoTable(doc, {
+          head:   [thead],
+          body:   tbody,
+          startY: y,
+          margin: { left: MX, right: MX },
+          styles:             { fontSize: 8, cellPadding: 2.5, textColor: [25,25,25], lineColor: [215,215,215], lineWidth: 0.2 },
+          headStyles:         { fillColor: [75,75,75], textColor: [255,255,255], fontStyle: "bold", fontSize: 8 },
+          alternateRowStyles: { fillColor: [248,250,248] },
+          columnStyles:       { 0: { cellWidth: 12, halign: "center" } },
+          didParseCell: (data: { column: { index: number }; section: string; cell: { raw: unknown; styles: { textColor: number[]; fontStyle: string } } }) => {
+            if (data.section !== "body" || data.column.index !== statusColIdx) return;
+            const v = data.cell.raw as string;
+            if (["Enviado", "Entregue", "Lido", "Respondido"].includes(v)) {
+              data.cell.styles.textColor = [22, 163, 74];
+            } else if (["Falhou", "Nao entregavel"].includes(v)) {
+              data.cell.styles.textColor = [220, 38, 38];
+              data.cell.styles.fontStyle = "bold";
+            } else if (v === "Na fila") {
+              data.cell.styles.textColor = [130, 130, 130];
+            }
+          },
+        } as never);
+      }
+
+      // ── Rodapé em todas as páginas ─────────────────────────────
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(200, 200, 200);
+        doc.setLineWidth(0.2);
+        doc.line(MX, FOOTER_Y, W - MX, FOOTER_Y);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(150, 150, 150);
+        doc.text("Solve AI -- solveai.consulting", MX, FOOTER_Y + 4);
+        doc.text(`Pagina ${i} / ${pages}`, W - MX, FOOTER_Y + 4, { align: "right" });
+      }
+
+      doc.save(`relatorio_consolidado_${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast({
+        title:       "PDF gerado!",
+        description: `${target.length} campanha${target.length !== 1 ? "s" : ""}  ·  ${allMsgs.length} destinatários`,
+        variant:     "success",
+      });
     } catch (err) {
       toast({ title: "Erro ao gerar PDF", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
     } finally {
