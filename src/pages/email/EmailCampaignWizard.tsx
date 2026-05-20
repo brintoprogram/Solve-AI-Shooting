@@ -142,11 +142,10 @@ function buildInvoiceDetailHtml(invs: ContactInvoice[]): string {
   // Multi-date: one row per invoice (sorted by date) + total row
   const sorted = [...invs].sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""));
   const rows = sorted.map((inv, i) => {
-    const label  = inv.numero_nf ? `NF ${inv.numero_nf}` : `Boleto ${i + 1}`;
     const vStr   = inv.vencimento ? formatDateBR(inv.vencimento) : "—";
     const vVal   = inv.valor != null ? formatBRL(inv.valor) : "—";
     const border = i > 0 ? sep : "";
-    return `<tr><td style="${td}${border}">${label} &mdash; Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
+    return `<tr><td style="${td}${border}">Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
   }).join("");
 
   return (
