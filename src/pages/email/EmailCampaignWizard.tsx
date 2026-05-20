@@ -119,6 +119,8 @@ function formatDateBR(iso: string): string {
 
 // Builds the invoice detail HTML block injected into N8N email templates.
 // Single date → original 2-row format. Multiple different dates → one row per invoice + total.
+// Uses single quotes for all HTML attributes so the string is safely
+// embeddable inside a JSON field without escaping double quotes.
 function buildInvoiceDetailHtml(invs: ContactInvoice[]): string {
   if (invs.length === 0) return "";
   const td   = "padding:14px 20px;font-size:14px;color:#111827;";
@@ -129,29 +131,27 @@ function buildInvoiceDetailHtml(invs: ContactInvoice[]): string {
   const uniqueVenc = [...new Set(invs.map((inv) => inv.vencimento).filter(Boolean))];
 
   if (uniqueVenc.length <= 1) {
-    // Original single-date format — identical to what was there before
     const vStr = uniqueVenc[0] ? formatDateBR(uniqueVenc[0]) : "—";
     return (
-      `<table width="100%" cellpadding="0" cellspacing="0" style="${tbl}">` +
-      `<tr><td style="${td}">Valor vencido: <strong>${formatBRL(total)}</strong></td></tr>` +
-      `<tr><td style="${td}${sep}">Data de vencimento: <strong>${vStr}</strong></td></tr>` +
+      `<table width='100%' cellpadding='0' cellspacing='0' style='${tbl}'>` +
+      `<tr><td style='${td}'>Valor vencido: <strong>${formatBRL(total)}</strong></td></tr>` +
+      `<tr><td style='${td}${sep}'>Data de vencimento: <strong>${vStr}</strong></td></tr>` +
       `</table>`
     );
   }
 
-  // Multi-date: one row per invoice (sorted by date) + total row
   const sorted = [...invs].sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""));
   const rows = sorted.map((inv, i) => {
     const vStr   = inv.vencimento ? formatDateBR(inv.vencimento) : "—";
     const vVal   = inv.valor != null ? formatBRL(inv.valor) : "—";
     const border = i > 0 ? sep : "";
-    return `<tr><td style="${td}${border}">Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
+    return `<tr><td style='${td}${border}'>Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
   }).join("");
 
   return (
-    `<table width="100%" cellpadding="0" cellspacing="0" style="${tbl}">` +
+    `<table width='100%' cellpadding='0' cellspacing='0' style='${tbl}'>` +
     rows +
-    `<tr><td style="${td}${sep}">Total: <strong>${formatBRL(total)}</strong></td></tr>` +
+    `<tr><td style='${td}${sep}'>Total: <strong>${formatBRL(total)}</strong></td></tr>` +
     `</table>`
   );
 }
