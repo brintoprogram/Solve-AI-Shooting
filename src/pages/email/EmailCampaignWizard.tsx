@@ -342,12 +342,16 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
         if (error) throw new Error(error.message);
       }
 
-      const { data: inserted } = await supabase
+      const { data: inserted, error: selErr } = await supabase
         .from("shooting_messages")
         .select("id, recipient_name, recipient_phone, recipient_data")
         .eq("campaign_id", campaign.id);
 
-      await dispatchToN8N(campaign.id, WORKSPACE_ID, state.name.trim(), inserted ?? []);
+      if (selErr) throw new Error(selErr.message);
+      if (!inserted || inserted.length === 0)
+        throw new Error("Nenhuma mensagem foi gravada — tente novamente.");
+
+      await dispatchToN8N(campaign.id, WORKSPACE_ID, state.name.trim(), inserted);
 
       await supabase
         .from("shooting_campaigns")
