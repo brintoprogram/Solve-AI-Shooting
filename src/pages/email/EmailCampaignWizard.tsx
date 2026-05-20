@@ -860,7 +860,7 @@ function Step2({ state, onChange }: {
   const [loading, setLoading]               = useState(true);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [page, setPage]                     = useState(0);
-  const [expandedContacts, setExpandedContacts] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<string | null>(null);
   const PAGE_SIZE = 10;
 
   // Load contacts
@@ -909,19 +909,6 @@ function Step2({ state, onChange }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isN8N, state.invoiceVencFrom, state.invoiceVencTo, allContacts.length, workspaceId]);
 
-  // Auto-expand all contacts with multiple invoices whenever the invoice map changes
-  useEffect(() => {
-    if (!isN8N || Object.keys(state.contactInvoices).length === 0) return;
-    setExpandedContacts((prev) => {
-      const n = new Set(prev);
-      for (const [cid, invs] of Object.entries(state.contactInvoices)) {
-        if (invs.length > 1) n.add(cid);
-      }
-      return n;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.contactInvoices, isN8N]);
-
   const hasInvoiceFilter = isN8N && (!!state.invoiceVencFrom || !!state.invoiceVencTo);
 
   const filtered = allContacts.filter((c) => {
@@ -946,13 +933,12 @@ function Step2({ state, onChange }: {
       nextIds      = selectedIds.filter((id) => id !== contact.id);
       nextContacts = state.contacts.filter((c) => c.id !== contact.id);
       delete nextSelInvoices[contact.id];
-      setExpandedContacts((prev) => { const n = new Set(prev); n.delete(contact.id); return n; });
+      if (expanded === contact.id) setExpanded(null);
     } else {
       nextIds      = [...selectedIds, contact.id];
       nextContacts = [...state.contacts, contact];
       const invs = state.contactInvoices[contact.id] ?? [];
       if (invs.length > 0) nextSelInvoices[contact.id] = invs.map((inv) => inv.id);
-      if (invs.length > 1) setExpandedContacts((prev) => new Set([...prev, contact.id]));
     }
     onChange({ selectedContactIds: nextIds, contacts: nextContacts, totalRecipients: nextIds.length, selectedInvoices: nextSelInvoices });
   }
@@ -972,7 +958,12 @@ function Step2({ state, onChange }: {
 
   function clearAll() {
     onChange({ selectedContactIds: [], contacts: [], totalRecipients: 0, selectedInvoices: {} });
-    setExpandedContacts(new Set());
+    setExpanded(null);
+  }
+
+  function resetInvoices(contactId: string) {
+    const allInvIds = (state.contactInvoices[contactId] ?? []).map((inv) => inv.id);
+    onChange({ selectedInvoices: { ...(state.selectedInvoices ?? {}), [contactId]: allInvIds } });
   }
 
   function toggleInvoice(contactId: string, invoiceId: string) {
@@ -1108,9 +1099,10 @@ function Step2({ state, onChange }: {
       ) : (
         <>
           <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
+                  {/* Checkbox */}
                   <th className="w-10 px-4 py-3">
                     <div
                       onClick={() => {
@@ -1137,150 +1129,223 @@ function Step2({ state, onChange }: {
                       )}
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Nome</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Email</th>
-                  {isN8N && (
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest">Boleto(s)</th>
+                  {isN8N ? (
+                    <>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[35%]">Nome</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[30%]">Email</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest w-44">Boleto(s)</th>
+                      <th className="w-8" />
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[25%]">Nome</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[22%]">Email</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[18%]">Representante</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%]">Gerente 1</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%]">Gerente 2</th>
+                    </>
                   )}
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Representante</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 1</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Gerente 2</th>
                 </tr>
               </thead>
               <tbody>
-                {paginated.flatMap((c, i) => {
-                  const isSelected   = selectedIds.includes(c.id);
-                  const invs         = isN8N ? (state.contactInvoices[c.id] ?? []) : [];
-                  const selInvIds    = state.selectedInvoices?.[c.id];
-                  const activeInvIds = selInvIds ?? invs.map((inv) => inv.id);
-                  const activeInvs   = invs.filter((inv) => activeInvIds.includes(inv.id));
-                  const selectedValor = activeInvs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
-                  const isExpanded   = expandedContacts.has(c.id);
-                  const totalCols    = isN8N ? 7 : 6;
+                {(() => {
+                  const rows: React.ReactNode[] = [];
+                  for (let i = 0; i < paginated.length; i++) {
+                    const c = paginated[i];
+                    const isSelected   = selectedIds.includes(c.id);
+                    const invs         = isN8N ? (state.contactInvoices[c.id] ?? []) : [];
+                    const selInvIds    = state.selectedInvoices?.[c.id];
+                    const activeInvIds = selInvIds ?? invs.map((inv) => inv.id);
+                    const activeInvs   = invs.filter((inv) => activeInvIds.includes(inv.id));
+                    const selectedValor = activeInvs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+                    const isExpanded   = expanded === c.id;
 
-                  const mainRow = (
-                    <tr key={c.id}
-                      className="cursor-pointer transition-all duration-200"
-                      style={{
-                        borderBottom: isExpanded ? "none" : i < paginated.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none",
-                        background: isSelected ? "rgba(63,176,108,0.06)" : "transparent",
-                      }}
-                      onClick={() => toggle(c)}
-                    >
-                      <td className="px-4 py-3">
-                        <div
-                          className={cn("w-4 h-4 rounded flex items-center justify-center transition-all",
-                            isSelected ? "glow-green-sm" : "border border-agro-muted/40")}
-                          style={isSelected ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)" } : { background: "transparent" }}
-                        >
-                          {isSelected && <span className="text-white text-[10px] leading-none">✓</span>}
-                        </div>
-                      </td>
-                      <td className={cn("px-4 py-3 font-medium text-sm transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}>
-                        {c.name}
-                      </td>
-                      <td className="px-4 py-3 text-agro-muted text-xs font-mono">{c.email}</td>
-                      {isN8N && (
-                        <td className="px-4 py-3 text-xs" onClick={(e) => { if (invs.length > 1) e.stopPropagation(); }}>
-                          {invs.length === 0 ? (
-                            <span className="text-agro-muted-2">—</span>
-                          ) : invs.length === 1 ? (
-                            <span className="font-semibold text-amber-400">{formatBRL(selectedValor)}</span>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedContacts((prev) => { const n = new Set(prev); isExpanded ? n.delete(c.id) : n.add(c.id); return n; });
-                              }}
-                              className="flex items-center gap-1 font-semibold text-amber-400 hover:text-amber-300 transition-colors"
-                            >
-                              <span>
-                                {selInvIds && selInvIds.length < invs.length
-                                  ? `${selInvIds.length}/${invs.length} bol.`
-                                  : `${invs.length} bol.`}
-                              </span>
-                              <span className="text-agro-muted mx-0.5">·</span>
-                              <span>{formatBRL(selectedValor)}</span>
-                              <ChevronDown className={cn("w-3 h-3 transition-transform ml-0.5", isExpanded && "rotate-180")} />
-                            </button>
-                          )}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.email_representante ?? "—"}</td>
-                      <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente1_email ?? "—"}</td>
-                      <td className="px-4 py-3 text-agro-muted-2 text-xs">{c.gerente2_email ?? "—"}</td>
-                    </tr>
-                  );
-
-                  if (!isExpanded || invs.length <= 1) return [mainRow];
-
-                  const invoiceRows = invs.map((inv, ii) => {
-                    const invSelected = activeInvIds.includes(inv.id);
-                    return (
-                      <tr
-                        key={`inv-${inv.id}`}
+                    rows.push(
+                      <tr key={c.id}
+                        className="cursor-pointer transition-all duration-200"
                         style={{
-                          background: "rgba(245,158,11,0.03)",
-                          borderBottom: ii < invs.length - 1
-                            ? "1px solid rgba(245,158,11,0.07)"
-                            : "1px solid rgba(63,176,108,0.06)",
+                          borderBottom: i < paginated.length - 1 || isExpanded ? "1px solid rgba(63,176,108,0.06)" : "none",
+                          background: isSelected ? "rgba(63,176,108,0.06)" : "transparent",
                         }}
+                        onClick={() => toggle(c)}
                       >
-                        <td colSpan={totalCols} style={{ padding: "5px 16px 5px 56px" }}>
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div
-                              onClick={() => toggleInvoice(c.id, inv.id)}
-                              className={cn(
-                                "w-3.5 h-3.5 rounded cursor-pointer flex items-center justify-center shrink-0 transition-all",
-                                invSelected ? "" : "border border-amber-500/30 hover:border-amber-400",
-                              )}
-                              style={invSelected
-                                ? { background: "linear-gradient(135deg, #f59e0b, #d97706)", boxShadow: "0 0 6px rgba(245,158,11,0.4)" }
-                                : { background: "transparent" }}
-                            >
-                              {invSelected && <span className="text-white text-[8px] leading-none">✓</span>}
-                            </div>
-                            <span className="text-xs font-medium text-agro-muted-2">
-                              {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
-                            </span>
-                            {inv.vencimento && (
-                              <span className="text-xs text-agro-muted">
-                                Venc. <span className="text-amber-400/80 font-medium">{formatDateBR(inv.vencimento)}</span>
-                              </span>
-                            )}
-                            {inv.status && (
-                              <span className={cn(
-                                "text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide",
-                                inv.status === "vencido"
-                                  ? "bg-red-500/15 text-red-400"
-                                  : inv.status === "pago"
-                                  ? "bg-green-500/15 text-green-400"
-                                  : "bg-amber-500/15 text-amber-400/80",
-                              )}>
-                                {inv.status}
-                              </span>
-                            )}
-                            {inv.codigo_barras && (
-                              <span className="text-[10px] text-agro-muted-2/50 font-mono truncate max-w-[160px]" title={inv.codigo_barras}>
-                                {inv.codigo_barras.slice(0, 20)}…
-                              </span>
-                            )}
-                            {inv.valor != null && (
-                              <span className={cn(
-                                "text-xs font-semibold ml-auto pr-2",
-                                invSelected ? "text-amber-400" : "text-agro-muted-2 line-through opacity-50",
-                              )}>
-                                {formatBRL(inv.valor)}
-                              </span>
-                            )}
+                        {/* Checkbox */}
+                        <td className="px-4 py-3 w-10">
+                          <div
+                            className={cn("w-4 h-4 rounded flex items-center justify-center transition-all",
+                              isSelected ? "glow-green-sm" : "border border-agro-muted/40")}
+                            style={isSelected ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)" } : { background: "transparent" }}
+                          >
+                            {isSelected && <span className="text-white text-[10px] leading-none">✓</span>}
                           </div>
                         </td>
+
+                        {isN8N ? (
+                          <>
+                            {/* Nome */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className={cn("font-medium text-sm truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
+                                title={c.name ?? ""}>
+                                {c.name}
+                              </p>
+                            </td>
+                            {/* Email */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className="text-xs font-mono text-agro-muted truncate" title={c.email ?? ""}>{c.email}</p>
+                            </td>
+                            {/* Boleto(s) */}
+                            <td className="px-4 py-3 text-xs">
+                              {invs.length === 0 ? (
+                                <span className="text-agro-muted-2">—</span>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  {invs.length > 1 && (
+                                    <span className="text-[10px] font-semibold text-agro-muted-2">
+                                      {selInvIds && selInvIds.length < invs.length
+                                        ? `${selInvIds.length}/${invs.length}`
+                                        : invs.length} bol.
+                                    </span>
+                                  )}
+                                  <span className="font-semibold text-amber-400">{formatBRL(selectedValor)}</span>
+                                </div>
+                              )}
+                            </td>
+                            {/* Chevron */}
+                            <td className="px-2 py-3 w-8" onClick={(e) => e.stopPropagation()}>
+                              {invs.length > 0 && (
+                                <button
+                                  onClick={() => setExpanded((p) => p === c.id ? null : c.id)}
+                                  className="w-6 h-6 flex items-center justify-center rounded text-agro-muted-2 hover:text-agro-text transition-colors"
+                                  title={isExpanded ? "Fechar boletos" : "Ver boletos"}
+                                >
+                                  {isExpanded
+                                    ? <ChevronDown className="w-3.5 h-3.5" />
+                                    : <ChevronRight className="w-3.5 h-3.5" />}
+                                </button>
+                              )}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            {/* Nome */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className={cn("font-medium text-sm truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
+                                title={c.name ?? ""}>
+                                {c.name}
+                              </p>
+                            </td>
+                            {/* Email */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className="text-xs font-mono text-agro-muted truncate" title={c.email ?? ""}>{c.email}</p>
+                            </td>
+                            {/* Representante */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className="text-agro-muted-2 text-xs truncate" title={c.email_representante ?? ""}>{c.email_representante ?? "—"}</p>
+                            </td>
+                            {/* Gerente 1 */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className="text-agro-muted-2 text-xs truncate" title={c.gerente1_email ?? ""}>{c.gerente1_email ?? "—"}</p>
+                            </td>
+                            {/* Gerente 2 */}
+                            <td className="px-4 py-3 max-w-0">
+                              <p className="text-agro-muted-2 text-xs truncate" title={c.gerente2_email ?? ""}>{c.gerente2_email ?? "—"}</p>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
-                  });
 
-                  return [mainRow, ...invoiceRows];
-                })}
+                    // Expanded invoice sub-row — Z-API pattern
+                    if (isN8N && isExpanded && invs.length > 0) {
+                      const selCount = selInvIds ? selInvIds.length : invs.length;
+                      rows.push(
+                        <tr key={`${c.id}-invoices`}
+                          style={{ borderBottom: i < paginated.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                        >
+                          <td colSpan={5} className="px-0 pb-3 pt-0">
+                            <div className="mx-4 rounded-xl overflow-hidden"
+                              style={{ background: "rgba(8,14,10,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}
+                            >
+                              {/* Sub-row header */}
+                              <div className="flex items-center justify-between px-4 py-2"
+                                style={{ borderBottom: "1px solid rgba(63,176,108,0.07)" }}
+                              >
+                                <p className="text-[10px] text-agro-muted-2">
+                                  {selCount < invs.length
+                                    ? `${selCount} de ${invs.length} boletos selecionados`
+                                    : `${invs.length} boleto${invs.length > 1 ? "s" : ""}`}
+                                </p>
+                                {selCount < invs.length && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); resetInvoices(c.id); }}
+                                    className="text-[10px] text-agro-muted hover:text-agro-green transition-colors"
+                                  >
+                                    Selecionar todos
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Invoice rows */}
+                              {invs.map((inv, j) => {
+                                const invSelected = activeInvIds.includes(inv.id);
+                                return (
+                                  <button
+                                    key={inv.id}
+                                    onClick={(e) => { e.stopPropagation(); toggleInvoice(c.id, inv.id); }}
+                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-white/5"
+                                    style={{ borderBottom: j < invs.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                                  >
+                                    {/* Amber checkbox */}
+                                    <div
+                                      className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center transition-all"
+                                      style={invSelected
+                                        ? { background: "linear-gradient(135deg,#f59e0b,#d97706)", boxShadow: "0 0 6px rgba(245,158,11,0.4)" }
+                                        : { border: "1px solid rgba(245,158,11,0.3)" }}
+                                    >
+                                      {invSelected && <span className="text-white text-[8px] leading-none">✓</span>}
+                                    </div>
+                                    {/* NF */}
+                                    <span className="text-xs text-agro-muted-2 font-medium">
+                                      {inv.numero_nf ? `NF ${inv.numero_nf}` : "Boleto"}
+                                    </span>
+                                    {/* Vencimento */}
+                                    {inv.vencimento && (
+                                      <span className="text-xs text-agro-muted">
+                                        Venc.{" "}
+                                        <span className="text-amber-400/80 font-medium">{formatDateBR(inv.vencimento)}</span>
+                                      </span>
+                                    )}
+                                    {/* Status badge */}
+                                    {inv.status && (
+                                      <span className={cn(
+                                        "text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide",
+                                        inv.status === "vencido" ? "bg-red-500/15 text-red-400"
+                                          : inv.status === "pago" ? "bg-green-500/15 text-green-400"
+                                          : "bg-amber-500/15 text-amber-400/80",
+                                      )}>
+                                        {inv.status}
+                                      </span>
+                                    )}
+                                    {/* Valor — right-aligned */}
+                                    {inv.valor != null && (
+                                      <span className={cn(
+                                        "text-xs font-semibold ml-auto",
+                                        invSelected ? "text-amber-400" : "text-agro-muted-2 line-through opacity-40",
+                                      )}>
+                                        {formatBRL(inv.valor)}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                  }
+                  return rows;
+                })()}
               </tbody>
             </table>
           </div>
