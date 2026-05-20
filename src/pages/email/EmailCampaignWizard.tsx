@@ -117,6 +117,46 @@ function formatDateBR(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+// Builds the invoice detail HTML block injected into N8N email templates.
+// Single date → original 2-row format. Multiple different dates → one row per invoice + total.
+function buildInvoiceDetailHtml(invs: ContactInvoice[]): string {
+  if (invs.length === 0) return "";
+  const td   = "padding:14px 20px;font-size:14px;color:#111827;";
+  const sep  = "border-top:1px solid #e5e7eb;";
+  const tbl  = "width:100%;border-collapse:collapse;margin:0 0 28px;border-left:3px solid #1a1a2e;background-color:#f9fafb;";
+  const total = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+
+  const uniqueVenc = [...new Set(invs.map((inv) => inv.vencimento).filter(Boolean))];
+
+  if (uniqueVenc.length <= 1) {
+    // Original single-date format — identical to what was there before
+    const vStr = uniqueVenc[0] ? formatDateBR(uniqueVenc[0]) : "—";
+    return (
+      `<table width="100%" cellpadding="0" cellspacing="0" style="${tbl}">` +
+      `<tr><td style="${td}">Valor vencido: <strong>${formatBRL(total)}</strong></td></tr>` +
+      `<tr><td style="${td}${sep}">Data de vencimento: <strong>${vStr}</strong></td></tr>` +
+      `</table>`
+    );
+  }
+
+  // Multi-date: one row per invoice (sorted by date) + total row
+  const sorted = [...invs].sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""));
+  const rows = sorted.map((inv, i) => {
+    const label  = inv.numero_nf ? `NF ${inv.numero_nf}` : `Boleto ${i + 1}`;
+    const vStr   = inv.vencimento ? formatDateBR(inv.vencimento) : "—";
+    const vVal   = inv.valor != null ? formatBRL(inv.valor) : "—";
+    const border = i > 0 ? sep : "";
+    return `<tr><td style="${td}${border}">${label} &mdash; Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
+  }).join("");
+
+  return (
+    `<table width="100%" cellpadding="0" cellspacing="0" style="${tbl}">` +
+    rows +
+    `<tr><td style="${td}${sep}">Total: <strong>${formatBRL(total)}</strong></td></tr>` +
+    `</table>`
+  );
+}
+
 // ── Main Wizard ──────────────────────────────────────────────────
 
 interface EmailCampaignWizardProps {
@@ -287,6 +327,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
             _financial_campaign:  hasInv,
             valor_total_pendente: hasInv ? formatBRL(valorTotal) : undefined,
             proximo_vencimento:   proximoVenc ? formatDateBR(proximoVenc) : undefined,
+            invoice_detail_html:  hasInv ? buildInvoiceDetailHtml(invs) : undefined,
             _invoice_count:       invs.length,
             _invoice_ids:         invs.map((inv) => inv.id),
             contact_invoices:     invs,
