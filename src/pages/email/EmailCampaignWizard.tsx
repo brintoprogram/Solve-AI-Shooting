@@ -134,7 +134,7 @@ function buildInvoiceDetailHtml(invs: ContactInvoice[]): string {
     const vStr = uniqueVenc[0] ? formatDateBR(uniqueVenc[0]) : "—";
     return (
       `<table width='100%' cellpadding='0' cellspacing='0' style='${tbl}'>` +
-      `<tr><td style='${td}'>Valor vencido: <strong>${formatBRL(total)}</strong></td></tr>` +
+      `<tr><td style='${td}'>Valor: <strong>${formatBRL(total)}</strong></td></tr>` +
       `<tr><td style='${td}${sep}'>Data de vencimento: <strong>${vStr}</strong></td></tr>` +
       `</table>`
     );
