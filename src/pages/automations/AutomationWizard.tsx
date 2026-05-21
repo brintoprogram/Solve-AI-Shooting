@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Zap, Users, ClipboardList, CheckCircle2, ChevronLeft, ChevronRight,
   Plus, Trash2, Loader2, Search, X, ArrowUpDown, SlidersHorizontal, CheckSquare,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -324,9 +325,28 @@ function Step2({ s, patch }: { s: WState; patch: (p: Partial<WState>) => void })
 
 // ── Step 3 — Recipients ───────────────────────────────────────────────────────
 
+function fmtVenc(iso: string) {
+  return `${iso.slice(8,10)}/${iso.slice(5,7)}/${iso.slice(0,4)}`;
+}
+
 interface InvRow {
   invoiceId: string; contactId: string; contactName: string; contactPhone: string;
   vencimento: string; valor: number | null; numeroNf: string | null; codigoBarras: string | null; status: string;
+}
+
+function ContactCheckbox({ invs, selected, onToggle }: {
+  invs: InvRow[]; selected: Set<string>; onToggle: () => void;
+}) {
+  const ref    = useRef<HTMLInputElement>(null);
+  const allSel = invs.every((inv) => selected.has(inv.invoiceId));
+  const someSel = invs.some((inv) => selected.has(inv.invoiceId));
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = someSel && !allSel;
+  }, [someSel, allSel]);
+  return (
+    <input ref={ref} type="checkbox" checked={allSel} onChange={onToggle}
+      className="accent-agro-green cursor-pointer" onClick={(e) => e.stopPropagation()} />
+  );
 }
 
 function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState>) => void; workspaceId: string }) {
@@ -344,6 +364,7 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
   const [selected,     setSelected]     = useState<Set<string>>(
     () => new Set(s.selectedRecipients.map((r) => r.invoice_id ?? r.contact_id))
   );
+  const [expanded,     setExpanded]     = useState<string | null>(null);
   const db = supabase as any;
 
   const fetchRows = useCallback(async () => {
@@ -403,7 +424,37 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
     return sortDir === "asc" ? cmp : -cmp;
   });
 
+  // Group filtered rows by contact for chevron rendering
+  const groups = new Map<string, InvRow[]>();
+  for (const r of filtered) {
+    const arr = groups.get(r.contactId) ?? [];
+    arr.push(r);
+    groups.set(r.contactId, arr);
+  }
+  for (const invs of groups.values()) {
+    invs.sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+  }
+  const sortedGroups = [...groups.entries()].sort(([, a], [, b]) => {
+    let cmp = 0;
+    if (sortField === "name") {
+      cmp = a[0].contactName.localeCompare(b[0].contactName);
+    } else if (sortField === "vencimento") {
+      cmp = a[0].vencimento.localeCompare(b[0].vencimento);
+    } else {
+      cmp = a.reduce((s, i) => s + (i.valor ?? 0), 0) - b.reduce((s, i) => s + (i.valor ?? 0), 0);
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
   const allChecked = sorted.length > 0 && sorted.every((r) => selected.has(r.invoiceId));
+
+  function toggleContact(invs: InvRow[]) {
+    const allSel = invs.every((inv) => selected.has(inv.invoiceId));
+    const next   = new Set(selected);
+    if (allSel) invs.forEach((inv) => next.delete(inv.invoiceId));
+    else        invs.forEach((inv) => next.add(inv.invoiceId));
+    setSelected(next);
+  }
 
   function toggleAll() {
     const next = new Set(selected);
@@ -561,19 +612,23 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
       )}
 
       <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
+        {/* Header */}
         <div className="grid px-4 py-2.5 text-[10px] font-bold text-agro-muted uppercase tracking-widest"
           style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)",
-            gridTemplateColumns: "28px 1fr 120px 100px 80px" }}>
+            gridTemplateColumns: "28px 1fr 120px 100px 80px 28px" }}>
           <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-agro-green cursor-pointer" />
           <button className="flex items-center gap-1 text-left hover:text-white" onClick={() => handleSort("name")}>Nome <ArrowUpDown className="w-2.5 h-2.5" /></button>
           <button className="flex items-center gap-1 hover:text-white" onClick={() => handleSort("vencimento")}>Vencimento <ArrowUpDown className="w-2.5 h-2.5" /></button>
           <button className="flex items-center gap-1 justify-end hover:text-white w-full" onClick={() => handleSort("valor")}>Valor <ArrowUpDown className="w-2.5 h-2.5" /></button>
           <span className="text-right">Status</span>
+          <span />
         </div>
+
+        {/* Body */}
         <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
           {loading ? (
             <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-agro-green" /></div>
-          ) : sorted.length === 0 ? (
+          ) : sortedGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2">
               <p className="text-sm text-agro-muted">
                 {activeFilterCount > 0 ? "Nenhum boleto corresponde aos filtros" : "Nenhum boleto pendente encontrado"}
@@ -582,26 +637,139 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
                 <button onClick={clearFilters} className="text-xs text-agro-green hover:underline">Limpar filtros</button>
               )}
             </div>
-          ) : sorted.map((r, i) => {
-            const chk    = selected.has(r.invoiceId);
-            const isVenc = r.vencimento < today;
+          ) : sortedGroups.map(([contactId, invs], gi) => {
+            const isMulti   = invs.length > 1;
+            const isExp     = expanded === contactId;
+            const nearVenc  = invs[0].vencimento;
+            const isVenc    = nearVenc < today;
+            const selCount  = invs.filter((inv) => selected.has(inv.invoiceId)).length;
+            const totalValor = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+
             return (
-              <div key={r.invoiceId} onClick={() => toggleRow(r.invoiceId)}
-                className="grid items-center px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors"
-                style={{ gridTemplateColumns: "28px 1fr 120px 100px 80px",
-                  borderBottom: i < sorted.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none",
-                  background: chk ? "rgba(63,176,108,0.04)" : undefined }}>
-                <input type="checkbox" checked={chk} onChange={() => toggleRow(r.invoiceId)} className="accent-agro-green cursor-pointer" onClick={(e) => e.stopPropagation()} />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-agro-text truncate">{r.contactName}</p>
-                  <p className="text-[10px] text-agro-muted-2 truncate">{r.contactPhone}</p>
+              <Fragment key={contactId}>
+                {/* Contact row */}
+                <div
+                  onClick={() => isMulti
+                    ? setExpanded((p) => p === contactId ? null : contactId)
+                    : toggleRow(invs[0].invoiceId)}
+                  className="grid items-center px-4 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors"
+                  style={{
+                    gridTemplateColumns: "28px 1fr 120px 100px 80px 28px",
+                    borderBottom: gi < sortedGroups.length - 1 || isExp ? "1px solid rgba(63,176,108,0.05)" : "none",
+                    background: selCount > 0 ? "rgba(63,176,108,0.04)" : undefined,
+                  }}
+                >
+                  {isMulti ? (
+                    <ContactCheckbox invs={invs} selected={selected} onToggle={() => toggleContact(invs)} />
+                  ) : (
+                    <input type="checkbox" checked={selected.has(invs[0].invoiceId)}
+                      onChange={() => toggleRow(invs[0].invoiceId)} className="accent-agro-green cursor-pointer"
+                      onClick={(e) => e.stopPropagation()} />
+                  )}
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-agro-text truncate">{invs[0].contactName}</p>
+                    <p className="text-[10px] text-agro-muted-2 truncate">{invs[0].contactPhone}</p>
+                  </div>
+
+                  <p className="text-xs" style={{ color: isVenc ? "#f87171" : "#7fc49a" }}>
+                    {fmtVenc(nearVenc)}
+                  </p>
+
+                  <p className="text-xs font-semibold text-agro-text text-right">{fmtBRL(totalValor)}</p>
+
+                  {isMulti ? (
+                    <p className="text-[10px] text-right font-semibold" style={{ color: selCount > 0 ? "#fbbf24" : "#5a7a66" }}>
+                      {selCount}/{invs.length} bol.
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-right" style={{ color: isVenc ? "#f87171" : "#fbbf24" }}>{invs[0].status}</p>
+                  )}
+
+                  {isMulti ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setExpanded((p) => p === contactId ? null : contactId); }}
+                      className="flex items-center justify-center w-6 h-6 rounded transition-colors text-agro-muted-2 hover:text-agro-text"
+                    >
+                      {isExp ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </button>
+                  ) : <span />}
                 </div>
-                <p className="text-xs" style={{ color: isVenc ? "#f87171" : "#7fc49a" }}>
-                  {r.vencimento.slice(8,10)}/{r.vencimento.slice(5,7)}/{r.vencimento.slice(0,4)}
-                </p>
-                <p className="text-xs font-semibold text-agro-text text-right">{fmtBRL(r.valor)}</p>
-                <p className="text-[10px] text-right" style={{ color: isVenc ? "#f87171" : "#fbbf24" }}>{r.status}</p>
-              </div>
+
+                {/* Expanded invoice panel */}
+                {isMulti && isExp && (
+                  <div className="px-3 pb-2" style={{ borderBottom: gi < sortedGroups.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none" }}>
+                    <div className="rounded-xl overflow-hidden"
+                      style={{ background: "rgba(8,14,10,0.6)", border: "1px solid rgba(63,176,108,0.1)" }}>
+
+                      {/* Panel header */}
+                      <div className="flex items-center justify-between px-4 py-2"
+                        style={{ borderBottom: "1px solid rgba(63,176,108,0.07)" }}>
+                        <p className="text-[10px] text-agro-muted-2">
+                          {selCount < invs.length
+                            ? `${selCount} de ${invs.length} boletos selecionados`
+                            : `${invs.length} boletos`}
+                        </p>
+                        {selCount < invs.length && (
+                          <button
+                            onClick={() => { const next = new Set(selected); invs.forEach((inv) => next.add(inv.invoiceId)); setSelected(next); }}
+                            className="text-[10px] text-agro-muted hover:text-agro-text transition-colors">
+                            Selecionar todos
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Per-invoice rows */}
+                      {invs.map((inv, j) => {
+                        const invSel  = selected.has(inv.invoiceId);
+                        const invVenc = inv.vencimento < today;
+                        return (
+                          <button key={inv.invoiceId}
+                            onClick={() => toggleRow(inv.invoiceId)}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
+                            style={{ borderBottom: j < invs.length - 1 ? "1px solid rgba(63,176,108,0.06)" : "none" }}
+                          >
+                            {/* Amber checkbox */}
+                            <div className="w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center"
+                              style={invSel
+                                ? { background: "linear-gradient(135deg,#f59e0b,#d97706)", boxShadow: "0 0 6px rgba(245,158,11,0.4)" }
+                                : { border: "1px solid rgba(245,158,11,0.3)" }}>
+                              {invSel && <span className="block w-[5px] h-[5px] rounded-[1px] bg-white" />}
+                            </div>
+
+                            <span className="text-xs text-agro-muted-2 shrink-0">
+                              {inv.numeroNf ? `NF ${inv.numeroNf}` : "Boleto"}
+                            </span>
+
+                            <span className="text-xs text-agro-muted shrink-0">
+                              Venc. <span className="font-medium" style={{ color: invVenc ? "#f87171" : "#fbbf24" }}>{fmtVenc(inv.vencimento)}</span>
+                            </span>
+
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase shrink-0"
+                              style={{
+                                background: invVenc ? "rgba(239,68,68,0.1)" : "rgba(245,158,11,0.1)",
+                                color:      invVenc ? "#f87171"             : "#fbbf24",
+                              }}>
+                              {inv.status}
+                            </span>
+
+                            {inv.valor != null && (
+                              <span className="text-xs font-semibold ml-auto"
+                                style={{
+                                  color:          invSel ? "#f59e0b" : "#5a7a66",
+                                  textDecoration: invSel ? "none"    : "line-through",
+                                  opacity:        invSel ? 1         : 0.45,
+                                }}>
+                                {fmtBRL(inv.valor)}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </Fragment>
             );
           })}
         </div>
