@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Zap, Users, ClipboardList, CheckCircle2, ChevronLeft, ChevronRight,
-  Plus, Trash2, Loader2, Search, X, ArrowUpDown,
+  Plus, Trash2, Loader2, Search, X, ArrowUpDown, SlidersHorizontal, CheckSquare,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -330,12 +330,18 @@ interface InvRow {
 }
 
 function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState>) => void; workspaceId: string }) {
-  const [rows,      setRows]      = useState<InvRow[]>([]);
-  const [loading,   setLoading]   = useState(false);
-  const [search,    setSearch]    = useState("");
-  const [sortDir,   setSortDir]   = useState<"asc"|"desc">("asc");
-  const [sortField, setSortField] = useState<"vencimento"|"valor"|"name">("vencimento");
-  const [selected,  setSelected]  = useState<Set<string>>(
+  const [rows,         setRows]         = useState<InvRow[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [showFilters,  setShowFilters]  = useState(false);
+  const [filterVencFrom, setFilterVencFrom] = useState("");
+  const [filterVencTo,   setFilterVencTo]   = useState("");
+  const [filterValMin,   setFilterValMin]   = useState("");
+  const [filterValMax,   setFilterValMax]   = useState("");
+  const [filterStatus,   setFilterStatus]   = useState<string[]>([]);
+  const [sortDir,      setSortDir]      = useState<"asc"|"desc">("asc");
+  const [sortField,    setSortField]    = useState<"vencimento"|"valor"|"name">("vencimento");
+  const [selected,     setSelected]     = useState<Set<string>>(
     () => new Set(s.selectedRecipients.map((r) => r.invoice_id ?? r.contact_id))
   );
   const db = supabase as any;
@@ -375,9 +381,22 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  const q        = search.toLowerCase();
-  const filtered = rows.filter((r) => !q || r.contactName.toLowerCase().includes(q) || r.contactPhone.includes(q));
-  const sorted   = [...filtered].sort((a, b) => {
+  const activeFilterCount = [
+    filterVencFrom, filterVencTo, filterValMin, filterValMax,
+  ].filter(Boolean).length + filterStatus.length;
+
+  const q = search.toLowerCase();
+  const filtered = rows.filter((r) => {
+    if (q && !r.contactName.toLowerCase().includes(q) && !r.contactPhone.includes(q)) return false;
+    if (filterVencFrom && r.vencimento < filterVencFrom) return false;
+    if (filterVencTo   && r.vencimento > filterVencTo)   return false;
+    if (filterValMin   && (r.valor ?? 0) < Number(filterValMin)) return false;
+    if (filterValMax   && (r.valor ?? 0) > Number(filterValMax)) return false;
+    if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
     const cmp = sortField === "vencimento" ? a.vencimento.localeCompare(b.vencimento)
       : sortField === "valor" ? (a.valor ?? 0) - (b.valor ?? 0)
       : a.contactName.localeCompare(b.contactName);
@@ -404,10 +423,29 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
     else { setSortField(f); setSortDir("asc"); }
   }
 
+  function toggleStatusFilter(st: string) {
+    setFilterStatus((prev) =>
+      prev.includes(st) ? prev.filter((x) => x !== st) : [...prev, st]
+    );
+  }
+
+  function clearFilters() {
+    setFilterVencFrom(""); setFilterVencTo("");
+    setFilterValMin("");   setFilterValMax("");
+    setFilterStatus([]);
+  }
+
+  function selectFiltered() {
+    const next = new Set(selected);
+    sorted.forEach((r) => next.add(r.invoiceId));
+    setSelected(next);
+  }
+
   const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-3 max-w-3xl">
+      {/* ── Search + filter toggle ── */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-agro-muted-2" />
@@ -415,8 +453,112 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
             value={search} onChange={(e) => setSearch(e.target.value)} />
           {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-agro-muted hover:text-white"><X className="w-3.5 h-3.5" /></button>}
         </div>
+        <button
+          onClick={() => setShowFilters((v) => !v)}
+          className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all"
+          style={showFilters || activeFilterCount > 0
+            ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.4)" }
+            : { background: "rgba(0,0,0,0.2)",        color: "#5a7a66", border: "1px solid rgba(63,176,108,0.15)" }}>
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Filtros
+          {activeFilterCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center"
+              style={{ background: "#3fb06c", color: "#000" }}>
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
         <span className="text-xs text-agro-muted shrink-0">{selected.size} selecionados de {filtered.length}</span>
       </div>
+
+      {/* ── Filter panel ── */}
+      {showFilters && (
+        <div className="rounded-xl p-4 space-y-3"
+          style={{ background: "rgba(13,26,17,0.8)", border: "1px solid rgba(63,176,108,0.15)" }}>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Vencimento */}
+            <div className="col-span-2">
+              <p className="text-[10px] font-bold text-agro-muted uppercase tracking-widest mb-1.5">Vencimento</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <label className="text-[10px] text-agro-muted-2 mb-0.5 block">De</label>
+                  <input type="date" className="input-agro w-full text-xs"
+                    value={filterVencFrom} onChange={(e) => setFilterVencFrom(e.target.value)} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-agro-muted-2 mb-0.5 block">Até</label>
+                  <input type="date" className="input-agro w-full text-xs"
+                    value={filterVencTo} onChange={(e) => setFilterVencTo(e.target.value)} />
+                </div>
+                {/* Quick presets */}
+                <div className="flex flex-col gap-1 shrink-0 pt-4">
+                  {[
+                    { label: "Esta semana",  fn: () => { const d = new Date(); const mon = new Date(d); mon.setDate(d.getDate() - d.getDay() + 1); const sun = new Date(mon); sun.setDate(mon.getDate() + 6); setFilterVencFrom(mon.toISOString().slice(0,10)); setFilterVencTo(sun.toISOString().slice(0,10)); } },
+                    { label: "Este mês",     fn: () => { const d = new Date(); setFilterVencFrom(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`); setFilterVencTo(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()}`); } },
+                    { label: "Próx. 30 dias", fn: () => { const from = new Date(); const to = new Date(); to.setDate(to.getDate()+30); setFilterVencFrom(from.toISOString().slice(0,10)); setFilterVencTo(to.toISOString().slice(0,10)); } },
+                  ].map(({ label, fn }) => (
+                    <button key={label} onClick={fn}
+                      className="text-[9px] px-2 py-0.5 rounded whitespace-nowrap transition-colors hover:bg-white/10"
+                      style={{ background: "rgba(63,176,108,0.07)", color: "#5a7a66", border: "1px solid rgba(63,176,108,0.12)" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Valor */}
+            <div className="col-span-2 sm:col-span-1">
+              <p className="text-[10px] font-bold text-agro-muted uppercase tracking-widest mb-1.5">Valor (R$)</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <label className="text-[10px] text-agro-muted-2 mb-0.5 block">Mínimo</label>
+                  <input type="number" min={0} step={0.01} className="input-agro w-full text-xs" placeholder="0,00"
+                    value={filterValMin} onChange={(e) => setFilterValMin(e.target.value)} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-agro-muted-2 mb-0.5 block">Máximo</label>
+                  <input type="number" min={0} step={0.01} className="input-agro w-full text-xs" placeholder="∞"
+                    value={filterValMax} onChange={(e) => setFilterValMax(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Status */}
+            <div className="col-span-2 sm:col-span-1">
+              <p className="text-[10px] font-bold text-agro-muted uppercase tracking-widest mb-1.5">Status</p>
+              <div className="flex flex-wrap gap-1.5">
+                {PENDING_STATUSES.map((st) => {
+                  const active = filterStatus.includes(st);
+                  return (
+                    <button key={st} onClick={() => toggleStatusFilter(st)}
+                      className="text-[10px] px-2 py-0.5 rounded-md font-semibold transition-all"
+                      style={active
+                        ? { background: "rgba(63,176,108,0.2)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.45)" }
+                        : { background: "rgba(0,0,0,0.2)",       color: "#5a7a66", border: "1px solid rgba(63,176,108,0.12)" }}>
+                      {st}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Filter actions */}
+          <div className="flex items-center justify-between pt-1" style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
+            <button onClick={clearFilters} disabled={activeFilterCount === 0}
+              className="flex items-center gap-1 text-[11px] text-agro-muted hover:text-red-400 transition-colors disabled:opacity-30">
+              <X className="w-3 h-3" /> Limpar filtros
+            </button>
+            <button onClick={selectFiltered} disabled={sorted.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-30 hover:bg-white/5"
+              style={{ color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
+              <CheckSquare className="w-3.5 h-3.5" />
+              Selecionar {sorted.length} filtrado{sorted.length !== 1 ? "s" : ""}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
         <div className="grid px-4 py-2.5 text-[10px] font-bold text-agro-muted uppercase tracking-widest"
@@ -428,13 +570,17 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
           <button className="flex items-center gap-1 justify-end hover:text-white w-full" onClick={() => handleSort("valor")}>Valor <ArrowUpDown className="w-2.5 h-2.5" /></button>
           <span className="text-right">Status</span>
         </div>
-        <div className="overflow-y-auto" style={{ maxHeight: 380 }}>
+        <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
           {loading ? (
             <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-agro-green" /></div>
           ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2">
-              <p className="text-sm text-agro-muted">Nenhum boleto pendente encontrado</p>
-              <p className="text-xs text-agro-muted/60">Status: {PENDING_STATUSES.join(", ")}</p>
+              <p className="text-sm text-agro-muted">
+                {activeFilterCount > 0 ? "Nenhum boleto corresponde aos filtros" : "Nenhum boleto pendente encontrado"}
+              </p>
+              {activeFilterCount > 0 && (
+                <button onClick={clearFilters} className="text-xs text-agro-green hover:underline">Limpar filtros</button>
+              )}
             </div>
           ) : sorted.map((r, i) => {
             const chk    = selected.has(r.invoiceId);
