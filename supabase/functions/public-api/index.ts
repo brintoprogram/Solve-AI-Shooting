@@ -229,23 +229,52 @@ async function upsertOne(
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-// GET /v1/contacts?q=&page=0&limit=50
+// GET /v1/contacts?q=&venc_from=&venc_to=&valor_min=&valor_max=&invoice_status=&page=0&limit=50
 async function handleGetContacts(req: Request, wsId: string): Promise<Response> {
   const url = new URL(req.url);
   const { page, limit } = pageParams(url);
-  const q = url.searchParams.get("q")?.trim();
+  const q            = url.searchParams.get("q")?.trim();
+  const vencFrom     = url.searchParams.get("venc_from")?.slice(0, 10);
+  const vencTo       = url.searchParams.get("venc_to")?.slice(0, 10);
+  const valorMinRaw  = url.searchParams.get("valor_min");
+  const valorMaxRaw  = url.searchParams.get("valor_max");
+  const invoiceStatus = url.searchParams.get("invoice_status")?.trim();
+
+  // Date format guard
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  if (vencFrom  && !ISO_DATE.test(vencFrom))  return apiError("'venc_from' must be YYYY-MM-DD",  400, "INVALID_PARAM");
+  if (vencTo    && !ISO_DATE.test(vencTo))    return apiError("'venc_to' must be YYYY-MM-DD",    400, "INVALID_PARAM");
+  if (vencFrom && vencTo && vencFrom > vencTo) return apiError("'venc_from' must be <= 'venc_to'", 400, "INVALID_PARAM");
+
+  const valorMin = valorMinRaw ? parseFloat(valorMinRaw) : null;
+  const valorMax = valorMaxRaw ? parseFloat(valorMaxRaw) : null;
+  if (valorMinRaw && isNaN(valorMin!)) return apiError("'valor_min' must be a number", 400, "INVALID_PARAM");
+  if (valorMaxRaw && isNaN(valorMax!)) return apiError("'valor_max' must be a number", 400, "INVALID_PARAM");
+
+  const VALID_INV_STATUSES = ["pendente","vencido","pago","aberto","em_aberto","cancelado"];
+  if (invoiceStatus && !VALID_INV_STATUSES.includes(invoiceStatus)) {
+    return apiError(`'invoice_status' must be one of: ${VALID_INV_STATUSES.join(", ")}`, 400, "INVALID_PARAM");
+  }
+
+  // Use !inner join when any invoice filter is active — excludes contacts with no matching invoices
+  const hasInvFilter = !!(vencFrom || vencTo || valorMin != null || valorMax != null || invoiceStatus);
+  const selectStr = hasInvFilter
+    ? "id, name, phone, empresa, cidade, estado, tags, created_at, contact_invoices!inner(id, valor, vencimento, status, numero_nf)"
+    : "id, name, phone, empresa, cidade, estado, tags, created_at, contact_invoices(id, valor, vencimento, status, numero_nf)";
 
   let query = db
     .from("inbox_contacts")
-    .select(
-      "id, name, phone, empresa, cidade, estado, tags, created_at, contact_invoices(id, valor, vencimento, status, numero_nf)",
-      { count: "exact" },
-    )
-    .eq("workspace_id", wsId)          // ← always from key, never from request
+    .select(selectStr, { count: "exact" })
+    .eq("workspace_id", wsId)
     .order("name")
     .range(page * limit, (page + 1) * limit - 1);
 
-  if (q) query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,empresa.ilike.%${q}%`);
+  if (q)             query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,empresa.ilike.%${q}%`);
+  if (vencFrom)      query = query.gte("contact_invoices.vencimento", vencFrom);
+  if (vencTo)        query = query.lte("contact_invoices.vencimento", vencTo);
+  if (valorMin != null) query = query.gte("contact_invoices.valor", valorMin);
+  if (valorMax != null) query = query.lte("contact_invoices.valor", valorMax);
+  if (invoiceStatus) query = query.eq("contact_invoices.status", invoiceStatus);
 
   const { data, count, error } = await query;
   if (error) return apiError("Internal error", 500, "INTERNAL_ERROR");
