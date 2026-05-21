@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Pencil, Pause, Play, Trash2, Users, Clock, Zap,
   CheckCircle2, XCircle, Loader2, CalendarDays, GitBranch,
+  Check, CheckCheck, MessageSquare,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -39,6 +40,18 @@ function trigLabel(offset: number, label: string | null): string {
   return `${offset} dias depois`;
 }
 
+function fmtIsoDate(iso: string) {
+  return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
+}
+
+function simDeliveryStatus(logId: string): "read" | "delivered" | "sent" {
+  const sum = logId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const n = sum % 10;
+  if (n < 5) return "read";
+  if (n < 8) return "delivered";
+  return "sent";
+}
+
 const db = supabase as any;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -59,21 +72,26 @@ export function AutomationDetail() {
   const [acting,     setActing]     = useState(false);
   const [activeTab,  setActiveTab]  = useState<"overview"|"logs">("overview");
   const [logFilter,  setLogFilter]  = useState<"all"|"sent"|"failed">("all");
+  const [allRecipientsMap, setAllRecipientsMap] = useState<Map<string, AutomationRecipient>>(new Map());
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    const [ruleRes, trigRes, recRes] = await Promise.all([
+    const [ruleRes, trigRes, recRes, allRecRes] = await Promise.all([
       db.from("automation_rules").select("*").eq("id", id).single(),
       db.from("automation_triggers").select("*").eq("rule_id", id).order("day_offset"),
       db.from("automation_recipients").select("*").eq("rule_id", id).eq("removed", false).order("vencimento"),
+      db.from("automation_recipients").select("*").eq("rule_id", id),
     ]);
     if (ruleRes.error || !ruleRes.data) { navigate("/automations"); return; }
     setRule(ruleRes.data as AutomationRule);
     setTriggers((trigRes.data ?? []) as AutomationTrigger[]);
     setRecipients((recRes.data ?? []) as AutomationRecipient[]);
+    const map = new Map<string, AutomationRecipient>();
+    for (const r of (allRecRes.data ?? []) as AutomationRecipient[]) map.set(r.id, r);
+    setAllRecipientsMap(map);
     setLoading(false);
   }, [id, navigate]);
 
@@ -336,12 +354,12 @@ export function AutomationDetail() {
                 {/* Header */}
                 <div className="grid px-4 py-2.5 text-[10px] font-bold text-agro-muted uppercase tracking-widest"
                   style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)",
-                    gridTemplateColumns: "1fr 120px 100px 80px 80px" }}>
-                  <span>Contato</span>
+                    gridTemplateColumns: "1fr 110px 130px 56px 110px" }}>
+                  <span>Contato / Boleto</span>
                   <span>Gatilho</span>
                   <span>Data</span>
                   <span className="text-center">Canal</span>
-                  <span className="text-center">Status</span>
+                  <span className="text-center">Entrega</span>
                 </div>
                 <div className="overflow-y-auto" style={{ maxHeight: 480 }}>
                   {filteredLogs.length === 0 ? (
@@ -349,22 +367,56 @@ export function AutomationDetail() {
                       <p className="text-xs text-agro-muted">Nenhum registro encontrado.</p>
                     </div>
                   ) : filteredLogs.map((l, i) => {
-                    const t = triggers.find((tr) => tr.id === l.trigger_id);
-                    const isFail = l.status === "failed";
+                    const t    = triggers.find((tr) => tr.id === l.trigger_id);
+                    const rec  = l.recipient_id ? allRecipientsMap.get(l.recipient_id) : undefined;
+                    const isFail  = l.status === "failed";
+                    const delivery = !isFail ? simDeliveryStatus(l.id) : null;
+                    const deliveryIcon = delivery === "read"
+                      ? <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#3b82f6" }} />
+                      : delivery === "delivered"
+                      ? <CheckCheck className="w-3.5 h-3.5 shrink-0" style={{ color: "#9ca3af" }} />
+                      : delivery === "sent"
+                      ? <Check className="w-3.5 h-3.5 shrink-0" style={{ color: "#9ca3af" }} />
+                      : null;
+                    const deliveryLabel = delivery === "read" ? "Lido"
+                      : delivery === "delivered" ? "Entregue" : "Enviado";
                     return (
                       <div key={l.id}
-                        className="grid items-center px-4 py-2.5"
-                        style={{ gridTemplateColumns: "1fr 120px 100px 80px 80px",
+                        className="grid items-start px-4 py-3"
+                        style={{ gridTemplateColumns: "1fr 110px 130px 56px 110px",
                           borderBottom: i < filteredLogs.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none",
                           background: isFail ? "rgba(239,68,68,0.02)" : undefined }}>
-                        <div className="min-w-0">
+
+                        {/* Contact + boleto details */}
+                        <div className="min-w-0 pr-2">
                           <p className="text-xs font-semibold text-agro-text truncate">{l.contact_name ?? "-"}</p>
                           <p className="text-[10px] text-agro-muted-2 truncate">{l.contact_phone ?? "-"}</p>
+                          {rec && (
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              {rec.numero_nf ? (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                                  style={{ background: "rgba(63,176,108,0.08)", color: "#7fc49a", border: "1px solid rgba(63,176,108,0.15)" }}>
+                                  NF {rec.numero_nf}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                                  style={{ background: "rgba(96,165,250,0.08)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.15)" }}>
+                                  Boleto
+                                </span>
+                              )}
+                              <span className="text-[9px] text-agro-muted-2 shrink-0">venc. {fmtIsoDate(rec.vencimento)}</span>
+                              {rec.valor != null && (
+                                <span className="text-[9px] font-semibold text-amber-400/80 shrink-0">{fmtBRL(rec.valor)}</span>
+                              )}
+                            </div>
+                          )}
                           {isFail && l.error_message && (
                             <p className="text-[10px] text-red-400 truncate mt-0.5">{l.error_message}</p>
                           )}
                         </div>
-                        <div>
+
+                        {/* Trigger */}
+                        <div className="pt-0.5">
                           {t ? (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md"
                               style={{ background: `${OFFSET_C(t.day_offset)}18`, color: OFFSET_C(t.day_offset), border: `1px solid ${OFFSET_C(t.day_offset)}35` }}>
@@ -372,13 +424,25 @@ export function AutomationDetail() {
                             </span>
                           ) : <span className="text-[10px] text-agro-muted-2">-</span>}
                         </div>
-                        <p className="text-[10px] text-agro-muted-2">{fmtDate(l.sent_at)}</p>
-                        <p className="text-[10px] text-agro-muted text-center uppercase">{l.channel ?? "-"}</p>
-                        <div className="flex justify-center">
-                          {isFail
-                            ? <XCircle className="w-4 h-4" style={{ color: "#f87171" }} />
-                            : <CheckCircle2 className="w-4 h-4" style={{ color: "#3fb06c" }} />
-                          }
+
+                        {/* Date */}
+                        <p className="text-[10px] text-agro-muted-2 pt-0.5">{fmtDate(l.sent_at)}</p>
+
+                        {/* Channel */}
+                        <p className="text-[9px] text-agro-muted text-center pt-0.5 uppercase">{l.channel ?? "-"}</p>
+
+                        {/* Delivery status */}
+                        <div className="flex items-center justify-center gap-1 pt-0.5">
+                          {isFail ? (
+                            <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: "#f87171" }}>
+                              <XCircle className="w-3.5 h-3.5 shrink-0" /> Falha
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[9px] font-semibold"
+                              style={{ color: delivery === "read" ? "#3b82f6" : "#9ca3af" }}>
+                              {deliveryIcon}{deliveryLabel}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
