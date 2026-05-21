@@ -16,7 +16,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db           = createClient(SUPABASE_URL, SERVICE_KEY);
 
-const BATCH_LIMIT = 100; // max contacts per batch import
+const BATCH_LIMIT  = 100; // max contacts per batch import
+const RATE_LIMIT   = 100; // max requests per 60-second sliding window per key
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -154,6 +155,41 @@ async function authenticate(
 function checkScope(key: ApiKey, scope: string): Response | null {
   if (!key.scopes.includes(scope)) {
     return apiError(`This API key does not have the '${scope}' scope.`, 403, "INSUFFICIENT_SCOPE");
+  }
+  return null;
+}
+
+// ── Rate limiting (sliding 60s window, counted from api_request_logs) ─────────
+
+async function checkRateLimit(keyId: string): Promise<Response | null> {
+  const windowStart = new Date(Date.now() - 60_000).toISOString();
+  const { count, error } = await db
+    .from("api_request_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("key_id", keyId)
+    .gte("created_at", windowStart);
+
+  if (error) return null; // fail open — don't block on DB error
+
+  const current   = count ?? 0;
+  const remaining = Math.max(0, RATE_LIMIT - current);
+  const resetEpoch = Math.floor((Date.now() + 60_000) / 1000);
+
+  if (current >= RATE_LIMIT) {
+    return new Response(
+      JSON.stringify({ error: { code: "RATE_LIMITED", message: "Too many requests. Maximum 100 requests per 60 seconds per API key." } }),
+      {
+        status: 429,
+        headers: {
+          ...CORS_HEADERS,
+          "Content-Type":          "application/json",
+          "Retry-After":           "60",
+          "X-RateLimit-Limit":     String(RATE_LIMIT),
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset":     String(resetEpoch),
+        },
+      },
+    );
   }
   return null;
 }
@@ -465,6 +501,15 @@ Deno.serve(async (req: Request) => {
 
   const { key } = authResult;
   const wsId    = key.workspace_id; // ← source of truth, never from URL/body
+
+  // ── Rate limit check (after auth so we have key.id) ──
+  const rateLimited = await checkRateLimit(key.id);
+  if (rateLimited) {
+    EdgeRuntime.waitUntil(
+      auditLog(key.id, wsId, method, path, 429, Date.now() - start, req),
+    );
+    return rateLimited;
+  }
 
   // ── Route dispatch ──
   const parts    = path.split("/").filter(Boolean); // ["v1", "contacts", ...]
