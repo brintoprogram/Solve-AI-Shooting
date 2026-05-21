@@ -118,7 +118,7 @@ function Step1({ s, patch, zApiConns, metaConns }: {
   metaConns: { id: string; display_phone?: string; phone_number_id?: string }[];
 }) {
   return (
-    <div className="space-y-5 max-w-xl">
+    <div className="space-y-5 max-w-xl mx-auto">
       <div>
         <label className="block text-xs text-agro-muted uppercase tracking-widest mb-1.5">Nome da regua *</label>
         <input className="input-agro w-full" placeholder="Ex: Cobranca Safra Junho 2026"
@@ -302,7 +302,7 @@ function Step2({ s, patch }: { s: WState; patch: (p: Partial<WState>) => void })
   }
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-4 max-w-2xl mx-auto">
       <p className="text-xs text-agro-muted">Configure quando disparar em relacao ao vencimento. Negativo = antes, positivo = depois.</p>
       {sorted.length === 0 && (
         <div className="rounded-xl py-8 text-center" style={{ border: "1px dashed rgba(63,176,108,0.2)" }}>
@@ -495,7 +495,7 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="space-y-3 max-w-3xl">
+    <div className="space-y-3">
       {/* ── Search + filter toggle ── */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -625,7 +625,7 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+        <div className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 380px)" }}>
           {loading ? (
             <div className="flex items-center justify-center h-32"><Loader2 className="w-5 h-5 animate-spin text-agro-green" /></div>
           ) : sortedGroups.length === 0 ? (
@@ -784,7 +784,7 @@ function Step4({ s, onSave, saving }: { s: WState; onSave: (st: "draft"|"active"
   const triggers = [...s.triggers].filter((t) => t.enabled).sort((a, b) => a.day_offset - b.day_offset);
   const C        = { before: "#60a5fa", same: "#3fb06c", after: "#f87171" };
   return (
-    <div className="space-y-5 max-w-2xl">
+    <div className="space-y-5 max-w-2xl mx-auto">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: "Canal",           value: s.channel === "z_api" ? "Z-API" : "Meta" },
@@ -1004,7 +1004,7 @@ export function AutomationWizard() {
       <StepBar step={s.step} />
 
       <div className="flex-1 overflow-y-auto px-6 py-8">
-        <div className="max-w-3xl mx-auto">
+        <div className="mx-auto">
           {s.step === 1 && <Step1 s={s} patch={patch} zApiConns={zApiConns} metaConns={metaConns} />}
           {s.step === 2 && <Step2 s={s} patch={patch} />}
           {s.step === 3 && <Step3 s={s} patch={patch} workspaceId={wsId} />}
