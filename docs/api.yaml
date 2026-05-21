@@ -1,0 +1,341 @@
+openapi: 3.1.0
+info:
+  title: Solve AI Shooting — API Pública
+  version: "1.0"
+  description: |
+    API REST para integração de sistemas externos (ERP, automações, etc.).
+
+    ## Autenticação
+    Todas as requisições exigem o header:
+    ```
+    Authorization: Bearer sk_live_<64 hex chars>
+    ```
+    Chaves são gerenciadas em **Configurações → API**.
+
+    ## Scopes
+    Cada chave é criada com um subconjunto de escopos:
+    | Escopo            | Permite                                    |
+    |-------------------|--------------------------------------------|
+    | `contacts:read`   | GET /v1/contacts, GET /v1/contacts/:phone  |
+    | `contacts:write`  | POST /v1/contacts                          |
+    | `campaigns:read`  | GET /v1/campaigns, GET /v1/campaigns/:id   |
+    | `stats:read`      | GET /v1/stats                              |
+
+    ## Respostas de erro
+    Erros retornam sempre o formato:
+    ```json
+    { "error": { "code": "UNAUTHORIZED", "message": "..." } }
+    ```
+    Códigos possíveis: `UNAUTHORIZED`, `INSUFFICIENT_SCOPE`, `NOT_FOUND`,
+    `INVALID_PARAM`, `INVALID_BODY`, `INTERNAL_ERROR`.
+
+servers:
+  - url: https://emmtsjbpnavlzzspzcmt.supabase.co/functions/v1/public-api/v1
+    description: Produção
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "sk_live_<64 hex chars>"
+      description: Chave gerada em Configurações → API
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:    { type: string, example: "UNAUTHORIZED" }
+            message: { type: string, example: "Invalid or unauthorized API key" }
+
+    Invoice:
+      type: object
+      properties:
+        id:            { type: string, format: uuid }
+        valor:         { type: number, example: 3892.00 }
+        vencimento:    { type: string, format: date, example: "2026-03-15" }
+        status:        { type: string, example: "pendente" }
+        numero_nf:     { type: string, nullable: true, example: "NF-2026-4821" }
+        codigo_barras: { type: string, nullable: true }
+
+    Contact:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        name:       { type: string, example: "Luís Henrique Ferreira" }
+        phone:      { type: string, example: "5517996543210" }
+        empresa:    { type: string, nullable: true, example: "Agropecuária Ferreira" }
+        cidade:     { type: string, nullable: true, example: "Ribeirão Preto" }
+        estado:     { type: string, nullable: true, example: "SP" }
+        tags:       { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        contact_invoices:
+          type: array
+          items: { $ref: "#/components/schemas/Invoice" }
+
+    Campaign:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        name:             { type: string, example: "Cobrança Boletos — Mar/26" }
+        status:
+          type: string
+          enum: [draft, scheduled, sending, paused, completed, cancelled, failed]
+        dispatch_channel:
+          type: string
+          enum: [z_api, whatsapp, meta, n8n_email]
+        total_recipients: { type: integer, example: 312 }
+        sent_count:       { type: integer, example: 308 }
+        delivered_count:  { type: integer, example: 290 }
+        read_count:       { type: integer, example: 210 }
+        failed_count:     { type: integer, example: 4 }
+        created_at:       { type: string, format: date-time }
+        started_at:       { type: string, format: date-time, nullable: true }
+        completed_at:     { type: string, format: date-time, nullable: true }
+
+    Pagination:
+      type: object
+      properties:
+        total: { type: integer }
+        page:  { type: integer }
+        limit: { type: integer }
+
+    Stats:
+      type: object
+      properties:
+        total_contacts:      { type: integer, example: 248 }
+        total_campaigns:     { type: integer, example: 12 }
+        active_campaigns:    { type: integer, example: 2 }
+        total_messages_sent: { type: integer, example: 3104 }
+        as_of:               { type: string, format: date-time }
+
+paths:
+
+  /contacts:
+    get:
+      summary: Listar contatos
+      description: Retorna contatos do workspace com suas faturas. Suporta busca e paginação.
+      tags: [Contatos]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: q
+          in: query
+          description: Busca por nome, telefone ou empresa
+          schema: { type: string, example: "Ferreira" }
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Contact" } }
+                  meta: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "abc123..."
+                    name: "Luís Henrique Ferreira"
+                    phone: "5517996543210"
+                    empresa: "Agropecuária Ferreira"
+                    tags: ["cliente"]
+                    contact_invoices:
+                      - id: "inv123..."
+                        valor: 3892.00
+                        vencimento: "2026-03-15"
+                        status: "pendente"
+                        numero_nf: "NF-2026-4821"
+                meta: { total: 1, page: 0, limit: 50 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+    post:
+      summary: Criar / atualizar contato
+      description: |
+        Faz upsert de um contato pelo campo `phone` dentro do workspace.
+        Opcionalmente cria/atualiza também um boleto (`invoice`).
+
+        O campo `invoice.numero_nf` é usado como chave de upsert — se já existir um
+        boleto com esse NF para o contato, o registro será atualizado.
+      tags: [Contatos]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name:    { type: string, minLength: 2, example: "Luís Henrique Ferreira" }
+                phone:   { type: string, description: "Apenas dígitos, mín. 8", example: "5517996543210" }
+                empresa: { type: string, nullable: true, example: "Agropecuária Ferreira" }
+                cidade:  { type: string, nullable: true, example: "Ribeirão Preto" }
+                estado:  { type: string, nullable: true, example: "SP" }
+                tags:    { type: array, items: { type: string }, example: ["cliente"] }
+                invoice:
+                  type: object
+                  description: Boleto a criar/atualizar junto com o contato (opcional)
+                  properties:
+                    valor:         { type: number, example: 3892.00 }
+                    vencimento:    { type: string, format: date, example: "2026-03-15" }
+                    status:        { type: string, default: "pendente", example: "pendente" }
+                    numero_nf:     { type: string, nullable: true, example: "NF-2026-4821" }
+                    codigo_barras: { type: string, nullable: true }
+      responses:
+        "201":
+          description: Contato criado / atualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:    { $ref: "#/components/schemas/Contact" }
+                  message: { type: string, example: "Contact upserted successfully" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /contacts/{phone}:
+    get:
+      summary: Buscar contato por telefone
+      tags: [Contatos]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: phone
+          in: path
+          required: true
+          description: Número de telefone (apenas dígitos, com código do país)
+          schema: { type: string, example: "5517996543210" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Contact" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /campaigns:
+    get:
+      summary: Listar campanhas
+      tags: [Campanhas]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, scheduled, sending, paused, completed, cancelled, failed]
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [z_api, whatsapp, meta, n8n_email]
+        - name: page
+          in: query
+          schema: { type: integer, default: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Campaign" } }
+                  meta: { $ref: "#/components/schemas/Pagination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /campaigns/{id}:
+    get:
+      summary: Detalhe de campanha
+      tags: [Campanhas]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Campaign" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /stats:
+    get:
+      summary: Resumo do workspace
+      tags: [Estatísticas]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Stats" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  responses:
+    Unauthorized:
+      description: Chave inválida, revogada ou expirada
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: "UNAUTHORIZED", message: "Invalid or unauthorized API key" }
+    Forbidden:
+      description: A chave não possui o escopo necessário
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: "INSUFFICIENT_SCOPE", message: "This API key does not have the 'contacts:write' scope." }
+    NotFound:
+      description: Recurso não encontrado
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: "NOT_FOUND", message: "Contact not found" }
+    BadRequest:
+      description: Parâmetro inválido
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: "INVALID_PARAM", message: "'phone' is required (min 8 digits)" }

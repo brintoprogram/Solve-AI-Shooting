@@ -4,12 +4,13 @@ import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
   Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket, Sparkles,
+  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket, Sparkles, KeyRound,
 } from "lucide-react";
 import { ALL_CONTACT_FIELDS } from "@/lib/contactFields";
 import { useContactFields }   from "@/hooks/useContactFields";
 import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { DemoSeeder }          from "@/pages/settings/DemoSeeder";
+import { ApiKeysManager }      from "@/pages/settings/ApiKeysManager";
 import { Topbar }              from "@/components/layout/Topbar";
 import { useAuth, ROLE_LABELS, ROLE_STYLE, initials, hasPermission } from "@/context/AuthContext";
 import { useMetaConnections }  from "@/hooks/useMetaConnection";
@@ -505,7 +506,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo"|"api">("perfil");
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);
@@ -1070,6 +1071,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "disparo",   label: "Disparo",   icon: Rocket     },
             { id: "avancado",  label: "Avançado",  icon: Terminal   },
             { id: "demo",      label: "Demo",      icon: Sparkles   },
+            { id: "api",       label: "API",        icon: KeyRound   },
           ];
           return (
             <div
@@ -2270,6 +2272,14 @@ CREATE POLICY "avatars_delete" ON storage.objects
         {settingsTab === "demo" && (
           <div className="animate-fade-up">
             <DemoSeeder workspaceId={WORKSPACE_ID} />
+          </div>
+        )}
+
+        {/* ══ Tab: API Keys ════════════════════════════════════ */}
+        {settingsTab === "api" && (
+          <div className="animate-fade-up rounded-2xl p-6"
+            style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}>
+            <ApiKeysManager />
           </div>
         )}
 
