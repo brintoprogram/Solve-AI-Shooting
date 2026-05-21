@@ -6,11 +6,17 @@ info:
     API REST para integração de sistemas externos (ERP, automações, etc.).
 
     ## Autenticação
-    Todas as requisições exigem o header:
+    Todas as requisições exigem **dois headers obrigatórios**:
     ```
     Authorization: Bearer sk_live_<64 hex chars>
+    X-Workspace-Id: <uuid do seu workspace>
     ```
     Chaves são gerenciadas em **Configurações → API**.
+
+    O `X-Workspace-Id` é uma camada extra de segurança: mesmo que alguém
+    capture sua chave, não poderá usá-la em outro workspace. O servidor
+    verifica que o header corresponde exatamente ao workspace vinculado
+    à chave — qualquer divergência retorna `401 UNAUTHORIZED`.
 
     ## Scopes
     Cada chave é criada com um subconjunto de escopos:
@@ -35,6 +41,7 @@ servers:
 
 security:
   - BearerAuth: []
+    WorkspaceId: []
 
 components:
   securitySchemes:
@@ -43,6 +50,11 @@ components:
       scheme: bearer
       bearerFormat: "sk_live_<64 hex chars>"
       description: Chave gerada em Configurações → API
+    WorkspaceId:
+      type: apiKey
+      in: header
+      name: X-Workspace-Id
+      description: UUID do workspace vinculado à chave. Obrigatório em toda requisição.
 
   schemas:
     Error:
@@ -122,7 +134,7 @@ paths:
       summary: Listar contatos
       description: Retorna contatos do workspace com suas faturas. Suporta busca e paginação.
       tags: [Contatos]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       parameters:
         - name: q
           in: query
@@ -170,7 +182,7 @@ paths:
         O campo `invoice.numero_nf` é usado como chave de upsert — se já existir um
         boleto com esse NF para o contato, o registro será atualizado.
       tags: [Contatos]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       requestBody:
         required: true
         content:
@@ -208,11 +220,116 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /contacts/batch:
+    post:
+      summary: Importar contatos em lote
+      description: |
+        Faz upsert de até **100 contatos** em uma única requisição.
+        Cada entrada pode incluir opcionalmente um boleto (`invoice`).
+
+        Retorna status HTTP `207 Multi-Status` quando ao menos um contato
+        foi processado com sucesso. Retorna `422` somente se **todos** falharam.
+      tags: [Contatos]
+      security:
+        - BearerAuth: []
+          WorkspaceId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contacts]
+              properties:
+                contacts:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [name, phone]
+                    properties:
+                      name:    { type: string, minLength: 2, example: "Luís Henrique Ferreira" }
+                      phone:   { type: string, example: "5517996543210" }
+                      empresa: { type: string, nullable: true }
+                      cidade:  { type: string, nullable: true }
+                      estado:  { type: string, nullable: true }
+                      tags:    { type: array, items: { type: string } }
+                      invoice:
+                        type: object
+                        properties:
+                          valor:         { type: number }
+                          vencimento:    { type: string, format: date }
+                          status:        { type: string, default: "pendente" }
+                          numero_nf:     { type: string, nullable: true }
+                          codigo_barras: { type: string, nullable: true }
+            example:
+              contacts:
+                - name: "Luís Henrique Ferreira"
+                  phone: "5517996543210"
+                  empresa: "Agropecuária Ferreira"
+                  tags: ["cliente"]
+                  invoice:
+                    valor: 3892.00
+                    vencimento: "2026-03-15"
+                    status: "pendente"
+                    numero_nf: "NF-2026-4821"
+                - name: "Maria Silva"
+                  phone: "5511987654321"
+      responses:
+        "207":
+          description: Processado (ao menos um contato bem-sucedido)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:  { type: integer }
+                        phone:  { type: string, nullable: true }
+                        status: { type: string, enum: [created, updated, error] }
+                        error:  { type: string, description: "Presente apenas quando status=error" }
+                  summary:
+                    type: object
+                    properties:
+                      total:   { type: integer }
+                      created: { type: integer }
+                      updated: { type: integer }
+                      errors:  { type: integer }
+              example:
+                data:
+                  - index: 0
+                    phone: "5517996543210"
+                    status: "created"
+                  - index: 1
+                    phone: "5511987654321"
+                    status: "updated"
+                summary: { total: 2, created: 1, updated: 1, errors: 0 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: Todos os contatos falharam na validação
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  summary:
+                    type: object
+
   /contacts/{phone}:
     get:
       summary: Buscar contato por telefone
       tags: [Contatos]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       parameters:
         - name: phone
           in: path
@@ -236,7 +353,7 @@ paths:
     get:
       summary: Listar campanhas
       tags: [Campanhas]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       parameters:
         - name: status
           in: query
@@ -272,7 +389,7 @@ paths:
     get:
       summary: Detalhe de campanha
       tags: [Campanhas]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       parameters:
         - name: id
           in: path
@@ -296,7 +413,7 @@ paths:
     get:
       summary: Resumo do workspace
       tags: [Estatísticas]
-      security: [{ BearerAuth: [] }]
+      security: [{ BearerAuth: [], WorkspaceId: [] }]
       responses:
         "200":
           description: OK
