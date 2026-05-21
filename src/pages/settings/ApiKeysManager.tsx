@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Key, Plus, Trash2, Copy, Check, Eye, EyeOff, Loader2,
   ShieldCheck, Clock, AlertTriangle, RefreshCw, Terminal,
+  Power, PowerOff,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -272,23 +273,54 @@ export function ApiKeysManager() {
   const { toast }       = useToast();
   const wsId            = workspaceId ?? "";
 
-  const [keys,       setKeys]       = useState<ApiKey[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [showRevoked,setShowRevoked]= useState(false);
-  const [showDoc,    setShowDoc]    = useState(false);
+  const [keys,        setKeys]        = useState<ApiKey[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [revokingId,  setRevokingId]  = useState<string | null>(null);
+  const [showRevoked, setShowRevoked] = useState(false);
+  const [showDoc,     setShowDoc]     = useState(false);
+  const [apiEnabled,  setApiEnabled]  = useState(true);
+  const [toggling,    setToggling]    = useState(false);
+  const [confirmOff,  setConfirmOff]  = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await db
-      .from("api_keys")
-      .select("id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at")
-      .eq("workspace_id", wsId)
-      .order("created_at", { ascending: false });
-    setKeys((data ?? []) as ApiKey[]);
+    const [keysRes, wsRes] = await Promise.all([
+      db.from("api_keys")
+        .select("id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at")
+        .eq("workspace_id", wsId)
+        .order("created_at", { ascending: false }),
+      db.from("workspaces")
+        .select("api_enabled")
+        .eq("id", wsId)
+        .single(),
+    ]);
+    setKeys((keysRes.data ?? []) as ApiKey[]);
+    if (wsRes.data) setApiEnabled(wsRes.data.api_enabled ?? true);
     setLoading(false);
   }, [wsId]);
+
+  async function handleToggleApi(enable: boolean) {
+    setToggling(true);
+    setConfirmOff(false);
+    const { error } = await db
+      .from("workspaces")
+      .update({ api_enabled: enable })
+      .eq("id", wsId);
+    if (error) {
+      toast({ title: "Erro ao atualizar", description: error.message, variant: "destructive" });
+    } else {
+      setApiEnabled(enable);
+      toast({
+        title: enable ? "API reativada" : "API desativada",
+        description: enable
+          ? "Todas as chaves voltam a funcionar imediatamente."
+          : "Todas as requisições retornam 503 até você reativar.",
+        variant: enable ? "success" : "destructive",
+      });
+    }
+    setToggling(false);
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -313,6 +345,65 @@ export function ApiKeysManager() {
 
   return (
     <div className="space-y-5">
+
+      {/* ── API kill switch banner ── */}
+      {!loading && (
+        apiEnabled ? (
+          /* Enabled state */
+          <div className="flex items-center justify-between rounded-xl px-4 py-3"
+            style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.18)" }}>
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full" style={{ background: "#3fb06c", boxShadow: "0 0 6px rgba(63,176,108,0.7)" }} />
+              <p className="text-xs font-semibold text-agro-text">API ativa</p>
+              <p className="text-[10px] text-agro-muted">Todas as chaves estão funcionando normalmente.</p>
+            </div>
+            {confirmOff ? (
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] text-amber-400">Desativar para todos?</p>
+                <button onClick={() => setConfirmOff(false)}
+                  className="px-2 py-1 rounded-lg text-[10px] text-agro-muted hover:text-agro-text transition-colors"
+                  style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
+                  Cancelar
+                </button>
+                <button onClick={() => handleToggleApi(false)} disabled={toggling}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+                  style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.25)" }}>
+                  {toggling ? <Loader2 className="w-3 h-3 animate-spin" /> : "Sim, desativar"}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmOff(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-all hover:bg-red-500/10"
+                style={{ color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" }}>
+                <PowerOff className="w-3 h-3" /> Desativar API
+              </button>
+            )}
+          </div>
+        ) : (
+          /* Disabled state */
+          <div className="rounded-xl px-4 py-3 space-y-2.5"
+            style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.3)" }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-2 rounded-full bg-red-400" />
+                <p className="text-xs font-bold text-red-400">API desativada</p>
+              </div>
+              <button onClick={() => handleToggleApi(true)} disabled={toggling}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                style={{ background: "rgba(63,176,108,0.12)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }}>
+                {toggling
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : <><Power className="w-3 h-3" /> Reativar API</>}
+              </button>
+            </div>
+            <p className="text-[11px] text-red-300/80">
+              Todas as requisições estão retornando <code className="font-mono text-red-300">503 API_DISABLED</code>.
+              Nenhuma integração externa está funcionando até você reativar.
+            </p>
+          </div>
+        )
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

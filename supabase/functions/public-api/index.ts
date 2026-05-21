@@ -511,6 +511,18 @@ Deno.serve(async (req: Request) => {
     return rateLimited;
   }
 
+  // ── API kill switch — check api_enabled on the workspace ──
+  const { data: ws } = await db
+    .from("workspaces")
+    .select("api_enabled")
+    .eq("id", wsId)
+    .single();
+  if (ws && ws.api_enabled === false) {
+    const r = apiError("API access is currently disabled for this workspace.", 503, "API_DISABLED");
+    EdgeRuntime.waitUntil(auditLog(key.id, wsId, method, path, 503, Date.now() - start, req));
+    return r;
+  }
+
   // ── Route dispatch ──
   const parts    = path.split("/").filter(Boolean); // ["v1", "contacts", ...]
   const version  = parts[0];
