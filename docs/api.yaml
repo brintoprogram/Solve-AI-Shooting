@@ -27,13 +27,34 @@ info:
     | `campaigns:read`  | GET /v1/campaigns, GET /v1/campaigns/:id   |
     | `stats:read`      | GET /v1/stats                              |
 
+    ## Rate Limiting
+    Cada chave de API está sujeita a um limite de **100 requisições por janela
+    deslizante de 60 segundos**. Ao ultrapassar o limite, o servidor retorna
+    `429 Too Many Requests` com os headers:
+
+    | Header | Descrição |
+    |--------|-----------|
+    | `Retry-After` | Segundos até o limite ser resetado (sempre 60) |
+    | `X-RateLimit-Limit` | Limite total da janela (100) |
+    | `X-RateLimit-Remaining` | Requisições restantes na janela atual |
+    | `X-RateLimit-Reset` | Unix timestamp (segundos) de reset da janela |
+
+    Em integrações de alto volume (ex: sincronização inicial de base grande),
+    implemente back-off exponencial ao receber `429` e envie em lotes com
+    intervalos de 1–2 s entre chamadas.
+
+    ## Transport Security
+    Toda comunicação deve usar **HTTPS com TLS 1.2 ou superior**. Requisições
+    HTTP puro serão recusadas pela infraestrutura. Certificados são gerenciados
+    automaticamente pela plataforma Supabase / Cloudflare.
+
     ## Respostas de erro
     Erros retornam sempre o formato:
     ```json
     { "error": { "code": "UNAUTHORIZED", "message": "..." } }
     ```
     Códigos possíveis: `UNAUTHORIZED`, `INSUFFICIENT_SCOPE`, `NOT_FOUND`,
-    `INVALID_PARAM`, `INVALID_BODY`, `INTERNAL_ERROR`.
+    `INVALID_PARAM`, `INVALID_BODY`, `RATE_LIMITED`, `INTERNAL_ERROR`.
 
 servers:
   - url: https://emmtsjbpnavlzzspzcmt.supabase.co/functions/v1/public-api/v1
@@ -172,6 +193,7 @@ paths:
                 meta: { total: 1, page: 0, limit: 50 }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
     post:
       summary: Criar / atualizar contato
@@ -219,6 +241,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /contacts/batch:
     post:
@@ -311,6 +334,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "422":
           description: Todos os contatos falharam na validação
           content:
@@ -348,6 +372,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /campaigns:
     get:
@@ -384,6 +409,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /campaigns/{id}:
     get:
@@ -408,6 +434,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /stats:
     get:
@@ -425,6 +452,7 @@ paths:
                   data: { $ref: "#/components/schemas/Stats" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
 components:
   responses:
@@ -456,3 +484,23 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example:
             error: { code: "INVALID_PARAM", message: "'phone' is required (min 8 digits)" }
+    RateLimited:
+      description: Limite de requisições excedido (100 req/60s por chave)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Segundos até o limite ser resetado
+        X-RateLimit-Limit:
+          schema: { type: integer }
+          description: Limite total da janela
+        X-RateLimit-Remaining:
+          schema: { type: integer }
+          description: Requisições restantes na janela atual
+        X-RateLimit-Reset:
+          schema: { type: integer }
+          description: Unix timestamp de reset da janela
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: "RATE_LIMITED", message: "Too many requests. Maximum 100 requests per 60 seconds per API key." }
