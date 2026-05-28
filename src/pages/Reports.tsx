@@ -1315,7 +1315,7 @@ function InboxReport({ workspaceId }: { workspaceId: string }) {
       // Resumo
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
         ["Relatório de Atendimento — Solve AI"],
-        ["Período", range === "all" ? "Todos" : `Últimos ${range}`],
+        ["Período", range === "all" ? "Todos" : `Últimos ${parseInt(range)} dias`],
         ["Gerado em", format(new Date(), "dd/MM/yyyy HH:mm")],
         [],
         ["Total de conversas", total],
