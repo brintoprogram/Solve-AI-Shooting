@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageSquare, Plus } from "lucide-react";
+import { MessageSquare, Plus, LayoutDashboard, X as XIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/context/AuthContext";
@@ -25,8 +25,9 @@ export function Inbox() {
   const [departments,  setDepartments]  = useState<Department[]>([]);
   const [connections,  setConnections]  = useState<ConnectionInfo[]>([]);
   const [myDeptIds,    setMyDeptIds]    = useState<string[] | null>(null);
-  const [activeConn,   setActiveConn]   = useState<string | null>(null);
-  const [showNewConv,  setShowNewConv]  = useState(false);
+  const [activeConn,     setActiveConn]     = useState<string | null>(null);
+  const [showNewConv,    setShowNewConv]    = useState(false);
+  const [showSupervision,setShowSupervision]= useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
@@ -187,6 +188,19 @@ export function Inbox() {
             })}
           </div>
 
+          {isAdmin && (
+            <button
+              onClick={() => setShowSupervision(v => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold shrink-0 transition-all"
+              style={showSupervision
+                ? { background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)" }
+                : { background: "rgba(0,0,0,0.2)", color: "#6b8a75", border: "1px solid rgba(63,176,108,0.08)" }}
+            >
+              <LayoutDashboard className="w-3 h-3" />
+              Supervisão
+            </button>
+          )}
+
           {zapiConnections.length > 0 && (
             <button
               onClick={() => setShowNewConv(true)}
@@ -198,6 +212,15 @@ export function Inbox() {
             </button>
           )}
         </div>
+      )}
+
+      {/* ── Supervisor panel ──────────────────────────────────── */}
+      {isAdmin && showSupervision && (
+        <SupervisionPanel
+          conversations={visibleConversations}
+          departments={departments}
+          onClose={() => setShowSupervision(false)}
+        />
       )}
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -243,6 +266,95 @@ export function Inbox() {
           ?? ""
         }
       />
+    </div>
+  );
+}
+
+function SupervisionPanel({
+  conversations,
+  departments,
+  onClose,
+}: {
+  conversations: import("@/types/inbox").InboxConversation[];
+  departments:   import("@/types/inbox").Department[];
+  onClose:       () => void;
+}) {
+  // compute stats per department from already-loaded conversations
+  const deptStats = departments.map(d => {
+    const dConvs = conversations.filter(c => c.department_id === d.id);
+    return {
+      id:         d.id,
+      name:       d.name,
+      color:      d.color,
+      open:       dConvs.filter(c => c.status === "open").length,
+      pending:    dConvs.filter(c => c.status === "pending").length,
+      resolved:   dConvs.filter(c => c.status === "resolved").length,
+      unassigned: dConvs.filter(c => !c.assigned_to && c.status !== "resolved").length,
+    };
+  });
+
+  const unrouted   = conversations.filter(c => !c.department_id && c.status !== "resolved").length;
+  const totalOpen  = conversations.filter(c => c.status === "open").length;
+  const totalPend  = conversations.filter(c => c.status === "pending").length;
+  const totalUnassigned = conversations.filter(c => !c.assigned_to && c.status !== "resolved").length;
+
+  return (
+    <div className="shrink-0 px-5 py-3 space-y-2"
+      style={{ background: "rgba(6,10,8,0.85)", borderBottom: "1px solid rgba(167,139,250,0.15)" }}>
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+          <p className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">Supervisão em tempo real</p>
+          <span className="text-[10px] text-[#6b7f6e]">·  {totalOpen + totalPend} ativas · {totalUnassigned} sem atribuição</span>
+        </div>
+        <button onClick={onClose} className="text-[#6b7f6e] hover:text-white transition-colors">
+          <XIcon className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Department grid */}
+      <div className="flex flex-wrap gap-2">
+        {deptStats.map(d => (
+          <div key={d.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
+            style={{ background: "rgba(0,0,0,0.3)", border: `1px solid ${d.color}22` }}>
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+            <span className="text-[11px] font-semibold text-white">{d.name}</span>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              {d.open > 0 && (
+                <span className="px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>
+                  {d.open} ab.
+                </span>
+              )}
+              {d.pending > 0 && (
+                <span className="px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(251,146,60,0.15)", color: "#fb923c" }}>
+                  {d.pending} esp.
+                </span>
+              )}
+              {d.unassigned > 0 && (
+                <span className="px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>
+                  {d.unassigned} livre
+                </span>
+              )}
+              {(d.open + d.pending) === 0 && (
+                <span className="text-[#4a6b50]">sem fila</span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {unrouted > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+            style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(239,68,68,0.15)" }}>
+            <div className="w-2 h-2 rounded-full shrink-0 bg-red-400" />
+            <span className="text-[11px] font-semibold text-red-300">Sem setor</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>
+              {unrouted}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

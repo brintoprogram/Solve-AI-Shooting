@@ -1,9 +1,21 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Bell, ChevronRight, Settings, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth, ROLE_LABELS, initials } from "@/context/AuthContext";
 import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { supabase } from "@/lib/supabase";
+
+type PresenceStatus = "online" | "busy" | "offline";
+
+const PRESENCE: Record<PresenceStatus, { label: string; color: string; dot: string }> = {
+  online:  { label: "Disponível", color: "#3fb06c", dot: "#3fb06c" },
+  busy:    { label: "Ocupado",    color: "#fbbf24", dot: "#fbbf24" },
+  offline: { label: "Ausente",    color: "#6b7f6e", dot: "#6b7f6e" },
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
 
 interface TopbarProps {
   breadcrumbs: Array<{ label: string; href?: string }>;
@@ -14,10 +26,28 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [presence, setPresence] = useState<PresenceStatus>("offline");
+  const [savingPresence, setSavingPresence] = useState(false);
 
   const avatarText = initials(profile?.full_name);
   const roleLabel  = profile ? ROLE_LABELS[profile.role] : null;
   const { unreadCount } = useCampaignAlerts();
+
+  const loadPresence = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data } = await db.from("user_profiles").select("presence_status").eq("id", profile.id).single();
+    if (data?.presence_status) setPresence(data.presence_status as PresenceStatus);
+  }, [profile?.id]);
+
+  useEffect(() => { loadPresence(); }, [loadPresence]);
+
+  async function handlePresence(status: PresenceStatus) {
+    if (!profile?.id || savingPresence) return;
+    setSavingPresence(true);
+    setPresence(status);
+    await db.from("user_profiles").update({ presence_status: status }).eq("id", profile.id);
+    setSavingPresence(false);
+  }
 
   useEffect(() => {
     function onOutsideClick(e: MouseEvent) {
@@ -99,20 +129,22 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setOpen((v) => !v)}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all duration-200 overflow-hidden"
+            className="relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-all duration-200 overflow-visible"
             style={{
               background: profile?.avatar_url ? "transparent" : "linear-gradient(135deg, #3fb06c, #16A34A)",
               outline: open ? "2px solid rgba(63,176,108,0.5)" : "2px solid transparent",
               outlineOffset: 2,
             }}
           >
-            {profile?.avatar_url ? (
-              <img
-                src={profile.avatar_url}
-                alt={profile?.full_name ?? "Avatar"}
-                className="w-full h-full object-cover"
-              />
-            ) : avatarText}
+            <span className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+              style={{ background: profile?.avatar_url ? "transparent" : "linear-gradient(135deg,#3fb06c,#16A34A)" }}>
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt={profile?.full_name ?? "Avatar"} className="w-full h-full object-cover" />
+              ) : avatarText}
+            </span>
+            {/* Presence dot */}
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2"
+              style={{ background: PRESENCE[presence].dot, borderColor: "#0a110e" }} />
           </button>
 
           {open && (
@@ -125,16 +157,23 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
               }}
             >
               {/* Header */}
-              <div
-                className="px-4 py-3"
-                style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
-              >
-                <p className="text-sm font-semibold text-agro-text truncate">
-                  {profile?.full_name ?? "Usuário"}
-                </p>
-                {roleLabel && (
-                  <p className="text-[11px] text-agro-muted-2 mt-0.5">{roleLabel}</p>
-                )}
+              <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+                <p className="text-sm font-semibold text-agro-text truncate">{profile?.full_name ?? "Usuário"}</p>
+                {roleLabel && <p className="text-[11px] text-agro-muted-2 mt-0.5">{roleLabel}</p>}
+
+                {/* Presence selector */}
+                <div className="flex items-center gap-1 mt-2">
+                  {(Object.entries(PRESENCE) as [PresenceStatus, typeof PRESENCE[PresenceStatus]][]).map(([key, val]) => (
+                    <button key={key} onClick={() => handlePresence(key)} disabled={savingPresence}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-50"
+                      style={presence === key
+                        ? { background: val.color + "20", color: val.color, border: `1px solid ${val.color}50` }
+                        : { background: "rgba(0,0,0,0.2)", color: "#6b7f6e", border: "1px solid rgba(63,176,108,0.08)" }}>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: val.color }} />
+                      {val.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Menu items */}

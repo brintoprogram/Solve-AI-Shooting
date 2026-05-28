@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, Fragment } from "react";
 import {
   BarChart2, Download, RefreshCw, Shield, Send,
   CheckCircle2, Eye, Loader2, ChevronDown, ChevronUp,
-  MessageSquare, FileText, X,
+  MessageSquare, FileText, X, Headphones, Users, Clock, TrendingUp,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
-type MainTab    = "campaigns" | "audit";
+type MainTab    = "campaigns" | "inbox" | "audit";
 type DateRange  = "7d" | "30d" | "90d" | "all";
 type CampStatus = "all" | "completed" | "sending" | "paused" | "failed" | "cancelled" | "draft" | "scheduled";
 
@@ -1178,6 +1178,355 @@ function AuditLogViewer({ workspaceId }: { workspaceId: string }) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// INBOX / ATENDIMENTO REPORT
+// ════════════════════════════════════════════════════════════════
+
+interface ConvRow {
+  id: string;
+  status: "open" | "pending" | "resolved";
+  department_id: string | null;
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+  departments: { name: string; color: string } | null;
+}
+
+function fmtDuration(ms: number): string {
+  if (ms <= 0) return "—";
+  if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}min`;
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.round((ms % 3_600_000) / 60_000);
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+function InboxStatCard({ label, value, sub, icon: Icon, color, bg, border }: {
+  label: string; value: string | number; sub?: string;
+  icon: React.ElementType; color: string; bg: string; border: string;
+}) {
+  return (
+    <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: bg, border: `1px solid ${border}` }}>
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: bg, border: `1px solid ${border}` }}>
+        <Icon className="w-4 h-4" style={{ color }} />
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-widest mb-0.5" style={{ color: color + "aa" }}>{label}</p>
+        <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+        {sub && <p className="text-[10px] mt-0.5" style={{ color: color + "88" }}>{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function InboxReport({ workspaceId }: { workspaceId: string }) {
+  const [convs,    setConvs]    = useState<ConvRow[]>([]);
+  const [agents,   setAgents]   = useState<{ id: string; full_name: string | null }[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [range,    setRange]    = useState<DateRange>("30d");
+  const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const since = range === "all" ? null
+      : startOfDay(subDays(new Date(), parseInt(range))).toISOString();
+
+    let q = db
+      .from("inbox_conversations")
+      .select("id, status, department_id, assigned_to, created_at, updated_at, departments(name, color)")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false });
+    if (since) q = q.gte("created_at", since);
+
+    const { data } = await q;
+    const rows: ConvRow[] = data ?? [];
+    setConvs(rows);
+
+    const ids = [...new Set(rows.filter(c => c.assigned_to).map(c => c.assigned_to as string))];
+    if (ids.length) {
+      const { data: p } = await db.from("user_profiles").select("id, full_name").in("id", ids);
+      setAgents(p ?? []);
+    } else {
+      setAgents([]);
+    }
+    setLoading(false);
+  }, [workspaceId, range]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Computed metrics ─────────────────────────────────────────────
+  const total    = convs.length;
+  const resolved = convs.filter(c => c.status === "resolved");
+  const open     = convs.filter(c => c.status === "open");
+  const pending  = convs.filter(c => c.status === "pending");
+  const unassigned = convs.filter(c => !c.assigned_to && c.status !== "resolved").length;
+
+  const tmaMs = resolved.length > 0
+    ? resolved.reduce((s, c) =>
+        s + (new Date(c.updated_at).getTime() - new Date(c.created_at).getTime()), 0
+      ) / resolved.length
+    : 0;
+
+  // ── By department ────────────────────────────────────────────────
+  type DeptStats = { name: string; color: string; open: number; pending: number; resolved: number; tmaMsSum: number; tmaCount: number };
+  const deptMap = new Map<string, DeptStats>();
+  for (const c of convs) {
+    const key  = c.department_id ?? "__none__";
+    const name = c.departments?.name  ?? "Sem setor";
+    const col  = c.departments?.color ?? "#6b7f6e";
+    if (!deptMap.has(key)) deptMap.set(key, { name, color: col, open: 0, pending: 0, resolved: 0, tmaMsSum: 0, tmaCount: 0 });
+    const d = deptMap.get(key)!;
+    if (c.status === "open")     d.open++;
+    if (c.status === "pending")  d.pending++;
+    if (c.status === "resolved") {
+      d.resolved++;
+      d.tmaMsSum += new Date(c.updated_at).getTime() - new Date(c.created_at).getTime();
+      d.tmaCount++;
+    }
+  }
+  const deptRows = [...deptMap.values()].sort((a, b) => (b.open + b.pending + b.resolved) - (a.open + a.pending + a.resolved));
+
+  // ── By agent ─────────────────────────────────────────────────────
+  type AgentStats = { name: string; open: number; pending: number; resolved: number; tmaMsSum: number; tmaCount: number };
+  const agentNameMap = new Map(agents.map(a => [a.id, a.full_name ?? "—"]));
+  const agentStatsMap = new Map<string, AgentStats>();
+  for (const c of convs) {
+    if (!c.assigned_to) continue;
+    const key  = c.assigned_to;
+    const name = agentNameMap.get(key) ?? key.slice(0, 8) + "…";
+    if (!agentStatsMap.has(key)) agentStatsMap.set(key, { name, open: 0, pending: 0, resolved: 0, tmaMsSum: 0, tmaCount: 0 });
+    const a = agentStatsMap.get(key)!;
+    if (c.status === "open")     a.open++;
+    if (c.status === "pending")  a.pending++;
+    if (c.status === "resolved") {
+      a.resolved++;
+      a.tmaMsSum += new Date(c.updated_at).getTime() - new Date(c.created_at).getTime();
+      a.tmaCount++;
+    }
+  }
+  const agentRows = [...agentStatsMap.values()].sort((a, b) => (b.open + b.resolved) - (a.open + a.resolved));
+
+  // ── Export XLSX ───────────────────────────────────────────────────
+  function exportXlsx() {
+    setExporting(true);
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // Resumo
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ["Relatório de Atendimento — Solve AI"],
+        ["Período", range === "all" ? "Todos" : `Últimos ${range}`],
+        ["Gerado em", format(new Date(), "dd/MM/yyyy HH:mm")],
+        [],
+        ["Total de conversas", total],
+        ["Abertas",   open.length],
+        ["Pendentes", pending.length],
+        ["Resolvidas", resolved.length],
+        ["TMA (resolvidas)", fmtDuration(tmaMs)],
+        ["Sem atribuição (abertas/pendentes)", unassigned],
+      ]), "Resumo");
+
+      // Por setor
+      const deptSheet: (string | number)[][] = [
+        ["Setor", "Abertas", "Pendentes", "Resolvidas", "Total", "TMA"],
+        ...deptRows.map(d => [
+          d.name, d.open, d.pending, d.resolved,
+          d.open + d.pending + d.resolved,
+          d.tmaCount > 0 ? fmtDuration(d.tmaMsSum / d.tmaCount) : "—",
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(deptSheet), "Por Setor");
+
+      // Por agente
+      const agentSheet: (string | number)[][] = [
+        ["Agente", "Abertas", "Pendentes", "Resolvidas", "Total", "TMA"],
+        ...agentRows.map(a => [
+          a.name, a.open, a.pending, a.resolved,
+          a.open + a.pending + a.resolved,
+          a.tmaCount > 0 ? fmtDuration(a.tmaMsSum / a.tmaCount) : "—",
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(agentSheet), "Por Agente");
+
+      XLSX.writeFile(wb, `atendimento_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+      toast({ title: "XLSX exportado", variant: "success" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const RANGE_OPTS: { id: DateRange; label: string }[] = [
+    { id: "7d",  label: "7 dias"  },
+    { id: "30d", label: "30 dias" },
+    { id: "90d", label: "90 dias" },
+    { id: "all", label: "Todos"   },
+  ];
+
+  const TH = "px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap";
+  const TD = "px-4 py-3 text-xs text-[#c8dccf]";
+
+  function Bar({ pct, color }: { pct: number; color: string }) {
+    return (
+      <div className="flex items-center gap-2 min-w-[80px]">
+        <div className="flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+        </div>
+        <span className="text-[10px] font-mono" style={{ color }}>{pct}%</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 p-1 rounded-xl" style={{ background: "rgba(8,14,10,0.8)", border: "1px solid rgba(63,176,108,0.1)" }}>
+          {RANGE_OPTS.map(o => (
+            <button key={o.id} onClick={() => setRange(o.id)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={range === o.id ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c" } : { color: "#6b7f6e" }}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1" />
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#6b7f6e] hover:text-white disabled:opacity-50 transition-colors"
+          style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+        </button>
+        <button onClick={exportXlsx} disabled={loading || exporting || total === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#3fb06c] hover:bg-[#1e2e22] disabled:opacity-40 transition-colors"
+          style={{ border: "1px solid rgba(63,176,108,0.25)" }}>
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          Exportar XLSX
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      {loading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[0,1,2,3].map(i => <div key={i} className="h-24 rounded-xl animate-pulse" style={{ background: "rgba(63,176,108,0.05)" }} />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <InboxStatCard label="Total de conversas" value={total}           icon={MessageSquare} color="#3fb06c" bg="rgba(63,176,108,0.07)"  border="rgba(63,176,108,0.15)" />
+          <InboxStatCard label="Abertas / Pendentes" value={open.length + pending.length} sub={`${unassigned} sem atribuição`} icon={TrendingUp} color="#fbbf24" bg="rgba(245,158,11,0.07)" border="rgba(245,158,11,0.15)" />
+          <InboxStatCard label="Resolvidas"          value={resolved.length} sub={total > 0 ? `${Math.round(resolved.length/total*100)}% do total` : undefined} icon={CheckCircle2} color="#60a5fa" bg="rgba(59,130,246,0.07)" border="rgba(59,130,246,0.15)" />
+          <InboxStatCard label="TMA (resolvidas)"    value={fmtDuration(tmaMs)} sub="tempo médio de atendimento" icon={Clock} color="#a78bfa" bg="rgba(167,139,250,0.07)" border="rgba(167,139,250,0.15)" />
+        </div>
+      )}
+
+      {/* By department */}
+      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+        <div className="px-4 py-3 flex items-center gap-2" style={{ background: "rgba(8,14,10,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+          <Users className="w-3.5 h-3.5" style={{ color: "#3fb06c" }} />
+          <span className="text-xs font-semibold text-[#c8dccf] uppercase tracking-wider">Por setor</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
+              {["Setor", "Abertas", "Pendentes", "Resolvidas", "Total", "% Resolução", "TMA"].map(h => (
+                <th key={h} className={TH}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}>
+                  {Array.from({ length: 7 }).map((_, j) => (
+                    <td key={j} className="px-4 py-3"><div className="h-3.5 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.06)", width: j === 0 ? "60%" : "40%" }} /></td>
+                  ))}
+                </tr>
+              ))
+            ) : deptRows.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-[#6b7f6e] text-xs">Nenhuma conversa no período selecionado</td></tr>
+            ) : deptRows.map((d, i) => {
+              const tot = d.open + d.pending + d.resolved;
+              const resPct = tot > 0 ? Math.round(d.resolved / tot * 100) : 0;
+              return (
+                <tr key={i} style={{ borderBottom: i < deptRows.length - 1 ? "1px solid rgba(63,176,108,0.04)" : "none" }}>
+                  <td className={TD}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                      <span className="font-medium text-white">{d.name}</span>
+                    </div>
+                  </td>
+                  <td className={TD}><span style={{ color: "#fbbf24" }}>{d.open}</span></td>
+                  <td className={TD}><span style={{ color: "#fb923c" }}>{d.pending}</span></td>
+                  <td className={TD}><span style={{ color: "#60a5fa" }}>{d.resolved}</span></td>
+                  <td className={TD + " font-semibold text-white"}>{tot}</td>
+                  <td className={TD}><Bar pct={resPct} color="#60a5fa" /></td>
+                  <td className={TD}>{d.tmaCount > 0 ? fmtDuration(d.tmaMsSum / d.tmaCount) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* By agent */}
+      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+        <div className="px-4 py-3 flex items-center gap-2" style={{ background: "rgba(8,14,10,0.9)", borderBottom: "1px solid rgba(63,176,108,0.08)" }}>
+          <Headphones className="w-3.5 h-3.5" style={{ color: "#3fb06c" }} />
+          <span className="text-xs font-semibold text-[#c8dccf] uppercase tracking-wider">Por agente</span>
+          {unassigned > 0 && (
+            <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(245,158,11,0.1)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.2)" }}>
+              {unassigned} sem atribuição
+            </span>
+          )}
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.06)" }}>
+              {["Agente", "Abertas", "Pendentes", "Resolvidas", "Total", "% Resolução", "TMA"].map(h => (
+                <th key={h} className={TH}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid rgba(63,176,108,0.04)" }}>
+                  {Array.from({ length: 7 }).map((_, j) => (
+                    <td key={j} className="px-4 py-3"><div className="h-3.5 rounded animate-pulse" style={{ background: "rgba(63,176,108,0.06)", width: j === 0 ? "60%" : "40%" }} /></td>
+                  ))}
+                </tr>
+              ))
+            ) : agentRows.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-[#6b7f6e] text-xs">Nenhuma conversa atribuída no período</td></tr>
+            ) : agentRows.map((a, i) => {
+              const tot = a.open + a.pending + a.resolved;
+              const resPct = tot > 0 ? Math.round(a.resolved / tot * 100) : 0;
+              return (
+                <tr key={i} style={{ borderBottom: i < agentRows.length - 1 ? "1px solid rgba(63,176,108,0.04)" : "none" }}>
+                  <td className={TD}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                        style={{ background: "linear-gradient(135deg,#3fb06c,#16A34A)" }}>
+                        {(a.name[0] ?? "?").toUpperCase()}
+                      </div>
+                      <span className="font-medium text-white truncate max-w-[140px]">{a.name}</span>
+                    </div>
+                  </td>
+                  <td className={TD}><span style={{ color: "#fbbf24" }}>{a.open}</span></td>
+                  <td className={TD}><span style={{ color: "#fb923c" }}>{a.pending}</span></td>
+                  <td className={TD}><span style={{ color: "#60a5fa" }}>{a.resolved}</span></td>
+                  <td className={TD + " font-semibold text-white"}>{tot}</td>
+                  <td className={TD}><Bar pct={resPct} color="#60a5fa" /></td>
+                  <td className={TD}>{a.tmaCount > 0 ? fmtDuration(a.tmaMsSum / a.tmaCount) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ════════════════════════════════════════════════════════════════
 
@@ -1202,34 +1551,38 @@ export function Reports() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white leading-none mb-1">Relatórios</h1>
-            <p className="text-sm text-[#6b7f6e]">Análise de campanhas e auditoria de eventos do sistema</p>
+            <p className="text-sm text-[#6b7f6e]">Campanhas, atendimento por setor/agente e auditoria do sistema</p>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl w-fit mb-6"
           style={{ background: "rgba(8,14,10,0.8)", border: "1px solid rgba(63,176,108,0.1)" }}>
-          <button onClick={() => setTab("campaigns")}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-            style={tab === "campaigns"
-              ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
-              : { color: "#6b7f6e", border: "1px solid transparent" }}
-          >
-            <Send className="w-4 h-4" /> Campanhas
-          </button>
+          {([
+            { id: "campaigns", label: "Campanhas",   icon: Send       },
+            { id: "inbox",     label: "Atendimento", icon: Headphones },
+          ] as { id: MainTab; label: string; icon: React.ElementType }[]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+              style={tab === t.id
+                ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
+                : { color: "#6b7f6e", border: "1px solid transparent" }}>
+              <t.icon className="w-4 h-4" /> {t.label}
+            </button>
+          ))}
           {isAdmin && (
             <button onClick={() => setTab("audit")}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
               style={tab === "audit"
                 ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.25)" }
-                : { color: "#6b7f6e", border: "1px solid transparent" }}
-            >
+                : { color: "#6b7f6e", border: "1px solid transparent" }}>
               <Shield className="w-4 h-4" /> Auditoria
             </button>
           )}
         </div>
 
         {tab === "campaigns" && <CampaignReport workspaceId={wid} />}
+        {tab === "inbox"     && <InboxReport    workspaceId={wid} />}
         {tab === "audit" && isAdmin && <AuditLogViewer workspaceId={wid} />}
       </div>
     </div>
