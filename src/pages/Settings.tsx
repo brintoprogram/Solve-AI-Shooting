@@ -506,7 +506,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo"|"api">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo"|"api"|"setores">("perfil");
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);
@@ -1064,14 +1064,15 @@ CREATE POLICY "avatars_delete" ON storage.objects
         {/* ── Tab bar (admin only) ─────────────── */}
         {hasPermission(profile, "can_settings") && (() => {
           const TABS: { id: typeof settingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-            { id: "perfil",    label: "Perfil",    icon: User       },
-            { id: "whatsapp",  label: "WhatsApp",  icon: Smartphone },
-            { id: "email",     label: "Email",     icon: Mail       },
-            { id: "ia",        label: "IA",        icon: Zap        },
-            { id: "disparo",   label: "Disparo",   icon: Rocket     },
-            { id: "avancado",  label: "Avançado",  icon: Terminal   },
-            { id: "demo",      label: "Demo",      icon: Sparkles   },
-            { id: "api",       label: "API",        icon: KeyRound   },
+            { id: "perfil",    label: "Perfil",    icon: User          },
+            { id: "whatsapp",  label: "WhatsApp",  icon: Smartphone    },
+            { id: "email",     label: "Email",     icon: Mail          },
+            { id: "setores",   label: "Setores",   icon: GitBranch     },
+            { id: "ia",        label: "IA",        icon: Zap           },
+            { id: "disparo",   label: "Disparo",   icon: Rocket        },
+            { id: "avancado",  label: "Avançado",  icon: Terminal      },
+            { id: "demo",      label: "Demo",      icon: Sparkles      },
+            { id: "api",       label: "API",       icon: KeyRound      },
           ];
           return (
             <div
@@ -2272,6 +2273,14 @@ CREATE POLICY "avatars_delete" ON storage.objects
         {settingsTab === "demo" && (
           <div className="animate-fade-up">
             <DemoSeeder workspaceId={WORKSPACE_ID} />
+          </div>
+        )}
+
+        {/* ══ Tab: Setores / Departamentos ═══════════════════════ */}
+        {settingsTab === "setores" && (
+          <div className="animate-fade-up rounded-2xl p-6"
+            style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}>
+            <SettingsDepartments workspaceId={WORKSPACE_ID} />
           </div>
         )}
 
