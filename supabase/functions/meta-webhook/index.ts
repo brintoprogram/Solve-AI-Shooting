@@ -910,7 +910,16 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
       }
       return { message_type: "button_reply", body: "Resposta interativa" };
     }
-    default: return { message_type: "unsupported" };
+    case "system": {
+      const s = msg.system as Record<string, unknown>;
+      return { message_type: "system", body: s?.body as string | undefined };
+    }
+    default: {
+      console.warn(`[inbox] tipo não suportado: type=${type} payload=${JSON.stringify(msg)}`);
+      const typeData = msg[type] as Record<string, unknown> | undefined;
+      const fallbackBody = (typeData?.body as string) ?? (typeData?.text as string) ?? undefined;
+      return { message_type: "unsupported", body: fallbackBody };
+    }
   }
 }
 
@@ -935,6 +944,13 @@ function buildShortBody(type: string, msg: Record<string, unknown>): string {
       if (iType === "list_reply")   return `📋 ${((interactive.list_reply as Record<string, unknown>)?.title as string) ?? "Lista"}`;
       return "🔘 Resposta interativa";
     }
-    default:             return "Mensagem";
+    case "system": {
+      const s = msg.system as Record<string, unknown>;
+      return (s?.body as string) ?? "Sistema";
+    }
+    default: {
+      const typeData = msg[type] as Record<string, unknown> | undefined;
+      return (typeData?.body as string) ?? (typeData?.text as string) ?? "Mensagem";
+    }
   }
 }

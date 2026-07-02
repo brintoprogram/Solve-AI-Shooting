@@ -133,8 +133,9 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
   const { toast } = useToast();
   const [campaigns,    setCampaigns]    = useState<Campaign[]>([]);
   const [loading,      setLoading]      = useState(false);
-  const [exporting,    setExporting]    = useState(false);
-  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exporting,      setExporting]      = useState(false);
+  const [exportingPdf,   setExportingPdf]   = useState(false);
+  const [exportingProof, setExportingProof] = useState(false);
   const [dateRange,    setDateRange]    = useState<DateRange>("all");
   const [status,       setStatus]       = useState<CampStatus>("all");
   const [selected,     setSelected]     = useState<Set<string>>(new Set());
@@ -756,6 +757,244 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
     }
   }
 
+  // ── Comprovante de Entrega (PDF premium — apenas WhatsApp entregues) ────────
+  async function exportDeliveryProofPdf() {
+    if (selected.size === 0) return;
+    setExportingProof(true);
+    try {
+      const ids    = Array.from(selected);
+      const target = campaigns.filter((c) => ids.includes(c.id) && !isEmailCamp(c));
+      if (target.length === 0) {
+        toast({ title: "Selecione campanhas WhatsApp", description: "O comprovante está disponível apenas para campanhas WhatsApp.", variant: "destructive" });
+        setExportingProof(false);
+        return;
+      }
+
+      let logo: string | null = null;
+      try {
+        const res  = await fetch("/logo.png");
+        const blob = await res.blob();
+        logo = await new Promise<string>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result as string);
+          r.readAsDataURL(blob);
+        });
+      } catch { /* sem logo */ }
+
+      interface DeliveredMsg {
+        campaign_id:    string;
+        recipient_name: string | null;
+        recipient_phone: string;
+        status:         string;
+        delivered_at:   string | null;
+      }
+      const allDelivered: DeliveredMsg[] = await fetchAll(
+        db.from("shooting_messages")
+          .select("campaign_id,recipient_name,recipient_phone,status,delivered_at")
+          .in("campaign_id", ids)
+          .in("status", ["delivered", "read", "replied"])
+          .order("campaign_id,delivered_at", { ascending: true }),
+      );
+
+      const msgMap: Record<string, DeliveredMsg[]> = {};
+      for (const m of allDelivered) {
+        if (!msgMap[m.campaign_id]) msgMap[m.campaign_id] = [];
+        msgMap[m.campaign_id].push(m);
+      }
+
+      const totalDelivered = allDelivered.length;
+      const totalRecip     = target.reduce((a, c) => a + (c.total_recipients ?? 0), 0);
+      const avgRate        = totalRecip > 0 ? Math.round((totalDelivered / totalRecip) * 100) : 0;
+
+      const DARK_BG  = [10,  20,  14]  as [number, number, number];
+      const GREEN    = [63,  176, 108] as [number, number, number];
+      const GREEN_DK = [22,  56,  36]  as [number, number, number];
+      const WHITE    = [255, 255, 255] as [number, number, number];
+      const LIGHT_GN = [242, 250, 244] as [number, number, number];
+      const MUTED    = [107, 135, 115] as [number, number, number];
+      const TEXT     = [20,  40,  26]  as [number, number, number];
+      const W = 210, H = 297, MX = 16;
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+      // ── CAPA ───────────────────────────────────────────────────
+      doc.setFillColor(...DARK_BG);
+      doc.rect(0, 0, W, 148, "F");
+      doc.setFillColor(...GREEN);
+      doc.rect(0, 148, W, 2.5, "F");
+      doc.setFillColor(...GREEN);
+      doc.rect(0, 0, 4, 148, "F");
+
+      if (logo) {
+        doc.addImage(logo, "PNG", MX + 4, 16, 38, 13, undefined, "FAST");
+      } else {
+        doc.setFontSize(16); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...GREEN); doc.text("Solve AI", MX + 4, 26);
+      }
+
+      doc.setFontSize(32); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...WHITE);
+      doc.text("COMPROVANTE", MX + 4, 70);
+      doc.text("DE ENTREGA",  MX + 4, 86);
+
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.setTextColor(...GREEN);
+      doc.text("WhatsApp Business API  ·  Meta Oficial", MX + 4, 98);
+
+      doc.setFontSize(8); doc.setTextColor(150, 190, 165);
+      doc.text(`Emitido em ${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}`, MX + 4, 110);
+
+      // círculo checkmark decorativo
+      doc.setFillColor(22, 80, 46);   doc.circle(172, 62, 34, "F");
+      doc.setFillColor(30, 110, 65);  doc.circle(172, 62, 28, "F");
+      doc.setFillColor(...GREEN);     doc.circle(172, 62, 22, "F");
+      doc.setFontSize(26); doc.setFont("helvetica", "bold");
+      doc.setTextColor(...WHITE); doc.text("✓", 172, 69, { align: "center" });
+
+      // cards de métricas
+      const metY = 162;
+      const mw   = (W - MX * 2 - 8) / 3;
+      [
+        { label: "Campanhas",       value: target.length.toLocaleString("pt-BR"),    color: GREEN },
+        { label: "Msgs Entregues",  value: totalDelivered.toLocaleString("pt-BR"),   color: GREEN },
+        { label: "Taxa de Entrega", value: `${avgRate}%`, color: avgRate >= 80 ? GREEN : [245, 158, 11] as [number, number, number] },
+      ].forEach((m, i) => {
+        const x = MX + i * (mw + 4);
+        doc.setFillColor(...LIGHT_GN); doc.roundedRect(x, metY, mw, 36, 3, 3, "F");
+        doc.setDrawColor(...GREEN); doc.setLineWidth(0.4); doc.roundedRect(x, metY, mw, 36, 3, 3, "S");
+        doc.setFontSize(22); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...m.color); doc.text(m.value, x + mw / 2, metY + 18, { align: "center" });
+        doc.setFontSize(7); doc.setFont("helvetica", "normal");
+        doc.setTextColor(...MUTED); doc.text(m.label.toUpperCase(), x + mw / 2, metY + 28, { align: "center" });
+      });
+
+      // lista de campanhas
+      let y = metY + 48;
+      doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(...MUTED);
+      doc.text("CAMPANHAS INCLUÍDAS NESTE RELATÓRIO", MX, y);
+      doc.setDrawColor(...GREEN); doc.setLineWidth(0.3);
+      doc.line(MX, y + 1.5, W - MX, y + 1.5);
+      y += 7;
+
+      for (const c of target) {
+        const del  = msgMap[c.id]?.length ?? 0;
+        const rate = c.total_recipients ? Math.round((del / c.total_recipients) * 100) : 0;
+        doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(...TEXT);
+        doc.text(c.name.length > 60 ? c.name.slice(0, 57) + "…" : c.name, MX, y);
+        doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(...GREEN);
+        doc.text(`${del.toLocaleString("pt-BR")} entregues  ·  ${rate}%`, W - MX, y, { align: "right" });
+        if (c.completed_at || c.created_at) {
+          doc.setFontSize(6.5); doc.setTextColor(...MUTED);
+          doc.text(format(new Date(c.completed_at ?? c.created_at), "dd/MM/yyyy"), MX + 1, y + 4);
+        }
+        y += 11;
+        if (y > H - 25) break;
+      }
+
+      doc.setFontSize(7); doc.setTextColor(...MUTED);
+      doc.text("Documento gerado automaticamente por Solve AI  ·  solveai.consulting", W / 2, H - 10, { align: "center" });
+
+      // ── PÁGINA POR CAMPANHA ────────────────────────────────────
+      for (const c of target) {
+        doc.addPage();
+        const msgs   = msgMap[c.id] ?? [];
+        const del    = msgs.length;
+        const read   = msgs.filter((m) => m.status === "read" || m.status === "replied").length;
+        const rate   = c.total_recipients ? Math.round((del / c.total_recipients) * 100) : 0;
+        const rColor = rate >= 80 ? GREEN : rate >= 50 ? [245, 158, 11] as [number, number, number] : [220, 38, 38] as [number, number, number];
+
+        // header
+        doc.setFillColor(...DARK_BG); doc.rect(0, 0, W, 34, "F");
+        doc.setFillColor(...GREEN);   doc.rect(0, 0, 4, 34, "F");
+        doc.setFillColor(...GREEN);   doc.rect(0, 34, W, 1.5, "F");
+        if (logo) doc.addImage(logo, "PNG", MX + 4, 9, 22, 8, undefined, "FAST");
+        const nx = logo ? MX + 30 : MX + 4;
+        doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.setTextColor(...WHITE);
+        doc.text(c.name.length > 54 ? c.name.slice(0, 51) + "…" : c.name, nx, 17);
+        doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 190, 165);
+        doc.text(`Concluída em ${format(new Date(c.completed_at ?? c.created_at), "dd/MM/yyyy")}`, nx, 26);
+
+        // badge taxa (canto direito)
+        doc.setFillColor(...rColor); doc.roundedRect(W - MX - 23, 7, 23, 20, 3, 3, "F");
+        doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(...WHITE);
+        doc.text(`${rate}%`, W - MX - 11.5, 18, { align: "center" });
+        doc.setFontSize(5.5); doc.text("ENTREGA", W - MX - 11.5, 23.5, { align: "center" });
+
+        // cards de métricas da campanha
+        const mY = 42;
+        const mm = (W - MX * 2 - 12) / 4;
+        [
+          { label: "Destinatários", val: (c.total_recipients ?? 0).toLocaleString("pt-BR"), color: MUTED  },
+          { label: "Entregues",     val: del.toLocaleString("pt-BR"),                       color: GREEN  },
+          { label: "Lidas",         val: read.toLocaleString("pt-BR"),                      color: [250, 190, 60] as [number, number, number] },
+          { label: "Falhas",        val: (c.failed_count ?? 0).toLocaleString("pt-BR"),     color: [220, 38, 38]  as [number, number, number] },
+        ].forEach((m, i) => {
+          const x = MX + i * (mm + 4);
+          doc.setFillColor(...LIGHT_GN); doc.roundedRect(x, mY, mm, 22, 2, 2, "F");
+          doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(...m.color);
+          doc.text(m.val, x + mm / 2, mY + 12, { align: "center" });
+          doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(...MUTED);
+          doc.text(m.label.toUpperCase(), x + mm / 2, mY + 19, { align: "center" });
+        });
+
+        // barra de progresso
+        const barY = mY + 28;
+        doc.setFillColor(220, 235, 225); doc.roundedRect(MX, barY, W - MX * 2, 3.5, 1.5, 1.5, "F");
+        const fillW = Math.max(0, Math.min((W - MX * 2) * rate / 100, W - MX * 2));
+        if (fillW > 0) { doc.setFillColor(...rColor); doc.roundedRect(MX, barY, fillW, 3.5, 1.5, 1.5, "F"); }
+
+        // tabela de entregues
+        const SAMPLE = 300;
+        const rows = msgs.slice(0, SAMPLE).map((m) => [
+          m.recipient_name ?? "—",
+          m.recipient_phone ?? "—",
+          m.status === "replied" ? "Respondeu" : m.status === "read" ? "Lida" : "Entregue",
+          m.delivered_at ? format(new Date(m.delivered_at), "dd/MM HH:mm") : "—",
+        ]);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        autoTable(doc, {
+          head: [["Nome", "Telefone", "Status", "Entregue em"]],
+          body: rows,
+          startY: barY + 8,
+          margin: { left: MX, right: MX },
+          styles: { fontSize: 7.5, cellPadding: 2.5, textColor: TEXT, lineColor: [220, 235, 225], lineWidth: 0.2 },
+          headStyles: { fillColor: GREEN_DK, textColor: WHITE, fontStyle: "bold", fontSize: 7.5 },
+          alternateRowStyles: { fillColor: LIGHT_GN },
+          columnStyles: { 2: { halign: "center" }, 3: { halign: "center" } },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+
+        if (msgs.length > SAMPLE) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const afterY = (doc as any).lastAutoTable.finalY + 4;
+          doc.setFontSize(7); doc.setFont("helvetica", "italic"); doc.setTextColor(...MUTED);
+          doc.text(`… e mais ${(msgs.length - SAMPLE).toLocaleString("pt-BR")} destinatários entregues`, MX, afterY);
+        }
+      }
+
+      // rodapé em todas as páginas
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7); doc.setTextColor(...MUTED); doc.setFont("helvetica", "normal");
+        doc.text("Solve AI  ·  solveai.consulting", MX, H - 5);
+        doc.text(`Página ${i} / ${pages}`, W - MX, H - 5, { align: "right" });
+      }
+
+      doc.save(`comprovante_entrega_${new Date().toISOString().slice(0, 10)}.pdf`);
+      toast({
+        title:       "Comprovante gerado!",
+        description: `${totalDelivered.toLocaleString("pt-BR")} msgs entregues · ${target.length} campanha${target.length !== 1 ? "s" : ""}`,
+        variant:     "success",
+      });
+    } catch (err) {
+      toast({ title: "Erro ao gerar comprovante", description: err instanceof Error ? err.message : "Tente novamente.", variant: "destructive" });
+    } finally {
+      setExportingProof(false);
+    }
+  }
+
   const DATE_OPTS: { id: DateRange; label: string }[] = [
     { id: "7d",  label: "7 dias"  },
     { id: "30d", label: "30 dias" },
@@ -773,7 +1012,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
     { id: "scheduled", label: "Agendado"         },
   ];
 
-  const busy = exporting || exportingPdf;
+  const busy = exporting || exportingPdf || exportingProof;
 
   return (
     <div className="space-y-6">
@@ -853,6 +1092,16 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           >
             {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
             {exportingPdf ? "Gerando PDF…" : "Exportar PDF"}
+          </button>
+
+          <button
+            onClick={exportDeliveryProofPdf}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            style={{ background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.4)" }}
+          >
+            {exportingProof ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
+            {exportingProof ? "Gerando…" : "Comprovante de Entrega"}
           </button>
 
           <button
