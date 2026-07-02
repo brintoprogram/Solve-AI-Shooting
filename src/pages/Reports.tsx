@@ -136,6 +136,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
   const [exporting,      setExporting]      = useState(false);
   const [exportingPdf,   setExportingPdf]   = useState(false);
   const [exportingProof, setExportingProof] = useState(false);
+  const [onlyDelivered,  setOnlyDelivered]  = useState(false);
   const [dateRange,    setDateRange]    = useState<DateRange>("all");
   const [status,       setStatus]       = useState<CampStatus>("all");
   const [selected,     setSelected]     = useState<Set<string>>(new Set());
@@ -374,12 +375,14 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         error_message:  string | null;
         sent_at:        string | null;
       }
-      const allMsgs: Msg[] = await fetchAll(
-        db.from("shooting_messages")
-          .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,sent_at")
-          .in("campaign_id", ids)
-          .order("sent_at", { ascending: true, nullsFirst: false }),
-      );
+      let msgQuery = db.from("shooting_messages")
+        .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,sent_at")
+        .in("campaign_id", ids)
+        .order("sent_at", { ascending: true, nullsFirst: false });
+      if (onlyDelivered) {
+        msgQuery = msgQuery.in("status", ["sent", "delivered", "read", "replied"]);
+      }
+      const allMsgs: Msg[] = await fetchAll(msgQuery);
       const msgsByCamp = new Map<string, Msg[]>();
       for (const m of allMsgs) {
         if (!msgsByCamp.has(m.campaign_id)) msgsByCamp.set(m.campaign_id, []);
@@ -1074,6 +1077,21 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           >
             {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             Exportar XLSX
+          </button>
+
+          <button
+            onClick={() => setOnlyDelivered((v) => !v)}
+            disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
+            style={onlyDelivered
+              ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.5)" }
+              : { background: "transparent",           color: "#6b7f6e",  border: "1px solid rgba(107,135,115,0.3)" }}
+          >
+            <div className="w-3 h-3 rounded-sm border flex items-center justify-center"
+              style={{ borderColor: onlyDelivered ? "#3fb06c" : "#6b7f6e", background: onlyDelivered ? "#3fb06c" : "transparent" }}>
+              {onlyDelivered && <div className="w-1.5 h-1.5 bg-white rounded-sm" />}
+            </div>
+            Só entregues no PDF
           </button>
 
           <button
