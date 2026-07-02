@@ -1047,6 +1047,20 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
         </button>
 
+        <button
+          onClick={() => setOnlyDelivered((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors"
+          style={onlyDelivered
+            ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.5)" }
+            : { color: "#6b7f6e", border: "1px solid rgba(107,135,115,0.25)" }}
+        >
+          <div className="w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0"
+            style={{ border: `1.5px solid ${onlyDelivered ? "#3fb06c" : "#6b7f6e"}`, background: onlyDelivered ? "#3fb06c" : "transparent" }}>
+            {onlyDelivered && <div className="w-2 h-2 bg-white rounded-sm" />}
+          </div>
+          Só entregues no PDF
+        </button>
+
         <button onClick={() => exportXlsx()} disabled={!campaigns.length || loading || busy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-[#3fb06c] hover:bg-[#1e2e22] disabled:opacity-40 transition-colors"
           style={{ border: "1px solid rgba(63,176,108,0.25)" }}
@@ -1077,21 +1091,6 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
           >
             {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             Exportar XLSX
-          </button>
-
-          <button
-            onClick={() => setOnlyDelivered((v) => !v)}
-            disabled={busy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-            style={onlyDelivered
-              ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.5)" }
-              : { background: "transparent",           color: "#6b7f6e",  border: "1px solid rgba(107,135,115,0.3)" }}
-          >
-            <div className="w-3 h-3 rounded-sm border flex items-center justify-center"
-              style={{ borderColor: onlyDelivered ? "#3fb06c" : "#6b7f6e", background: onlyDelivered ? "#3fb06c" : "transparent" }}>
-              {onlyDelivered && <div className="w-1.5 h-1.5 bg-white rounded-sm" />}
-            </div>
-            Só entregues no PDF
           </button>
 
           <button
