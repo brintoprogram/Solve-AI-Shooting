@@ -8,18 +8,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 
-
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+// (removida uma função json() morta que referenciava um `corsHeaders`
+// inexistente — era sombreada pela json() definida dentro do handler)
 
 Deno.serve(async (req: Request) => {
   const CORS = getCors(req);
@@ -60,7 +55,7 @@ Deno.serve(async (req: Request) => {
   if (cErr || !contact) return json({ error: "Contact not found" }, 404);
 
   // ── Fetch related data in parallel ────────────────────────────────
-  const [invoicesRes, notesRes, convsRes, shootingRes] = await Promise.all([
+  const [invoicesRes, notesRes, convsRes, shootingRes, negotiationsRes] = await Promise.all([
     supabase.from("contact_invoices")
       .select("numero_nf, valor, vencimento, status, created_at")
       .eq("contact_id", contact_id)
@@ -83,7 +78,25 @@ Deno.serve(async (req: Request) => {
       .eq("workspace_id", workspace_id)
       .order("sent_at", { ascending: false })
       .limit(500),
+
+    supabase.from("debt_negotiations")
+      .select("id, status, original_amount, agreed_amount, agreed_installments, agreed_first_due_date, agreed_at, escalation_reason, created_at")
+      .eq("contact_id", contact_id)
+      .eq("workspace_id", workspace_id)
+      .order("created_at", { ascending: false }),
   ]);
+
+  // Ofertas de cada negociação (dado financeiro pessoal — parte do titular)
+  const negotiationIds = (negotiationsRes.data ?? []).map((n: { id: string }) => n.id);
+  let negotiationOffers: unknown[] = [];
+  if (negotiationIds.length > 0) {
+    const { data: offers } = await supabase
+      .from("negotiation_offers")
+      .select("negotiation_id, round, proposed_by, offer_amount, discount_pct, installments, installment_amount, first_due_date, status, created_at")
+      .in("negotiation_id", negotiationIds)
+      .order("created_at", { ascending: false });
+    negotiationOffers = offers ?? [];
+  }
 
   // Fetch messages for all conversations
   const convIds = (convsRes.data ?? []).map((c: { id: string }) => c.id);
@@ -127,6 +140,8 @@ Deno.serve(async (req: Request) => {
     conversations:    convsRes.data      ?? [],
     messages,
     campaign_messages: shootingRes.data  ?? [],
+    debt_negotiations: negotiationsRes.data ?? [],
+    negotiation_offers: negotiationOffers,
   };
 
   // ── Audit log ──────────────────────────────────────────────────────

@@ -11,18 +11,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 
-
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
+// (removida uma função json() morta que referenciava um `corsHeaders`
+// inexistente — era sombreada pela json() definida dentro do handler)
 
 // Simple hash for phone anonymization (no crypto import needed — just for display masking)
 function maskPhone(phone: string | null): string {
@@ -132,6 +127,36 @@ Deno.serve(async (req: Request) => {
       .update({ phone: anonPhone })
       .eq("phone", originalPhone)
       .eq("workspace_id", workspace_id);
+  }
+
+  // Negotiation portal tokens carry a hash derived from the titular's CPF/CNPJ digits —
+  // remove them even in anonymize mode (debt_negotiations/negotiation_offers themselves
+  // are kept, same as invoices, for financial/statistical record-keeping).
+  const { data: negs } = await supabase
+    .from("debt_negotiations")
+    .select("id")
+    .eq("contact_id", contact_id)
+    .eq("workspace_id", workspace_id);
+  const negIds = (negs ?? []).map((n: { id: string }) => n.id);
+  if (negIds.length > 0) {
+    await supabase.from("negotiation_portal_tokens").delete().in("negotiation_id", negIds);
+  }
+
+  // Tabelas de observabilidade também guardam dado pessoal do titular e não
+  // eram alcançadas pelo direito ao esquecimento: webhook_events e
+  // z_api_debug_log guardam o payload cru (telefone + corpo da mensagem), e
+  // audit_logs guardava telefone no metadata. Sem isto, um titular que pede
+  // exclusão continuava rastreável por essas três tabelas.
+  if (originalPhone) {
+    const like = `%${originalPhone}%`;
+    const [we, zd, al] = await Promise.all([
+      supabase.from("webhook_events").delete().eq("workspace_id", workspace_id).ilike("payload::text", like),
+      supabase.from("z_api_debug_log").delete().ilike("payload::text", like),
+      supabase.from("audit_logs").delete().eq("workspace_id", workspace_id).ilike("metadata::text", like),
+    ]);
+    for (const [name, res] of [["webhook_events", we], ["z_api_debug_log", zd], ["audit_logs", al]] as const) {
+      if (res.error) console.error(`[gdpr-forget] falha ao limpar ${name}:`, res.error.message);
+    }
   }
 
   await supabase.from("audit_logs").insert({

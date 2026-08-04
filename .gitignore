@@ -51,3 +51,6 @@ coverage/
 
 # Artefatos do tsc --build
 *.tsbuildinfo
+
+# Metadados locais do Supabase CLI
+supabase/.temp/

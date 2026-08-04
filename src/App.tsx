@@ -5,6 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { AuthProvider, useAuth, hasPermission } from "@/context/AuthContext";
 import type { PermissionKey } from "@/context/AuthContext";
 import { AccessDenied } from "@/components/AccessDenied";
+import { log } from "@/lib/logger";
 import { Login } from "@/pages/Login";
 import { Dashboard } from "@/pages/Dashboard";
 import { ShootingPage } from "@/pages/shooting/ShootingPage";
@@ -28,6 +29,10 @@ import { SetPassword } from "@/pages/SetPassword";
 import { AcceptInvite } from "@/pages/AcceptInvite";
 import { PrivacyPolicy } from "@/pages/PrivacyPolicy";
 import { TermsOfUse } from "@/pages/TermsOfUse";
+import { NegotiationPortal } from "@/pages/NegotiationPortal";
+import { Negotiations } from "@/pages/Negotiations";
+import { NegotiationDetail } from "@/pages/negotiations/NegotiationDetail";
+import { NegotiationRulesPage } from "@/pages/negotiations/NegotiationRulesPage";
 
 // ── Error boundary — shows error message instead of blank screen ──
 class ErrorBoundary extends Component<
@@ -36,6 +41,18 @@ class ErrorBoundary extends Component<
 > {
   state = { error: null };
   static getDerivedStateFromError(error: Error) { return { error }; }
+
+  // Antes o erro só era pintado na tela — ninguém ficava sabendo que a app
+  // quebrou para um usuário real. Agora vai para o logger (e daí ao coletor,
+  // quando um for plugado via setReporter).
+  componentDidCatch(error: Error, info: { componentStack?: string | null }) {
+    log.fatal("react_error_boundary", {
+      err:   error.message,
+      stack: error.stack?.slice(0, 2000),
+      component_stack: info.componentStack?.slice(0, 2000) ?? undefined,
+      url:   window.location.pathname,
+    });
+  }
   render() {
     if (this.state.error) {
       const err = this.state.error as Error;
@@ -120,6 +137,11 @@ function AppRoutes() {
     return <Navigate to="/" replace />;
   }
 
+  // Public route: client negotiation portal — token-based, no Supabase Auth session at all.
+  // Checked before the "!user" gate below so it works for anonymous WhatsApp contacts.
+  const negMatch = window.location.pathname.match(/^\/negociacao\/([a-f0-9]{64})$/);
+  if (negMatch) return <NegotiationPortal token={negMatch[1]} />;
+
   if (!user)      return <Login />;
 
   return (
@@ -132,6 +154,9 @@ function AppRoutes() {
         <Route path="/settings"               element={<PR permission="can_settings" feature="Configurações"><Settings /></PR>} />
         <Route path="/contacts"               element={<PR permission="can_manage_contacts" feature="Contatos"><Contacts /></PR>} />
         <Route path="/inbox"                  element={<PR permission="can_inbox" feature="Inbox"><Inbox /></PR>} />
+        <Route path="/negotiations"           element={<PR permission="can_negotiations" feature="Negociações"><Negotiations /></PR>} />
+        <Route path="/negotiations/rules"     element={<PR permission="can_settings" feature="Regras de Negociação"><NegotiationRulesPage /></PR>} />
+        <Route path="/negotiations/:id"       element={<PR permission="can_negotiations" feature="Negociação"><NegotiationDetail /></PR>} />
         <Route path="/automations"             element={<Automations />} />
         <Route path="/automations/new"        element={<AutomationWizard />} />
         <Route path="/automations/:id/edit"   element={<AutomationWizard />} />

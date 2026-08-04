@@ -18,6 +18,7 @@ import {
   ChevronsUpDown,
   Check,
   Sparkles,
+  Handshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -37,6 +38,7 @@ const BASE_NAV: NavItem[] = [
   { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
   { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
+  { to: "/negotiations",      icon: Handshake,       label: "Negociações",  subtitle: "Renegociação de dívidas", permission: "can_negotiations" },
   { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
   { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
   { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },

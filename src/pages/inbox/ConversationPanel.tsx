@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
-import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch, Info, Bot } from "lucide-react";
+import { MoreVertical, UserCheck, UserMinus, ArrowRightLeft, Loader2, Pin, Archive, Trash2, ClipboardList, X, ChevronLeft, GitBranch, Info, Bot, Handshake } from "lucide-react";
 import type { InboxConversation, Department } from "@/types/inbox";
 import type { UserProfile } from "@/context/AuthContext";
 import { useAuth, initials as profileInitials, ROLE_LABELS, ROLE_STYLE } from "@/context/AuthContext";
 import { useInboxMessages } from "@/hooks/useInbox";
+import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
 import { ContactHistory } from "@/pages/contacts/ContactHistory";
+import { initials } from "@/lib/format";
 
 const CONVERSATION_TAGS: Record<string, { label: string; color: string; bg: string; border: string }> = {
   importante:     { label: "Importante",     color: "#f59e0b", bg: "rgba(245,158,11,0.1)",  border: "rgba(245,158,11,0.25)"  },
@@ -17,8 +19,6 @@ const CONVERSATION_TAGS: Record<string, { label: string; color: string; bg: stri
   resolvido:      { label: "Resolvido",      color: "#3fb06c", bg: "rgba(63,176,108,0.1)",  border: "rgba(63,176,108,0.25)"  },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 interface Props {
   conversation:  InboxConversation;
@@ -50,6 +50,7 @@ async function triggerResolveMedia(conversationId: string) {
 
 export function ConversationPanel({ conversation, teamMembers, onBack, onPin, onArchive, onDelete, onUpdateTags }: Props) {
   const { profile, workspaceId } = useAuth();
+  const { toast } = useToast();
   const contact     = conversation.inbox_contacts;
   const displayName = contact.name ?? contact.phone;
   const { messages, loading, deleteMessage } = useInboxMessages(conversation.id);
@@ -58,6 +59,27 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
   const [showPanel, setShowPanel] = useState(() => {
     try { return localStorage.getItem("inbox_panel_open") === "true"; } catch { return false; }
   });
+  const [startingNegotiation, setStartingNegotiation] = useState(false);
+
+  async function handleStartNegotiation() {
+    setStartingNegotiation(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("negotiation-agent", {
+        body: { conversation_id: conversation.id, manual: true },
+      });
+      if (error) throw error;
+      if (data?.reason === "no_open_invoice") {
+        toast({ title: "Nenhuma fatura em aberto", description: "Este contato não tem fatura pendente/vencida para negociar.", variant: "destructive" });
+      } else {
+        toast({ title: "Negociação iniciada" });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Erro ao iniciar negociação", description: msg, variant: "destructive" });
+    } finally {
+      setStartingNegotiation(false);
+    }
+  }
 
   const [aiAgents,      setAiAgents]      = useState<{ id: string; name: string }[]>([]);
   const [aiAgentId,     setAiAgentId]     = useState<string | null>(conversation.ai_agent_id ?? null);
@@ -65,7 +87,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
 
   const fetchAiAgents = useCallback(async () => {
     if (!workspaceId) return;
-    const { data } = await db
+    const { data } = await supabase
       .from("ai_agents")
       .select("id, name")
       .eq("workspace_id", workspaceId)
@@ -79,7 +101,7 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
 
   async function handleAgentChange(newAgentId: string | null) {
     setAgentSaving(true);
-    await db
+    await supabase
       .from("inbox_conversations")
       .update({ ai_agent_id: newAgentId })
       .eq("id", conversation.id);
@@ -202,12 +224,22 @@ export function ConversationPanel({ conversation, teamMembers, onBack, onPin, on
 
         {/* Row 2: assignment bar */}
         {profile && (
-          <div className="mt-2.5">
+          <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap">
             <AssignmentBar
               conversation={conversation}
               teamMembers={teamMembers}
               myProfile={profile}
             />
+            <button
+              onClick={handleStartNegotiation}
+              disabled={startingNegotiation}
+              title="Inicia a negociação de dívida para este contato (usa a fatura pendente mais antiga)"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full transition-all disabled:opacity-50 shrink-0"
+              style={{ background: "rgba(167,139,250,0.12)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)" }}
+            >
+              {startingNegotiation ? <Loader2 className="w-3 h-3 animate-spin" /> : <Handshake className="w-3 h-3" />}
+              Iniciar negociação
+            </button>
           </div>
         )}
       </div>
@@ -573,7 +605,7 @@ function ConversationActionsMenu({ conversation, onPin, onArchive, onDelete, onU
   async function saveNote() {
     if (!noteDraft.trim() || !workspaceId) return;
     setNoteSaving(true);
-    await db.from("contact_notes").insert({
+    await supabase.from("contact_notes").insert({
       workspace_id:    workspaceId,
       contact_phone:   conversation.inbox_contacts.phone,
       contact_name:    conversation.inbox_contacts.name ?? null,
@@ -777,7 +809,7 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
     : teamMembers.find((m) => m.id === conversation.assigned_to) ?? null;
 
   useEffect(() => {
-    db.from("departments")
+    supabase.from("departments")
       .select("*")
       .eq("workspace_id", conversation.workspace_id)
       .order("order_index", { ascending: true })
@@ -786,7 +818,7 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
 
   async function patch(newAssignedTo: string | null) {
     setSaving(true);
-    await db
+    await supabase
       .from("inbox_conversations")
       .update({ assigned_to: newAssignedTo })
       .eq("id", conversation.id);
@@ -795,7 +827,7 @@ function AssignmentBar({ conversation, teamMembers, myProfile }: AssignmentBarPr
 
   async function patchDept(deptId: string | null) {
     setSaving(true);
-    await db
+    await supabase
       .from("inbox_conversations")
       .update({ department_id: deptId, assigned_to: null })
       .eq("id", conversation.id);
@@ -1105,8 +1137,3 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { setLogContext, clearLogContext } from "@/lib/logger";
 
 // ── Permission keys ───────────────────────────────────────
 export type PermissionKey =
@@ -10,7 +11,8 @@ export type PermissionKey =
   | "can_import"
   | "can_inbox"
   | "can_manage_team"
-  | "can_settings";
+  | "can_settings"
+  | "can_negotiations";
 
 export interface UserProfile {
   id: string;
@@ -57,8 +59,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser]               = useState<User | null>(null);
@@ -91,15 +91,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetchingRef.current = true;
     try {
       const [profileRes, wsRes] = await Promise.all([
-        db.from("user_profiles").select("*").eq("id", userId).single(),
+        supabase.from("user_profiles").select("*").eq("id", userId).single(),
         // Fetch ALL workspaces the user belongs to (INNER JOIN skips deleted workspaces).
         // No LIMIT — a user may legitimately belong to multiple workspaces.
-        db.from("workspace_members")
+        supabase.from("workspace_members")
           .select("workspace_id, role, workspaces!inner(id, name)")
           .eq("user_id", userId)
           .order("created_at", { ascending: true }),
       ]);
-      if (profileRes.data) setProfile(profileRes.data as UserProfile);
+      if (profileRes.data) {
+        const prof = profileRes.data as UserProfile;
+        setProfile(prof);
+        // Alimenta o logger: a partir daqui todo log do frontend carrega
+        // user_id/role, o que permite responder "o que este usuário fez?".
+        setLogContext({ user_id: userId, role: prof.role });
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const wsList: WorkspaceInfo[] = ((wsRes.data ?? []) as any[]).map((m) => ({
@@ -115,7 +121,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // if they don't correspond to an actual membership in the database.
         const stored = localStorage.getItem(WS_STORAGE_KEY);
         const valid  = wsList.find((w) => w.id === stored);
-        setWorkspaceId((valid ?? wsList[0]).id);
+        const active = (valid ?? wsList[0]).id;
+        setWorkspaceId(active);
+        setLogContext({ workspace_id: active });
         return;
       }
 
@@ -123,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Accept NULL expires_at (no explicit expiry set) OR a future expiry date.
       const userEmail = (await supabase.auth.getUser()).data.user?.email ?? "";
       const now = new Date().toISOString();
-      const { data: invite } = await db
+      const { data: invite } = await supabase
         .from("workspace_invites")
         .select("workspace_id, role, token")
         .eq("email", userEmail.toLowerCase())
@@ -134,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (invite?.workspace_id) {
         // Insert into workspace_members FIRST — the RLS on the workspaces table
         // requires membership to read, so we must become a member before querying.
-        const { error: memberErr } = await db.from("workspace_members").insert({
+        const { error: memberErr } = await supabase.from("workspace_members").insert({
           workspace_id: invite.workspace_id,
           user_id:      userId,
           role:         invite.role ?? "agent",
@@ -148,13 +156,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        await db
+        await supabase
           .from("workspace_invites")
           .update({ accepted_at: new Date().toISOString() })
           .eq("token", invite.token);
 
         // Now that user is a member, RLS allows reading the workspace name
-        const { data: wsData } = await db
+        const { data: wsData } = await supabase
           .from("workspaces")
           .select("id, name")
           .eq("id", invite.workspace_id)
@@ -258,6 +266,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     await supabase.auth.signOut();
+    clearLogContext();
     setUser(null);
     setProfile(null);
     setWorkspaceId(null);
@@ -286,6 +295,7 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_inbox:            true,
     can_manage_team:      true,
     can_settings:         true,
+    can_negotiations:     true,
   },
   manager: {
     can_shoot:            true,
@@ -295,6 +305,7 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_inbox:            true,
     can_manage_team:      true,
     can_settings:         false,
+    can_negotiations:     true,
   },
   agent: {
     can_shoot:            false,
@@ -304,6 +315,7 @@ export const DEFAULT_PERMISSIONS: Record<UserProfile["role"], Record<PermissionK
     can_inbox:            true,
     can_manage_team:      false,
     can_settings:         false,
+    can_negotiations:     false,
   },
 };
 
@@ -332,9 +344,6 @@ export const ROLE_STYLE: Record<
   agent:   { color: "#9ca3af", bg: "rgba(107,114,128,0.12)", border: "rgba(107,114,128,0.3)" },
 };
 
-export function initials(name: string | null | undefined): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+// Reexportado de @/lib/format — era a única cópia que devolvia 1 letra para
+// nomes de palavra única, divergindo das outras 4. Agora todas usam 2 letras.
+export { initials } from "@/lib/format";
