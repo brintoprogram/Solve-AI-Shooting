@@ -20,6 +20,11 @@ Thumbs.db
 *.backup
 *.dump
 *.sql
+# ...menos as migrations: elas SÃO o schema versionado. O `*.sql` acima
+# (feito para evitar dumps de dados) estava impedindo que migrations novas
+# entrassem no repositório — por isso só havia 3 arquivos aqui enquanto o
+# schema real vivia apenas no projeto Supabase.
+!supabase/migrations/*.sql
 
 # Bancos locais
 *.sqlite
@@ -43,3 +48,6 @@ secrets/
 .parcel-cache/
 coverage/
 
+
+# Artefatos do tsc --build
+*.tsbuildinfo
