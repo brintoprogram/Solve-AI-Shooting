@@ -1,4 +1,11 @@
-// Config salva em localStorage — sem .env necessário
+// Config salva em localStorage — fallback para quando as variáveis VITE_* não
+// estão definidas no build.
+//
+// Nota: as funções de escrita (saveConfig/clearConfig/isConfigured/
+// getWorkspaceId/generateWorkspaceId) foram removidas junto com a tela
+// Setup.tsx, que era a única consumidora. O fluxo de configuração inicial hoje
+// é o Onboarding.tsx. Restou apenas a leitura, usada por Templates.tsx e
+// TemplateBuilder.tsx para montar a URL das edge functions.
 
 export interface AppConfig {
   supabaseUrl: string;
@@ -18,29 +25,4 @@ export function getConfig(): AppConfig | null {
   } catch {
     return null;
   }
-}
-
-export function saveConfig(config: AppConfig): void {
-  localStorage.setItem(KEY, JSON.stringify(config));
-}
-
-export function clearConfig(): void {
-  localStorage.removeItem(KEY);
-}
-
-export function isConfigured(): boolean {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  if (envUrl && envUrl !== "https://placeholder.supabase.co") return true;
-  return getConfig() !== null;
-}
-
-/** Lê workspace_id: env var primeiro, depois localStorage */
-export function getWorkspaceId(): string {
-  const envWs = import.meta.env.VITE_WORKSPACE_ID as string | undefined;
-  if (envWs) return envWs;
-  return getConfig()?.workspaceId ?? "demo-workspace-id";
-}
-
-export function generateWorkspaceId(): string {
-  return crypto.randomUUID();
 }
