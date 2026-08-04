@@ -6,35 +6,15 @@
 //   B) conversation.ai_agent_id IS SET  → run department agent and send reply to client
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
+import { sendWhatsAppText } from "../_shared/whatsapp.ts";
+import { isInternalCall } from "../_shared/auth.ts";
+import { createLogger, requestIdFrom } from "../_shared/logger.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-
-// ── AES-256-GCM decrypt (inlined) ───────────────────────────
-const ENC_PREFIX = "enc:v1:";
-function hexToBytes(hex: string): Uint8Array {
-  const b = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) b[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  return b;
-}
-async function getKey(): Promise<CryptoKey> {
-  const h = Deno.env.get("ENCRYPTION_KEY") ?? "";
-  if (h.length !== 64) throw new Error("ENCRYPTION_KEY must be a 64-char hex string");
-  return crypto.subtle.importKey("raw", hexToBytes(h), "AES-GCM", false, ["encrypt", "decrypt"]);
-}
-async function decrypt(value: string): Promise<string> {
-  if (!value.startsWith(ENC_PREFIX)) return value;
-  const rest = value.slice(ENC_PREFIX.length);
-  const col  = rest.indexOf(":");
-  if (col === -1) throw new Error("Invalid encrypted token format");
-  const iv  = hexToBytes(rest.slice(0, col));
-  const ct  = Uint8Array.from(atob(rest.slice(col + 1)), (c) => c.charCodeAt(0));
-  const key = await getKey();
-  const dec = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(dec);
-}
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -114,7 +94,7 @@ async function getApiKey(workspaceId: string, model: string): Promise<string> {
   const rawKey   = isOpenAI
     ? (ws?.openai_api_key    || Deno.env.get("OPENAI_API_KEY")    || "")
     : (ws?.anthropic_api_key || Deno.env.get("ANTHROPIC_API_KEY") || "");
-  return rawKey.startsWith(ENC_PREFIX) ? await decrypt(rawKey) : rawKey;
+  return await decrypt(rawKey);
 }
 
 // ── Transcript fetch ─────────────────────────────────────────
@@ -136,74 +116,15 @@ async function sendMessage(
   agentId:        string,
   label:          string,
 ): Promise<void> {
-  const now = new Date().toISOString();
-  let wamid: string | null = null;
-
-  if (conv.z_api_connection_id) {
-    const { data: zapiConn } = await supabase
-      .from("z_api_connections")
-      .select("instance_id, token, client_token")
-      .eq("id", conv.z_api_connection_id)
-      .single();
-    if (!zapiConn) throw new Error("Z-API connection not found");
-
-    const { data: contact } = await supabase
-      .from("inbox_contacts").select("phone").eq("id", conv.contact_id).single();
-
-    const instanceId  = zapiConn.instance_id as string;
-    const token       = await decrypt(zapiConn.token as string);
-    const clientToken = await decrypt(zapiConn.client_token as string);
-
-    const res = await fetch(
-      `https://api.z-api.io/instances/${instanceId}/token/${token}/send-text`,
-      { method: "POST", headers: { "Client-Token": clientToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: contact?.phone, message: text }) },
-    );
-    const resBody = await res.json() as Record<string, unknown>;
-    if (!res.ok) throw new Error(`Z-API error: ${JSON.stringify(resBody)}`);
-    wamid = (resBody.zaapId ?? resBody.messageId ?? null) as string | null;
-
-  } else if (conv.meta_connection_id) {
-    const { data: conn } = await supabase
-      .from("meta_connections").select("phone_number_id, access_token").eq("id", conv.meta_connection_id).single();
-    if (!conn) throw new Error("Meta connection not found");
-
-    const { data: contact } = await supabase
-      .from("inbox_contacts").select("phone").eq("id", conv.contact_id).single();
-
-    const accessToken = await decrypt(conn.access_token as string);
-    const res = await fetch(`${META_API}/${conn.phone_number_id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
-      body: JSON.stringify({ messaging_product: "whatsapp", to: contact?.phone, type: "text", text: { body: text } }),
-    });
-    const metaBody = await res.json() as Record<string, unknown>;
-    if (!res.ok) throw new Error(`Meta API error: ${JSON.stringify(metaBody)}`);
-    wamid = (metaBody.messages as Array<{ id: string }>)?.[0]?.id ?? null;
-  }
-
-  console.log(`[${label}] ✓ enviado wamid=${wamid}`);
-
-  await supabase.from("inbox_messages").insert({
-    workspace_id:    conv.workspace_id,
-    conversation_id: conversationId,
-    contact_id:      conv.contact_id,
-    wamid,
-    direction:    "outbound",
-    message_type: "text",
-    body:         text,
-    sent_by:      `ai_agent:${agentId}`,
-    is_internal:  false,
-    status:       "sent",
-    created_at:   now,
-  });
-
-  await supabase.from("inbox_conversations").update({
-    last_message_at:        now,
-    last_message_body:      text,
-    last_message_direction: "outbound",
-    updated_at:             now,
-  }).eq("id", conversationId);
+  // onMissingConnection "skip" preserva o comportamento legado: conversa sem
+  // conexão grava a mensagem em vez de estourar erro.
+  await sendWhatsAppText(
+    supabase,
+    { ...conv, id: conversationId },
+    text,
+    `ai_agent:${agentId}`,
+    { onMissingConnection: "skip", logLabel: label },
+  );
 }
 
 // ── Triage routing instruction injected into system prompt ───
@@ -245,7 +166,8 @@ async function handleTriage(
   const systemPrompt = (triageAgent.system_prompt as string) + ROUTING_INSTRUCTION;
 
   const rawResponse = await callAI(apiKey, triageAgent.model as string, systemPrompt, transcript);
-  console.log(`[triage] resposta bruta: ${rawResponse.slice(0, 200)}`);
+  // A resposta do LLM contém a conversa do cliente — logar só o tamanho.
+  console.log(`[triage] resposta recebida (${rawResponse.length} chars)`);
 
   // Parse ROUTE: from the LAST occurrence (in case the prompt itself contains the word)
   const routeIdx = rawResponse.lastIndexOf("ROUTE:");
@@ -343,8 +265,24 @@ async function handleAgentReply(
 }
 
 // ── Main handler ─────────────────────────────────────────────
+// ── Auth: somente chamadas server-to-server ──────────────────
+// Esta função é invocada apenas pelo meta-webhook e pelo z-api-webhook, que
+// enviam a service role key automaticamente via supabase.functions.invoke().
+// Como está publicada com verify_jwt=false, sem esta checagem qualquer pessoa
+// que descubra um conversation_id conseguiria disparar respostas de IA para
+// clientes reais e consumir créditos de LLM.
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+
+  if (!isInternalCall(req)) {
+    console.warn("[ai-agent] chamada não autorizada rejeitada");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  // Herda o request_id de quem chamou (meta-webhook/z-api-webhook) para que a
+  // jornada da mensagem seja rastreável entre os deployments.
+  const log = createLogger("ai-agent-reply", { request_id: requestIdFrom(req) });
 
   let body: { conversation_id: string; message_body?: string };
   try { body = await req.json(); }
@@ -365,6 +303,41 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, skipped: true }), { status: 200 });
     }
 
+    // ── Negotiation guard ─────────────────────────────────────────
+    // A negociação de dívida escalada para humano PAUSA a IA nesta conversa.
+    // Sem isso, a próxima mensagem do cliente cairia em handleTriage() logo abaixo
+    // e poderia re-rotear a conversa de volta pra IA, revertendo a escalada em silêncio.
+    const { data: activeNeg } = await supabase
+      .from("debt_negotiations")
+      .select("id, status")
+      .eq("conversation_id", conversation_id)
+      .in("status", ["escalated", "human_negotiating"])
+      .maybeSingle();
+
+    if (activeNeg) {
+      log.info("ai_paused_negotiation_escalated", { conversation_id, negotiation_id: activeNeg.id, status: activeNeg.status });
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: "negotiation_escalated" }), { status: 200 });
+    }
+
+    // Negociação ativa (proposta em andamento) → delega para o motor de negociação
+    // em vez do handleAgentReply genérico, para respeitar as regras de desconto/parcelas.
+    const { data: openNeg } = await supabase
+      .from("debt_negotiations")
+      .select("id")
+      .eq("conversation_id", conversation_id)
+      .in("status", ["triggered", "ai_negotiating", "awaiting_customer"])
+      .maybeSingle();
+
+    if (openNeg) {
+      log.info("delegating_to_negotiation_agent", { conversation_id, negotiation_id: openNeg.id });
+      const { error: negErr } = await supabase.functions.invoke("negotiation-agent", {
+        body: { conversation_id, message_body },
+        headers: { "x-request-id": log.ctx.request_id! },
+      });
+      if (negErr) log.error("negotiation_dispatch_failed", { conversation_id, err: negErr.message });
+      return new Response(JSON.stringify({ ok: true, delegated: "negotiation-agent" }), { status: 200 });
+    }
+
     if (conv.ai_agent_id) {
       await handleAgentReply(conv as ConvRow, conversation_id, message_body);
     } else {
@@ -374,7 +347,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[ai-agent] erro:", msg);
+    log.fatal("unhandled_error", { err: msg });
     return new Response(JSON.stringify({ error: msg }), { status: 500 });
   }
 });

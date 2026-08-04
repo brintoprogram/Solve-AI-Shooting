@@ -6,6 +6,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
+import { maskPhone, requestIdFrom } from "../_shared/logger.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -162,7 +163,8 @@ Deno.serve(async (req: Request) => {
       return new Response(challenge, { status: 200 });
     }
 
-    console.warn("[webhook] token inválido:", token);
+    // Nunca logar o token em si: numa rotação mal feita, o segredo real cai no log.
+    console.warn(`[webhook] token de verificação inválido (len=${token?.length ?? 0})`);
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -190,8 +192,13 @@ Deno.serve(async (req: Request) => {
       return new Response("Invalid JSON", { status: 400 });
     }
 
+    // Correlaciona esta requisição com as functions acionadas a seguir
+    // (ai-agent-reply, auto-router, analyze-reply). Sem isso não é possível
+    // rastrear a jornada de uma mensagem do cliente entre 3 deployments.
+    const requestId = requestIdFrom(req);
+
     // Meta exige resposta em até 20s — processar e responder
-    await processWebhook(body).catch((err) =>
+    await processWebhook(body, requestId).catch((err) =>
       console.error("[webhook] erro crítico:", err?.message)
     );
     return new Response("EVENT_RECEIVED", { status: 200 });
@@ -202,7 +209,7 @@ Deno.serve(async (req: Request) => {
 
 // ── Processamento ────────────────────────────────────────────────
 
-async function processWebhook(body: Record<string, unknown>) {
+async function processWebhook(body: Record<string, unknown>, requestId: string) {
   const entries = (body.entry as unknown[]) ?? [];
 
   for (const entry of entries) {
@@ -354,7 +361,7 @@ async function processWebhook(body: Record<string, unknown>) {
           const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
           fetch(`${supabaseUrl}/functions/v1/auto-router`, {
             method:  "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}`, "x-request-id": requestId },
             body: JSON.stringify({
               conversation_id: conversationId,
               workspace_id:    workspaceId,
@@ -425,9 +432,18 @@ async function processWebhook(body: Record<string, unknown>) {
 
           // Fire-and-forget: AI agent auto-reply (skip routing replies and reactions)
           if (!isRoutingReply && type !== "reaction" && conversationId) {
+            // invoke() não rejeita em erro HTTP — o 401/500 vem em { error }.
+            // Sem checar isso, uma falha de auth faria a IA parar de responder
+            // clientes silenciosamente.
             supabase.functions.invoke("ai-agent-reply", {
               body: { conversation_id: conversationId, message_body: fields.body ?? "" },
-            }).catch((e: unknown) => console.error("[meta] ai-agent error:", e));
+              headers: { "x-request-id": requestId },
+            })
+              .then(({ error }) => {
+                if (error) console.error(JSON.stringify({ level: "error", event: "ai_agent_dispatch_failed",
+                  fn: "meta-webhook", request_id: requestId, conversation_id: conversationId, err: error.message }));
+              })
+              .catch((e: unknown) => console.error("[meta] ai-agent network error:", e));
           }
         }
       }
@@ -698,7 +714,7 @@ async function detectCampaignReply(
   conversationId: string | null,
   replyText:      string,
 ): Promise<void> {
-  console.log(`[reply-detect] checking phone=${phone} workspace=${workspaceId}`);
+  console.log(`[reply-detect] checking phone=${maskPhone(phone)} workspace=${workspaceId}`);
 
   // 90-day window prevents matching stale campaigns from months ago.
   // "replied" included so re-analysis fires on every subsequent message in the same conversation.
@@ -716,7 +732,7 @@ async function detectCampaignReply(
     .maybeSingle();
 
   if (lookupErr) {
-    console.error(`[reply-detect] DB lookup error for phone=${phone}:`, lookupErr.message);
+    console.error(`[reply-detect] DB lookup error for phone=${maskPhone(phone)}:`, lookupErr.message);
     supabase.from("audit_logs").insert({
       workspace_id: workspaceId,
       event_type:   "reply_detect_error",
@@ -730,7 +746,7 @@ async function detectCampaignReply(
   }
 
   if (!shootingMsg) {
-    console.log(`[reply-detect] no active campaign message found for phone=${phone} — not a campaign reply`);
+    console.log(`[reply-detect] no active campaign message found for phone=${maskPhone(phone)} — not a campaign reply`);
     return;
   }
 
@@ -915,7 +931,8 @@ function extractMessageFields(type: string, msg: Record<string, unknown>): Messa
       return { message_type: "system", body: s?.body as string | undefined };
     }
     default: {
-      console.warn(`[inbox] tipo não suportado: type=${type} payload=${JSON.stringify(msg)}`);
+      // O payload traz telefone e corpo da mensagem — registrar só as chaves.
+      console.warn(`[inbox] tipo não suportado: type=${type} campos=${Object.keys(msg ?? {}).join(",")}`);
       const typeData = msg[type] as Record<string, unknown> | undefined;
       const fallbackBody = (typeData?.body as string) ?? (typeData?.text as string) ?? undefined;
       return { message_type: "unsupported", body: fallbackBody };

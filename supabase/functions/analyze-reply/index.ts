@@ -1,4 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isInternalCall } from "../_shared/auth.ts";
+import { maskPhone } from "../_shared/logger.ts";
+import { sanitize } from "../_shared/logger.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -12,12 +15,14 @@ Você receberá as MENSAGENS MAIS RECENTES da conversa (janela deslizante). As m
 IMPORTANTE: A classificação deve refletir o ESTADO ATUAL da conversa, não interações passadas isoladas. Se o cliente inicialmente reclamou de fraude ou não reconheceu a dívida, mas depois propôs data de pagamento, confirmou pagamento ou encerrou o conflito positivamente, classifique com base no posicionamento mais recente. Uma conversa que evoluiu positivamente deve ser classificada positivamente.
 
 Retorne EXATAMENTE este JSON (sem markdown, sem explicação):
-{"severity":"info|warning|critical","category":"fraude|valor_incorreto|nao_reconhece|ameaca|duvida|reclamacao|elogio|pagamento_confirmado|outros","summary":"resumo do ESTADO ATUAL da conversa em até 2 frases em português, focando na posição atual do cliente"}
+{"severity":"info|warning|critical","category":"fraude|valor_incorreto|nao_reconhece|ameaca|duvida|reclamacao|elogio|pagamento_confirmado|negociacao|outros","summary":"resumo do ESTADO ATUAL da conversa em até 2 frases em português, focando na posição atual do cliente"}
 
 Regras de severidade (baseadas no estado ATUAL, não no histórico):
 - critical: cliente alega fraude ativamente, não reconhece a dívida, ameaça com advogado/Procon/órgão regulador, alega erro grave de valor — e não houve evolução positiva posterior
 - warning: dúvida sobre o valor cobrado, pedido de parcelamento, reclamação sobre atendimento, pedido de mais informações, insatisfação sem resolução ainda
-- info: pagamento confirmado, proposta de data de pagamento, agradecimento, situação resolvida ou em andamento positivo, resposta neutra`;
+- info: pagamento confirmado, proposta de data de pagamento, agradecimento, situação resolvida ou em andamento positivo, resposta neutra
+
+Regra de categoria "negociacao": use esta categoria (com severity "warning", a menos que outra regra de severidade mais grave se aplique) sempre que o cliente pedir desconto, parcelamento, prazo maior, ou expressar disposição para "negociar" o valor da dívida.`;
 
 interface AnalyzeResult {
   severity: "info" | "warning" | "critical";
@@ -48,7 +53,7 @@ async function logAudit(
     entity_id:    entityId  ?? null,
     status,
     error:        error     ?? null,
-    metadata:     metadata  ?? null,
+    metadata:     metadata ? sanitize(metadata) as Record<string, unknown> : null,
   });
   if (dbErr) console.error("[audit] failed to write log:", dbErr.message);
 }
@@ -160,7 +165,7 @@ async function classifyWithAnthropic(apiKey: string, transcript: string, lastRep
 
   const data = await res.json() as { content: Array<{ type: string; text: string }> };
   const text = data.content?.[0]?.text ?? "{}";
-  console.log("[analyze-reply] Anthropic raw response:", text);
+  console.log(`[analyze-reply] Anthropic respondeu (${text.length} chars)`);
 
   try {
     return JSON.parse(text) as AnalyzeResult;
@@ -196,7 +201,7 @@ async function classifyWithOpenAI(apiKey: string, transcript: string, lastReply:
 
   const data = await res.json() as { choices: Array<{ message: { content: string } }> };
   const text = data.choices?.[0]?.message?.content ?? "{}";
-  console.log("[analyze-reply] OpenAI raw response:", text);
+  console.log(`[analyze-reply] OpenAI respondeu (${text.length} chars)`);
 
   const cleaned = text.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
   try {
@@ -208,9 +213,19 @@ async function classifyWithOpenAI(apiKey: string, transcript: string, lastReply:
 }
 
 // ── Main handler ─────────────────────────────────────────────────
+// ── Auth: somente chamadas server-to-server ──────────────────
+// Invocada apenas pelo meta-webhook (fetch com a service role key). Publicada
+// com verify_jwt=false, então sem esta checagem qualquer um poderia consumir
+// créditos de LLM e injetar alertas falsos em campaign_alerts.
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  if (!isInternalCall(req)) {
+    console.warn("[analyze-reply] chamada não autorizada rejeitada");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 
   let body: {
@@ -239,7 +254,7 @@ Deno.serve(async (req: Request) => {
     return new Response("Missing required fields", { status: 400 });
   }
 
-  console.log(`[analyze-reply] start — message=${message_id} campaign=${campaign_id} phone=${recipient_phone} conv=${conversation_id ?? "none"}`);
+  console.log(`[analyze-reply] start — message=${message_id} campaign=${campaign_id} phone=${maskPhone(recipient_phone)} conv=${conversation_id ?? "none"}`);
 
   // ── 1. Get workspace AI settings ───────────────────────────────
   const { provider, apiKey } = await getWorkspaceAI(workspace_id);
@@ -377,6 +392,20 @@ Deno.serve(async (req: Request) => {
       `DB upsert error: ${alertErr.message}`,
       { provider, campaign_id, severity: result.severity },
     );
+  }
+
+  // ── 6.5. Negotiation trigger — cliente pediu desconto/parcelamento ──
+  // Aciona o motor de negociação (negotiation-agent), que decide sozinho se há
+  // fatura em aberto para negociar; não bloqueia a resposta desta function.
+  if (result.category === "negociacao" && conversation_id) {
+    supabase.functions.invoke("negotiation-agent", {
+      body: { conversation_id, message_body: reply_text },
+    })
+      .then(({ error }) => {
+        if (error) console.error(JSON.stringify({ level: "error", event: "negotiation_dispatch_failed",
+          fn: "analyze-reply", conversation_id, err: error.message }));
+      })
+      .catch((e: unknown) => console.error("[analyze-reply] erro de rede ao acionar negotiation-agent:", e));
   }
 
   // ── 7. Update shooting_messages → replied ───────────────────────

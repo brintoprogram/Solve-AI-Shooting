@@ -12,6 +12,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
+import { sanitize } from "../_shared/logger.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -45,7 +46,9 @@ function writeAuditLog(
     entity_type:  entityType ?? null,
     status,
     error:        error    ?? null,
-    metadata:     metadata ?? null,
+    // sanitize() mascara telefone/e-mail e remove tokens antes de persistir:
+    // audit_logs é permanente e estava gravando telefone em texto plano.
+    metadata:     metadata ? sanitize(metadata) : null,
   }).then(({ error: dbErr }) => {
     if (dbErr) console.error("[audit] write error:", dbErr.message);
   });

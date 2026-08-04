@@ -5,6 +5,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
+import { maskEmail } from "../_shared/logger.ts";
 
 Deno.serve(async (req: Request) => {
   const CORS = getCors(req);
@@ -46,12 +47,12 @@ Deno.serve(async (req: Request) => {
           Deno.env.get("SUPABASE_ANON_KEY")!,
         );
         await anonClient.auth.resetPasswordForEmail(email, { redirectTo: appUrl });
-        console.log(`[reset-password] ✓ link enviado para ${email}`);
+        console.log(`[reset-password] ✓ link enviado para ${maskEmail(email)}`);
       } else {
-        console.log(`[reset-password] email existe mas não é membro de nenhum workspace: ${email}`);
+        console.log(`[reset-password] email existe mas não é membro de nenhum workspace: ${maskEmail(email)}`);
       }
     } else {
-      console.log(`[reset-password] email não encontrado no sistema: ${email}`);
+      console.log(`[reset-password] email não encontrado no sistema: ${maskEmail(email)}`);
     }
   } catch (err) {
     // Log internally but don't expose to client

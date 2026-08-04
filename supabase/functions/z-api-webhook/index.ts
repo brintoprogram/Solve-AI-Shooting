@@ -9,6 +9,8 @@
 // The handler auto-detects the event type from the `type` field.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkWebhookSecret } from "../_shared/auth.ts";
+import { sanitize } from "../_shared/logger.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -37,12 +39,37 @@ function isProgression(current: string, next: string): boolean {
   return STATUS_ORDER.indexOf(next) > STATUS_ORDER.indexOf(current);
 }
 
+// ── Auth ─────────────────────────────────────────────────────
+// A Z-API não assina os webhooks (não existe HMAC), então usamos um segredo na
+// query string da URL configurada no painel da Z-API:
+//   https://<ref>.supabase.co/functions/v1/z-api-webhook?s=<segredo>
+//
+// Sem isso qualquer pessoa na internet pode forjar mensagens de entrada, que
+// são gravadas em inbox_messages e disparam o ai-agent-reply — ou seja, fazem
+// a IA responder clientes reais.
+//
+// Rollout seguro: enquanto Z_API_WEBHOOK_SECRET não estiver configurado a
+// função só registra um aviso e continua aceitando, para não derrubar o canal
+// em produção antes da URL ser atualizada no painel da Z-API. Configure com:
+//   supabase secrets set Z_API_WEBHOOK_SECRET=<uuid>
+const Z_API_WEBHOOK_SECRET = Deno.env.get("Z_API_WEBHOOK_SECRET") ?? "";
+
 // ── Entry point ──────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
   // Z-API retries if we don't return 200 immediately — always respond ok
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }
+
+  // null = segredo ainda não configurado (rollout em andamento)
+  const secretOk = checkWebhookSecret(req, Z_API_WEBHOOK_SECRET);
+  if (secretOk === false) {
+    console.warn("[z-api-webhook] segredo inválido — requisição rejeitada");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+  if (secretOk === null) {
+    console.warn("[z-api-webhook] ⚠ Z_API_WEBHOOK_SECRET não configurado — endpoint aceita qualquer origem");
   }
 
   let body: Record<string, unknown>;
@@ -64,11 +91,17 @@ Deno.serve(async (req: Request) => {
 async function processEvent(body: Record<string, unknown>) {
   const type = body.type as string | undefined;
 
-  // Temporary: log every raw event to z_api_debug_log for diagnostics
-  await supabase.from("z_api_debug_log").insert({
-    event_type: type ?? "unknown",
-    payload:    body,
-  }).then(({ error }: { error: { message: string } | null }) => { if (error) console.error("[debug-log] insert error:", error.message); });
+  // Diagnóstico de payload cru. Estava marcado como "temporário" mas rodou por
+  // ~3 meses gravando telefone e corpo de mensagem em texto plano — dado pessoal
+  // sob LGPD, sem retenção. Agora: desligado por padrão, e mesmo quando ligado
+  // o payload passa por sanitize() antes de persistir.
+  // Para ligar num incidente: supabase secrets set Z_API_DEBUG_LOG=true
+  if (Deno.env.get("Z_API_DEBUG_LOG") === "true") {
+    await supabase.from("z_api_debug_log").insert({
+      event_type: type ?? "unknown",
+      payload:    sanitize(body) as Record<string, unknown>,
+    }).then(({ error }: { error: { message: string } | null }) => { if (error) console.error("[debug-log] insert error:", error.message); });
+  }
 
   switch (type) {
     case "ReceivedCallback":
@@ -185,10 +218,18 @@ async function handleReceived(body: Record<string, unknown>) {
 
   // Fire-and-forget: AI agent reply (inbound only, skip own messages)
   if (!fromMe && !msgErr) {
+    // invoke() não rejeita em erro HTTP — o 401/500 chega em { error }. Sem
+    // checar isso, uma falha de auth faria a IA parar de responder clientes
+    // silenciosamente.
     EdgeRuntime.waitUntil(
       supabase.functions.invoke("ai-agent-reply", {
         body: { conversation_id: conversationId, message_body: fields.body ?? "" },
-      }).catch((e: unknown) => console.error("[received] ai-agent error:", e))
+      })
+        .then(({ error }) => {
+          if (error) console.error(JSON.stringify({ level: "error", event: "ai_agent_dispatch_failed",
+            fn: "z-api-webhook", conversation_id: conversationId, err: error.message }));
+        })
+        .catch((e: unknown) => console.error("[received] ai-agent network error:", e))
     );
   }
 }
