@@ -45,3 +45,9 @@ verify_jwt = false
 
 [functions.ai-agent-reply]
 verify_jwt = false
+
+[functions.negotiation-agent]
+verify_jwt = false
+
+[functions.negotiation-portal]
+verify_jwt = false
