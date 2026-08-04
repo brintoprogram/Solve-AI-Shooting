@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { dispatchToN8N } from "@/lib/n8nDispatch";
+import { escapeHtml, sanitizeHtml } from "@/lib/sanitize";
+import { formatBRL } from "@/lib/format";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -103,14 +105,15 @@ const BASE_VARS = [
 ];
 
 // ── Helper: replace {{variavel}} with contact data ────────────────
+// Os valores do contato são escapados: vêm do nome de perfil do WhatsApp ou de
+// planilha importada, ou seja, de fora. O template em si é do usuário interno.
 function interpolate(template: string, contact: Record<string, unknown> | null): string {
   if (!contact) return template;
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => String(contact[key] ?? `{{${key}}}`));
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+    contact[key] != null ? escapeHtml(String(contact[key])) : `{{${key}}}`
+  );
 }
 
-function formatBRL(val: number): string {
-  return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -931,9 +934,7 @@ function Step2({ state, onChange }: {
     }
     let cancelled = false;
     setLoadingInvoices(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db2 = supabase as any;
-    let q = db2
+    let q = supabase
       .from("contact_invoices")
       .select("id,contact_id,valor,vencimento,status,numero_nf,codigo_barras")
       .eq("workspace_id", workspaceId ?? "");
@@ -1560,7 +1561,7 @@ function Step3({ state, onChange }: {
             </div>
             <div
               className="p-4 text-agro-text text-sm bg-white/5"
-              dangerouslySetInnerHTML={{ __html: previewBody || "<p class='text-agro-muted-2'>Corpo do email aparecerá aqui...</p>" }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(previewBody || "<p class='text-agro-muted-2'>Corpo do email aparecerá aqui...</p>") }}
             />
           </div>
         </div>
@@ -1635,7 +1636,7 @@ function Step4({ state, emailConns, onSubmit, submitting }: {
             <p className="mt-0.5"><span className="text-agro-muted-2">Assunto: </span>{interpolate(state.subject, previewContact)}</p>
           </div>
           <div className="p-4 bg-white/5 text-sm text-agro-text"
-            dangerouslySetInnerHTML={{ __html: interpolate(state.bodyHtml, previewContact) }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(interpolate(state.bodyHtml, previewContact)) }}
           />
         </div>
         {previewContact && (

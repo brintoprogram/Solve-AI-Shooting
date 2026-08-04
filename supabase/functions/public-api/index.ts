@@ -305,7 +305,11 @@ async function handleGetContacts(req: Request, wsId: string): Promise<Response> 
     .order("name")
     .range(page * limit, (page + 1) * limit - 1);
 
-  if (q)             query = query.or(`name.ilike.%${q}%,phone.ilike.%${q}%,empresa.ilike.%${q}%`);
+  // Neutraliza metacaracteres da sintaxe do PostgREST antes de interpolar.
+  // Este cliente usa a service role (RLS não se aplica), portanto o escopo por
+  // workspace depende inteiramente do .eq("workspace_id", wsId) acima.
+  const qSafe = q ? q.replace(/[,()*\\:.%]/g, " ").replace(/\s+/g, " ").trim().slice(0, 100) : "";
+  if (qSafe)         query = query.or(`name.ilike.%${qSafe}%,phone.ilike.%${qSafe}%,empresa.ilike.%${qSafe}%`);
   if (vencFrom)      query = query.gte("contact_invoices.vencimento", vencFrom);
   if (vencTo)        query = query.lte("contact_invoices.vencimento", vencTo);
   if (valorMin != null) query = query.gte("contact_invoices.valor", valorMin);

@@ -5,16 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("55") && digits.length === 13) {
-    const ddd = digits.slice(2, 4);
-    const part1 = digits.slice(4, 9);
-    const part2 = digits.slice(9);
-    return `+55 (${ddd}) ${part1}-${part2}`;
-  }
-  return `+${digits}`;
-}
 
 export function formatNumber(n: number): string {
   return new Intl.NumberFormat("pt-BR").format(n);
@@ -53,4 +43,17 @@ export function normalizePhone(phone: string): string {
 export function isValidPhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, "");
   return digits.length >= 10 && digits.length <= 15;
+}
+
+/**
+ * Neutraliza metacaracteres da sintaxe de filtro do PostgREST antes de
+ * interpolar um termo de busca dentro de `.or(...)`.
+ *
+ * Sem isso, um termo contendo `,` `)` ou `.` reestrutura o grupo OR: além de
+ * permitir filtrar por colunas não pretendidas, quebra a busca com erro 400
+ * para entradas legítimas como "Silva, João" ou "(11) 98888-7777".
+ * O escopo por workspace usa `.eq()` separado e continua intacto.
+ */
+export function safeFilterTerm(input: string): string {
+  return input.replace(/[,()*\:.%]/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { safeFilterTerm } from "@/lib/utils";
 import type { ShootingMessage, MessageStatus } from "@/types/shooting";
 
 const PAGE_SIZE = 50;
@@ -26,9 +27,10 @@ export function useCampaignMessages(
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     if (statusFilter) q = q.eq("status", statusFilter);
-    if (search) {
+    const s = safeFilterTerm(search);
+    if (s) {
       q = q.or(
-        `recipient_name.ilike.%${search}%,recipient_phone.ilike.%${search}%`
+        `recipient_name.ilike.%${s}%,recipient_phone.ilike.%${s}%`
       );
     }
 

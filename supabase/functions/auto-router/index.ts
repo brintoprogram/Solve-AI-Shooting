@@ -5,26 +5,8 @@
 // in a workspace with routing_enabled = true.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-// Inline decrypt — avoids _shared path resolution issues on MCP deploy
-const ENC_PREFIX = "enc:v1:";
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  return bytes;
-}
-async function decrypt(value: string): Promise<string> {
-  if (!value.startsWith(ENC_PREFIX)) return value;
-  const rest     = value.slice(ENC_PREFIX.length);
-  const colonIdx = rest.indexOf(":");
-  if (colonIdx === -1) throw new Error("Invalid encrypted token format");
-  const iv         = hexToBytes(rest.slice(0, colonIdx));
-  const ciphertext = Uint8Array.from(atob(rest.slice(colonIdx + 1)), (c) => c.charCodeAt(0));
-  const keyHex     = Deno.env.get("ENCRYPTION_KEY") ?? "";
-  const key        = await crypto.subtle.importKey("raw", hexToBytes(keyHex), "AES-GCM", false, ["decrypt"]);
-  const decrypted  = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-  return new TextDecoder().decode(decrypted);
-}
+import { decrypt } from "../_shared/crypto.ts";
+import { isInternalCall } from "../_shared/auth.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -33,9 +15,19 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// ── Auth: somente chamadas server-to-server ──────────────────
+// Invocada apenas pelo meta-webhook (fetch com a service role key). Publicada
+// com verify_jwt=false — sem esta checagem qualquer um poderia disparar o menu
+// de roteamento no WhatsApp de clientes reais.
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  if (!isInternalCall(req)) {
+    console.warn("[auto-router] chamada não autorizada rejeitada");
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 
   let body: { conversation_id: string; workspace_id: string; connection_id: string; contact_phone: string };

@@ -26,6 +26,30 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// ── Auth ─────────────────────────────────────────────────────────
+// Publicada com verify_jwt=false, então a validação é feita aqui. O POST cria
+// templates na conta WhatsApp Business real da empresa — sem checagem, um
+// terceiro poderia submeter templates e levar a WABA a ser banida.
+// O frontend (Templates.tsx / TemplateBuilder.tsx) já envia o access_token da
+// sessão no header Authorization.
+async function requireWorkspaceMember(req: Request, workspaceId: string): Promise<string | null> {
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!bearer) return "Não autorizado";
+
+  const { data: { user }, error } = await supabase.auth.getUser(bearer);
+  if (error || !user) return "Token inválido";
+
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", user.id)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  if (!membership) return "Sem permissão neste workspace";
+  return null;
+}
+
 // ── Router ───────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -60,6 +84,9 @@ async function handleList(req: Request, json: JsonFn): Promise<Response> {
   if (!connectionId || !workspaceId) {
     return json({ error: "connection_id e workspace_id são obrigatórios" }, 400);
   }
+
+  const authErr = await requireWorkspaceMember(req, workspaceId);
+  if (authErr) return json({ error: authErr }, 401);
 
   const conn = await getConnection(connectionId, workspaceId);
   if (!conn) return json({ error: "Conexão não encontrada" }, 404);
@@ -112,6 +139,10 @@ async function handleCreate(req: Request, json: JsonFn): Promise<Response> {
   if (!connection_id || !workspace_id) {
     return json({ error: "connection_id e workspace_id são obrigatórios" }, 400);
   }
+
+  const authErr = await requireWorkspaceMember(req, workspace_id);
+  if (authErr) return json({ error: authErr }, 401);
+
   if (!name?.trim()) {
     return json({ error: "name é obrigatório" }, 400);
   }
