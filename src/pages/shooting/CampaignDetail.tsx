@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import type { CampaignStatus } from "@/types/shooting";
 import { STATUS_LABELS } from "@/types/shooting";
+import { formatBRL } from "@/lib/format";
 
 const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: string }> = {
   draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
@@ -30,8 +31,6 @@ const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: 
   failed:    { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)"    },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 interface TimelineBucket {
   time: string;
@@ -114,7 +113,7 @@ function useTimelineData(campaignId: string, isLive: boolean) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function fetchTimeline() {
-    const { data } = await db
+    const { data } = await supabase
       .from("shooting_messages")
       .select("sent_at, delivered_at, read_at")
       .eq("campaign_id", campaignId)
@@ -177,7 +176,7 @@ export function CampaignDetail() {
     const trimmed = editingName.trim();
     if (!trimmed || trimmed === campaign.name) { setEditingName(null); return; }
     setSavingName(true);
-    const { error } = await db.from("shooting_campaigns").update({ name: trimmed }).eq("id", campaign.id);
+    const { error } = await supabase.from("shooting_campaigns").update({ name: trimmed }).eq("id", campaign.id);
     setSavingName(false);
     if (error) {
       toast({ title: "Erro ao renomear campanha", variant: "destructive" });
@@ -219,7 +218,7 @@ export function CampaignDetail() {
       } catch { /* sem logo */ }
 
       // Fetch all messages
-      const { data: rawMsgs } = await db
+      const { data: rawMsgs } = await supabase
         .from("shooting_messages")
         .select("*")
         .eq("campaign_id", campaign.id)
@@ -399,7 +398,7 @@ export function CampaignDetail() {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...DARK);
         doc.text(
-          `Valor total disparado: ${totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+          `Valor total disparado: ${formatBRL(totalValue)}`,
           MX, cardsBottom + 6,
         );
       }
@@ -778,12 +777,13 @@ export function CampaignDetail() {
             )}
             <button
               onClick={exportPdf}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted transition-colors ${T.btnHover}`}
+              disabled={exportingPdf}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-agro-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${T.btnHover}`}
               style={{ border: `1px solid ${T.btnBorder}`, color: T.muted }}
               title="Exportar relatório PDF"
             >
-              <FileText className="w-4 h-4" />
-              PDF
+              {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              {exportingPdf ? "Gerando…" : "PDF"}
             </button>
             <button
               onClick={refetchTimeline}

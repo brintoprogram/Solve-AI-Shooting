@@ -6,30 +6,22 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
+import { safeFilterTerm } from "@/lib/utils";
+import { formatPhone } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { ContactFormModal } from "./contacts/ContactFormModal";
 import { BaseCleanup } from "./contacts/BaseCleanup";
+import { log } from "@/lib/logger";
 
 // ── Constants ──────────────────────────────────────────────────────
 
 const PAGE_SIZE = 25;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function formatPhone(raw: string | null | undefined): string {
-  if (!raw) return "—";
-  const d = raw.replace(/\D/g, "");
-  if (d.length === 13) return `+${d.slice(0,2)} (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
-  if (d.length === 12) return `+${d.slice(0,2)} (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
-  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
-  return raw;
-}
 
 type SortOrder = "name_asc" | "name_desc";
 
@@ -59,15 +51,15 @@ function useContacts(
     const to   = from + PAGE_SIZE - 1;
     const asc  = sortOrder === "name_asc";
 
-    let q = db
+    let q = supabase
       .from("inbox_contacts")
       .select("*", { count: "exact" })
       .eq("workspace_id", workspaceId)
       .order("name", { ascending: asc })
       .range(from, to);
 
-    if (search.trim()) {
-      const s = search.trim();
+    const s = safeFilterTerm(search);
+    if (s) {
       q = q.or(`name.ilike.%${s}%,cpf_cnpj.ilike.%${s}%,phone.ilike.%${s}%,empresa.ilike.%${s}%`);
     }
 
@@ -76,7 +68,11 @@ function useContacts(
     }
 
     const { data, count, error } = await q;
-    if (!error) {
+    if (error) {
+      // Antes o erro era descartado: a tela mostrava lista vazia e o usuário
+      // concluía que não havia contatos.
+      log.error("contacts_load_failed", { err: error.message, workspace_id: workspaceId });
+    } else {
       setContacts(data ?? []);
       setTotal(count ?? 0);
     }
@@ -102,7 +98,7 @@ function useContacts(
 // ── XLSX Export ────────────────────────────────────────────────────
 
 async function exportXlsx(workspaceId: string) {
-  const { data: allContacts } = await db
+  const { data: allContacts } = await supabase
     .from("inbox_contacts")
     .select("*")
     .eq("workspace_id", workspaceId)
@@ -110,7 +106,7 @@ async function exportXlsx(workspaceId: string) {
 
   const contacts: Contact[] = allContacts ?? [];
 
-  const { data: allInvoices } = await db
+  const { data: allInvoices } = await supabase
     .from("contact_invoices")
     .select("*")
     .eq("workspace_id", workspaceId)
@@ -118,7 +114,7 @@ async function exportXlsx(workspaceId: string) {
 
   const invoices: Array<Record<string, unknown>> = allInvoices ?? [];
 
-  const { data: allNotes } = await db
+  const { data: allNotes } = await supabase
     .from("contact_notes")
     .select("*")
     .eq("workspace_id", workspaceId)
@@ -607,7 +603,7 @@ export function Contacts() {
         .map((c) => c.phone as string);
 
       // 1. Get conversation IDs for these contacts (needed for campaign_alerts)
-      const { data: convRows } = await db
+      const { data: convRows } = await supabase
         .from("inbox_conversations")
         .select("id")
         .in("contact_id", ids);
@@ -615,7 +611,7 @@ export function Contacts() {
 
       // 2. Delete campaign_alerts linked to these conversations (NO ACTION FK)
       if (convIds.length > 0) {
-        const { error: alertsErr } = await db
+        const { error: alertsErr } = await supabase
           .from("campaign_alerts")
           .delete()
           .in("conversation_id", convIds);
@@ -624,7 +620,7 @@ export function Contacts() {
 
       // 3. Delete conversations (inbox_messages cascade-delete automatically)
       if (convIds.length > 0) {
-        const { error: convsErr } = await db
+        const { error: convsErr } = await supabase
           .from("inbox_conversations")
           .delete()
           .in("id", convIds);
@@ -632,7 +628,7 @@ export function Contacts() {
       }
 
       // 4. Delete invoices
-      const { error: invErr } = await db
+      const { error: invErr } = await supabase
         .from("contact_invoices")
         .delete()
         .in("contact_id", ids);
@@ -640,7 +636,7 @@ export function Contacts() {
 
       // 5. Delete notes
       if (phones.length > 0) {
-        const { error: notesErr } = await db
+        const { error: notesErr } = await supabase
           .from("contact_notes")
           .delete()
           .eq("workspace_id", workspaceId)
@@ -649,7 +645,7 @@ export function Contacts() {
       }
 
       // 6. Delete contacts
-      const { error: contactsErr } = await db
+      const { error: contactsErr } = await supabase
         .from("inbox_contacts")
         .delete()
         .eq("workspace_id", workspaceId)
@@ -698,7 +694,7 @@ export function Contacts() {
     }
     let cancelled = false;
     setFilterLoading(true);
-    let q = db
+    let q = supabase
       .from("contact_invoices")
       .select("contact_id")
       .eq("workspace_id", workspaceId);
@@ -723,9 +719,9 @@ export function Contacts() {
       let idsToSum: string[] | null = contactIds;
 
       // If search is active, intersect with search results
-      if (debouncedSearch.trim()) {
-        const s = debouncedSearch.trim();
-        const { data } = await db
+      const s = safeFilterTerm(debouncedSearch);
+      if (s) {
+        const { data } = await supabase
           .from("inbox_contacts")
           .select("id")
           .eq("workspace_id", workspaceId)
@@ -745,8 +741,7 @@ export function Contacts() {
         return;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let q = (db as any)
+      let q = supabase
         .from("contact_invoices")
         .select("valor")
         .eq("workspace_id", workspaceId);
@@ -774,8 +769,7 @@ export function Contacts() {
     if (!workspaceId) return;
     let cancelled = false;
     setGlobalTotalLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (db as any)
+    supabase
       .from("contact_invoices")
       .select("valor")
       .eq("workspace_id", workspaceId)
@@ -792,7 +786,7 @@ export function Contacts() {
   useEffect(() => {
     if (contacts.length === 0) { setInvoiceTotals({}); return; }
     const ids = contacts.map((c) => c.id);
-    db
+    supabase
       .from("contact_invoices")
       .select("contact_id, valor, vencimento")
       .eq("workspace_id", workspaceId)
