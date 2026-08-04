@@ -3,6 +3,7 @@ import { Search, Users, Loader2, ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { formatBRL } from "@/lib/format";
 
 const PENDING_STATUSES = ["pendente", "vencido", "aberto", "em_aberto"];
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -42,9 +43,6 @@ function pendingInvoices(contact: Contact): Invoice[] {
     });
 }
 
-function formatBRL(v: number): string {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -69,7 +67,7 @@ export function ContactSelector({ selected, selectedInvoices, onChange, onInvoic
     const to   = from + PAGE_SIZE - 1;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q = (supabase as any)
+    let q = supabase
       .from("inbox_contacts")
       .select(
         "id, name, phone, tags, contact_invoices(id, valor, vencimento, status, numero_nf)",

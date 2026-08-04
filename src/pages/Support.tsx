@@ -11,8 +11,6 @@ import { supabase }  from "@/lib/supabase";
 import { useAuth }   from "@/context/AuthContext";
 import { useToast }  from "@/hooks/use-toast";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -195,7 +193,7 @@ function NewTicketModal({
       const attachments = await uploadFiles(files, workspaceId, "tickets");
 
       // Insert ticket
-      const { data: ticket, error: ticketErr } = await db
+      const { data: ticket, error: ticketErr } = await supabase
         .from("support_tickets")
         .insert({ workspace_id: workspaceId, created_by: profile?.id, title: title.trim(), description: description.trim() })
         .select("*")
@@ -205,7 +203,7 @@ function NewTicketModal({
 
       // Insert first message (description)
       if (description.trim() || attachments.length) {
-        await db.from("support_messages").insert({
+        await supabase.from("support_messages").insert({
           ticket_id:    ticket.id,
           workspace_id: workspaceId,
           author_id:    profile?.id,
@@ -434,7 +432,7 @@ function TicketDetail({
     setSending(true);
     try {
       const attachments = await uploadFiles(replyFiles, workspaceId, `replies/${ticket.id}`);
-      const { data: msg, error } = await db
+      const { data: msg, error } = await supabase
         .from("support_messages")
         .insert({
           ticket_id:    ticket.id,
@@ -450,7 +448,7 @@ function TicketDetail({
       if (error) throw new Error(error.message);
 
       // Update ticket updated_at
-      await db.from("support_tickets").update({ updated_at: new Date().toISOString() }).eq("id", ticket.id);
+      await supabase.from("support_tickets").update({ updated_at: new Date().toISOString() }).eq("id", ticket.id);
 
       const event = isStaff ? "staff_replied" : "user_replied";
       await callNotify(ticket.id, event);
@@ -468,7 +466,7 @@ function TicketDetail({
   async function handleStatusChange(newStatus: TicketStatus) {
     const updates: Record<string, unknown> = { status: newStatus, updated_at: new Date().toISOString() };
     if (newStatus === "closed") updates.closed_at = new Date().toISOString();
-    await db.from("support_tickets").update(updates).eq("id", ticket.id);
+    await supabase.from("support_tickets").update(updates).eq("id", ticket.id);
     if (newStatus === "closed") callNotify(ticket.id, "closed");
     onStatusChange(ticket.id, newStatus);
     toast({ title: `Status atualizado para "${STATUS[newStatus]?.label}"` });
@@ -658,7 +656,7 @@ export function Support() {
     if (!wid) return;
     setLoading(true);
     try {
-      let q = db.from("support_tickets").select("*").eq("workspace_id", wid).order("updated_at", { ascending: false });
+      let q = supabase.from("support_tickets").select("*").eq("workspace_id", wid).order("updated_at", { ascending: false });
       if (!isStaff) q = q.eq("created_by", uid);
       if (filter !== "all") q = q.eq("status", filter);
 
@@ -683,7 +681,7 @@ export function Support() {
   const loadMessages = useCallback(async (ticketId: string) => {
     setMsgLoading(true);
     try {
-      const { data } = await db.from("support_messages").select("*").eq("ticket_id", ticketId).order("created_at", { ascending: true });
+      const { data } = await supabase.from("support_messages").select("*").eq("ticket_id", ticketId).order("created_at", { ascending: true });
       if (!data) return;
 
       const ids = [...new Set<string>((data as TicketMessage[]).map((m) => m.author_id))];

@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import type { AutomationRule, AutomationTrigger, AutomationRecipient } from "@/types/automations";
+import { formatBRLOrDash } from "@/lib/format";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,10 +39,6 @@ function formatFireDate(iso: string): string {
   return `${String(d).padStart(2, "0")} de ${months[m - 1]}. ${y}`;
 }
 
-function formatBRL(v: number | null): string {
-  if (!v) return "—";
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function resolveTriggerLabel(t: AutomationTrigger): string {
   if (t.label) return t.label;
@@ -394,7 +391,7 @@ function RuleCard({ rule, acting, onToggle, onDelete, onNav }: RuleCardProps) {
 
                       {/* Valor + vencimento */}
                       <div className="text-right shrink-0 hidden sm:block">
-                        <p className="text-[11px] font-semibold text-agro-text">{formatBRL(entry.recipient.valor)}</p>
+                        <p className="text-[11px] font-semibold text-agro-text">{formatBRLOrDash(entry.recipient.valor)}</p>
                         <p className="text-[9px] text-agro-muted-2">venc. {entry.recipient.vencimento.slice(5).replace("-", "/")}</p>
                       </div>
 
@@ -509,8 +506,6 @@ export function Automations() {
     setCreatingDemo(true);
     try {
       const t0 = new Date();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = supabase as any;
 
       function dateOffset(days: number): string {
         const d = new Date(t0);
@@ -518,7 +513,7 @@ export function Automations() {
         return d.toISOString().slice(0, 10);
       }
 
-      const { data: rule, error: ruleErr } = await db
+      const { data: rule, error: ruleErr } = await supabase
         .from("automation_rules")
         .insert({
           workspace_id:     wsId,
@@ -536,7 +531,7 @@ export function Automations() {
       if (ruleErr || !rule) throw ruleErr ?? new Error("Falha ao criar demo");
       const ruleId = (rule as { id: string }).id;
 
-      const { data: triggers, error: trigErr } = await db
+      const { data: triggers, error: trigErr } = await supabase
         .from("automation_triggers")
         .insert([
           { rule_id: ruleId, workspace_id: wsId, day_offset: -7, label: "7 dias antes",  message_body: "Olá {nome}! Seu boleto de {valor} vence em {dias} dias ({vencimento}). Pague em dia e evite juros.",                         enabled: true },
@@ -561,7 +556,7 @@ export function Automations() {
         { name: "Roberto Alves Souza",    phone: "5551987654001", venc: dateOffset(-12), valor: 980.00  },
       ];
 
-      const { data: recipients, error: recErr } = await db
+      const { data: recipients, error: recErr } = await supabase
         .from("automation_recipients")
         .insert(contacts.map((c) => ({
           rule_id:       ruleId,
@@ -607,11 +602,11 @@ export function Automations() {
       }
 
       if (logs.length > 0) {
-        await db.from("automation_logs").insert(logs);
+        await supabase.from("automation_logs").insert(logs);
       }
 
       const sentCount = logs.filter((l) => l.status === "sent").length;
-      await db.from("automation_rules").update({ sent_count: sentCount }).eq("id", ruleId);
+      await supabase.from("automation_rules").update({ sent_count: sentCount }).eq("id", ruleId);
 
       toast({
         title:       "Demo criada!",

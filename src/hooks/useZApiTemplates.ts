@@ -15,7 +15,7 @@ export function useZApiTemplates(workspaceId: string, connectionId?: string | nu
   async function load() {
     setLoading(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q = (supabase as any)
+    let q = supabase
       .from("z_api_templates")
       .select("*")
       .eq("workspace_id", workspaceId)

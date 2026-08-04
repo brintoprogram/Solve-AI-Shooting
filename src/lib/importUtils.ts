@@ -370,8 +370,6 @@ export function applyMapping(
 
 const CHUNK = 80; // seguro abaixo do limite do PostgREST
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export async function runImport(
   rows:        MappedRow[],
@@ -424,7 +422,7 @@ export async function runImport(
     const chunk = contactsWithPhone.slice(i, i + CHUNK);
     const rows_ = chunk.map((r) => toContactRow(r, workspaceId));
 
-    const { data, error } = await db
+    const { data, error } = await supabase
       .from("inbox_contacts")
       .upsert(rows_, { onConflict: "workspace_id,phone", ignoreDuplicates: false })
       .select("id, phone, cpf_cnpj");
@@ -446,7 +444,7 @@ export async function runImport(
   if (withoutPhone.length > 0) {
     onProgress("Atualizando contatos por CPF/CNPJ…", 0, withoutPhone.length);
     const cpfList = [...new Set(withoutPhone.map((r) => r.cpf_cnpj!))];
-    const { data: existing } = await db
+    const { data: existing } = await supabase
       .from("inbox_contacts")
       .select("id, cpf_cnpj")
       .eq("workspace_id", workspaceId)
@@ -458,7 +456,7 @@ export async function runImport(
       const id = existingMap.get(r.cpf_cnpj!);
       if (!id) { stats.skipped++; continue; }
       cpfIdMap.set(r.cpf_cnpj!, id);
-      await db.from("inbox_contacts").update(toContactRow(r, workspaceId, true)).eq("id", id);
+      await supabase.from("inbox_contacts").update(toContactRow(r, workspaceId, true)).eq("id", id);
       stats.contactsUpdated++;
     }
   }
@@ -493,7 +491,7 @@ export async function runImport(
 
   for (let i = 0; i < invoiceRows_.length; i += CHUNK) {
     const chunk = invoiceRows_.slice(i, i + CHUNK);
-    const { error } = await db.from("contact_invoices").insert(chunk);
+    const { error } = await supabase.from("contact_invoices").insert(chunk);
     if (error) {
       stats.errors.push(`Boletos chunk ${i}: ${error.message}`);
     } else {

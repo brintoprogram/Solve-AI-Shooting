@@ -31,7 +31,7 @@ export function useAutomationRules(workspaceId: string) {
   }
 
   async function deleteRule(id: string): Promise<string | null> {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("automation_rules")
       .delete()
       .eq("id", id)

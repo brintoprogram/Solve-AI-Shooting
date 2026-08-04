@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export interface ContactNote {
   id:             string;
@@ -26,7 +24,7 @@ export function useContactNotes(workspaceId: string, contactPhone: string) {
 
   const load = useCallback(async () => {
     if (!workspaceId || !contactPhone) { setNotes([]); setLoading(false); return; }
-    const { data, error } = await db
+    const { data, error } = await supabase
       .from("contact_notes")
       .select("*")
       .eq("workspace_id", workspaceId)
@@ -41,7 +39,7 @@ export function useContactNotes(workspaceId: string, contactPhone: string) {
     setLoading(true);
     load();
 
-    const channel = db
+    const channel = supabase
       .channel(`contact-notes-${workspaceId}-${contactPhone}`)
       .on(
         "postgres_changes",
@@ -59,7 +57,7 @@ export function useContactNotes(workspaceId: string, contactPhone: string) {
     contactName?: string,
     followUpDate?: string | null,
   ) {
-    const { data, error } = await db.from("contact_notes").insert({
+    const { data, error } = await supabase.from("contact_notes").insert({
       workspace_id:    workspaceId,
       contact_phone:   contactPhone,
       contact_name:    contactName ?? null,
@@ -76,12 +74,12 @@ export function useContactNotes(workspaceId: string, contactPhone: string) {
 
   async function toggleFollowUp(id: string, done: boolean) {
     setNotes((prev) => prev.map((n) => n.id === id ? { ...n, follow_up_done: done } : n));
-    await db.from("contact_notes").update({ follow_up_done: done }).eq("id", id);
+    await supabase.from("contact_notes").update({ follow_up_done: done }).eq("id", id);
   }
 
   async function deleteNote(id: string) {
     setNotes((prev) => prev.filter((n) => n.id !== id));
-    await db.from("contact_notes").delete().eq("id", id);
+    await supabase.from("contact_notes").delete().eq("id", id);
   }
 
   const pendingFollowUps = notes.filter(

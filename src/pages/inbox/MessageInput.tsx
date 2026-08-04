@@ -36,8 +36,6 @@ function mimeToType(mime: string): AttachType {
   return "document";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function MessageInput({ conversationId, workspaceId, contactId, sentBy, senderName }: Props) {
   // ── Core state ──────────────────────────────────────────────
@@ -186,7 +184,7 @@ export function MessageInput({ conversationId, workspaceId, contactId, sentBy, s
 
       if (isNote) {
         // Direct DB insert — not sent to WhatsApp
-        const { error: noteErr } = await db.from("inbox_messages").insert({
+        const { error: noteErr } = await supabase.from("inbox_messages").insert({
           workspace_id:    workspaceId,
           conversation_id: conversationId,
           contact_id:      contactId,

@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Topbar } from "@/components/layout/Topbar";
 import type { AutomationRule, AutomationTrigger, AutomationRecipient, AutomationLog } from "@/types/automations";
+import { formatBRLOrDash } from "@/lib/format";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,10 +23,6 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; border: string; 
 
 function padH(h: number) { return `${String(h).padStart(2, "0")}:00`; }
 
-function fmtBRL(v: number | null) {
-  if (!v) return "-";
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 function fmtDate(iso: string | null) {
   if (!iso) return "-";
@@ -52,7 +49,6 @@ function simDeliveryStatus(logId: string): "read" | "delivered" | "sent" {
   return "sent";
 }
 
-const db = supabase as any;
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -80,10 +76,10 @@ export function AutomationDetail() {
     if (!id) return;
     setLoading(true);
     const [ruleRes, trigRes, recRes, allRecRes] = await Promise.all([
-      db.from("automation_rules").select("*").eq("id", id).single(),
-      db.from("automation_triggers").select("*").eq("rule_id", id).order("day_offset"),
-      db.from("automation_recipients").select("*").eq("rule_id", id).eq("removed", false).order("vencimento"),
-      db.from("automation_recipients").select("*").eq("rule_id", id),
+      supabase.from("automation_rules").select("*").eq("id", id).single(),
+      supabase.from("automation_triggers").select("*").eq("rule_id", id).order("day_offset"),
+      supabase.from("automation_recipients").select("*").eq("rule_id", id).eq("removed", false).order("vencimento"),
+      supabase.from("automation_recipients").select("*").eq("rule_id", id),
     ]);
     if (ruleRes.error || !ruleRes.data) { navigate("/automations"); return; }
     setRule(ruleRes.data as AutomationRule);
@@ -98,7 +94,7 @@ export function AutomationDetail() {
   const fetchLogs = useCallback(async () => {
     if (!id) return;
     setLogsLoading(true);
-    const q = db.from("automation_logs").select("*").eq("rule_id", id).order("sent_at", { ascending: false }).limit(200);
+    const q = supabase.from("automation_logs").select("*").eq("rule_id", id).order("sent_at", { ascending: false }).limit(200);
     const { data } = await q;
     setLogs((data ?? []) as AutomationLog[]);
     setLogsLoading(false);
@@ -111,7 +107,7 @@ export function AutomationDetail() {
     if (!rule) return;
     const next = rule.status === "active" ? "paused" : "active";
     setActing(true);
-    const { error } = await db.from("automation_rules")
+    const { error } = await supabase.from("automation_rules")
       .update({ status: next, updated_at: new Date().toISOString() })
       .eq("id", rule.id);
     if (error) {
@@ -126,7 +122,7 @@ export function AutomationDetail() {
   async function handleDelete() {
     if (!rule) return;
     setActing(true);
-    const { error } = await db.from("automation_rules").delete().eq("id", rule.id);
+    const { error } = await supabase.from("automation_rules").delete().eq("id", rule.id);
     if (error) {
       toast({ title: "Erro ao excluir", description: error.message, variant: "destructive" });
       setActing(false);
@@ -138,7 +134,7 @@ export function AutomationDetail() {
 
   async function handleRemoveRecipient(recId: string) {
     setRemovingId(recId);
-    await db.from("automation_recipients").update({ removed: true }).eq("id", recId);
+    await supabase.from("automation_recipients").update({ removed: true }).eq("id", recId);
     setRecipients((prev) => prev.filter((r) => r.id !== recId));
     setRemovingId(null);
   }
@@ -309,7 +305,7 @@ export function AutomationDetail() {
                           <p className="text-[10px] text-agro-muted-2">{r.contact_phone}</p>
                         </div>
                         <div className="text-right shrink-0 hidden sm:block">
-                          <p className="text-[11px] font-semibold text-agro-text">{fmtBRL(r.valor)}</p>
+                          <p className="text-[11px] font-semibold text-agro-text">{formatBRLOrDash(r.valor, "-")}</p>
                           <p className="text-[10px]" style={{ color: isVenc ? "#f87171" : "#7fc49a" }}>
                             venc. {r.vencimento.slice(8,10)}/{r.vencimento.slice(5,7)}
                           </p>
@@ -406,7 +402,7 @@ export function AutomationDetail() {
                               )}
                               <span className="text-[9px] text-agro-muted-2 shrink-0">venc. {fmtIsoDate(rec.vencimento)}</span>
                               {rec.valor != null && (
-                                <span className="text-[9px] font-semibold text-amber-400/80 shrink-0">{fmtBRL(rec.valor)}</span>
+                                <span className="text-[9px] font-semibold text-amber-400/80 shrink-0">{formatBRLOrDash(rec.valor, "-")}</span>
                               )}
                             </div>
                           )}

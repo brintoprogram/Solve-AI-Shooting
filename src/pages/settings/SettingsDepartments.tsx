@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, GitBranch, Save, X, Loader2, UserPlus } from "luc
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import type { Department } from "@/types/inbox";
+import { initials } from "@/lib/format";
 
 const PRESET_COLORS = [
   "#6366f1", "#3fb06c", "#f59e0b", "#ef4444",
@@ -29,8 +30,6 @@ interface WsMember {
   avatar_url: string | null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
   const { toast }                                   = useToast();
@@ -70,20 +69,20 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [deptRes, wsRes, membersRes, deptMembersRes] = await Promise.all([
-      db.from("departments")
+      supabase.from("departments")
         .select("*")
         .eq("workspace_id", workspaceId)
         .order("order_index", { ascending: true }),
-      db.from("workspaces")
+      supabase.from("workspaces")
         .select("routing_enabled, routing_header, routing_body")
         .eq("id", workspaceId)
         .single(),
       // All workspace members with profiles
-      db.from("workspace_members")
+      supabase.from("workspace_members")
         .select("user_id, role, user_profiles(full_name, avatar_url)")
         .eq("workspace_id", workspaceId),
       // All department_members with profiles for this workspace
-      db.from("department_members")
+      supabase.from("department_members")
         .select("id, department_id, user_id, user_profiles(full_name, avatar_url)")
         .eq("workspace_id", workspaceId),
     ]);
@@ -123,7 +122,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
 
   async function saveRouting() {
     setSavingRouting(true);
-    const { error } = await db.from("workspaces").update({
+    const { error } = await supabase.from("workspaces").update({
       routing_enabled: routing.routing_enabled,
       routing_header:  routing.routing_header,
       routing_body:    routing.routing_body,
@@ -140,7 +139,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
     if (!form.name.trim()) return;
     setSaving(true);
     if (editingId) {
-      const { error } = await db.from("departments")
+      const { error } = await supabase.from("departments")
         .update({ name: form.name.trim(), color: form.color, description: form.description.trim() || null })
         .eq("id", editingId);
       if (error) {
@@ -150,7 +149,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
         setEditingId(null);
       }
     } else {
-      const { error } = await db.from("departments").insert({
+      const { error } = await supabase.from("departments").insert({
         workspace_id: workspaceId,
         name:         form.name.trim(),
         color:        form.color,
@@ -171,7 +170,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
 
   async function deleteDepartment(id: string) {
     setDeletingId(id);
-    const { error } = await db.from("departments").delete().eq("id", id);
+    const { error } = await supabase.from("departments").delete().eq("id", id);
     setDeletingId(null);
     if (error) {
       toast({ title: "Erro ao excluir", description: error.message, variant: "destructive" });
@@ -183,7 +182,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
 
   async function addMember(deptId: string, userId: string) {
     setAddingMember(true);
-    const { error } = await db.from("department_members").insert({
+    const { error } = await supabase.from("department_members").insert({
       department_id: deptId,
       user_id:       userId,
       workspace_id:  workspaceId,
@@ -198,7 +197,7 @@ export function SettingsDepartments({ workspaceId }: { workspaceId: string }) {
   }
 
   async function removeMember(memberId: string) {
-    const { error } = await db.from("department_members").delete().eq("id", memberId);
+    const { error } = await supabase.from("department_members").delete().eq("id", memberId);
     if (error) {
       toast({ title: "Erro ao remover membro", description: error.message, variant: "destructive" });
     } else {
@@ -561,8 +560,3 @@ function DeptForm({
   );
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}

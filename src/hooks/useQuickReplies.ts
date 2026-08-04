@@ -11,8 +11,6 @@ export interface QuickReply {
   created_at:   string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function useQuickReplies(workspaceId: string) {
   const { profile } = useAuth();
@@ -22,7 +20,7 @@ export function useQuickReplies(workspaceId: string) {
   useEffect(() => {
     if (!workspaceId) return;
     setLoading(true);
-    db
+    supabase
       .from("quick_replies")
       .select("*")
       .eq("workspace_id", workspaceId)
@@ -34,7 +32,7 @@ export function useQuickReplies(workspaceId: string) {
   }, [workspaceId]);
 
   async function addReply(title: string, body: string) {
-    const { data, error } = await db
+    const { data, error } = await supabase
       .from("quick_replies")
       .insert({ workspace_id: workspaceId, title, body, created_by: profile?.id ?? null })
       .select()
@@ -47,7 +45,7 @@ export function useQuickReplies(workspaceId: string) {
   }
 
   async function deleteReply(id: string) {
-    const { error } = await db.from("quick_replies").delete().eq("id", id);
+    const { error } = await supabase.from("quick_replies").delete().eq("id", id);
     if (error) throw error;
     setReplies((prev) => prev.filter((r) => r.id !== id));
   }

@@ -2,9 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import type { InboxConversation, InboxMessage } from "@/types/inbox";
 
-// Untyped accessor for inbox tables (not yet in generated Database types)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function useInboxConversations(workspaceId?: string) {
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
@@ -15,7 +12,7 @@ export function useInboxConversations(workspaceId?: string) {
       setLoading(false);
       return;
     }
-    const { data, error } = await db
+    const { data, error } = await supabase
       .from("inbox_conversations")
       .select("*, inbox_contacts(*), departments(*)")
       .eq("workspace_id", workspaceId)
@@ -28,7 +25,7 @@ export function useInboxConversations(workspaceId?: string) {
   useEffect(() => {
     load();
 
-    const channel = db
+    const channel = supabase
       .channel(`inbox-convs-${workspaceId ?? "none"}`)
       .on(
         "postgres_changes",
@@ -42,7 +39,7 @@ export function useInboxConversations(workspaceId?: string) {
 
   async function markAsRead(conversationId: string) {
     if (!workspaceId) return;
-    await db.from("inbox_conversations").update({ unread_count: 0 })
+    await supabase.from("inbox_conversations").update({ unread_count: 0 })
       .eq("id", conversationId).eq("workspace_id", workspaceId);
     setConversations((prev) =>
       prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c))
@@ -52,28 +49,28 @@ export function useInboxConversations(workspaceId?: string) {
   async function pinConversation(id: string, pinned: boolean) {
     if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned } : c)));
-    await db.from("inbox_conversations").update({ pinned })
+    await supabase.from("inbox_conversations").update({ pinned })
       .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function archiveConversation(id: string, archived: boolean) {
     if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, archived } : c)));
-    await db.from("inbox_conversations").update({ archived })
+    await supabase.from("inbox_conversations").update({ archived })
       .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function deleteConversation(id: string) {
     if (!workspaceId) return;
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    await db.from("inbox_conversations").delete()
+    await supabase.from("inbox_conversations").delete()
       .eq("id", id).eq("workspace_id", workspaceId);
   }
 
   async function updateTags(id: string, tags: string[]) {
     if (!workspaceId) return;
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, tags } : c)));
-    await db.from("inbox_conversations").update({ tags })
+    await supabase.from("inbox_conversations").update({ tags })
       .eq("id", id).eq("workspace_id", workspaceId);
   }
 
@@ -92,7 +89,7 @@ export function useInboxMessages(conversationId: string | null) {
 
     // Initial load
     setLoading(true);
-    db
+    supabase
       .from("inbox_messages")
       .select("*")
       .eq("conversation_id", conversationId)
@@ -103,7 +100,7 @@ export function useInboxMessages(conversationId: string | null) {
       });
 
     // Realtime: append new messages, update existing, remove deleted
-    const channel = db
+    const channel = supabase
       .channel(`inbox-msgs-${conversationId}`)
       .on(
         "postgres_changes",
@@ -153,7 +150,7 @@ export function useInboxMessages(conversationId: string | null) {
 
   async function deleteMessage(id: string) {
     setMessages((prev) => prev.filter((m) => m.id !== id));
-    await db.from("inbox_messages").delete().eq("id", id);
+    await supabase.from("inbox_messages").delete().eq("id", id);
   }
 
   return { messages, loading, deleteMessage };

@@ -22,8 +22,6 @@ import { ZApiTemplateEditor } from "./shooting/components/ZApiTemplateEditor";
 import { useAuth } from "@/context/AuthContext";
 import { getConfig } from "@/lib/config";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 // ── Selected connection union ────────────────────────────────────
 
@@ -538,7 +536,7 @@ export function Templates() {
   // Load meta templates when Meta connection selected
   const loadMetaTemplates = useCallback(async (connId: string) => {
     setLoadingMeta(true);
-    const { data } = await db
+    const { data } = await supabase
       .from("meta_templates")
       .select("*")
       .eq("workspace_id", WORKSPACE_ID)
@@ -551,7 +549,7 @@ export function Templates() {
   // Load Z-API templates when Z-API connection selected
   const loadZApiTemplates = useCallback(async (connId: string) => {
     setLoadingZApi(true);
-    const { data } = await db
+    const { data } = await supabase
       .from("z_api_templates")
       .select("*")
       .eq("workspace_id", WORKSPACE_ID)
@@ -603,7 +601,7 @@ export function Templates() {
 
   // ── Z-API delete ───────────────────────────────────────────
   async function handleDeleteZApi(id: string) {
-    await db.from("z_api_templates").delete().eq("id", id);
+    await supabase.from("z_api_templates").delete().eq("id", id);
     setZApiTemplates((prev) => prev.filter((t) => t.id !== id));
     setConfirmDelete(null);
     toast({ title: "Template excluído", variant: "success" });

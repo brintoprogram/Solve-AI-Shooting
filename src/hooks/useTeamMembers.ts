@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export function useTeamMembers(): UserProfile[] {
   const { workspaceId } = useAuth();
@@ -15,7 +13,7 @@ export function useTeamMembers(): UserProfile[] {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async function load() {
-      const { data: wm } = await db
+      const { data: wm } = await supabase
         .from("workspace_members")
         .select("user_id, role")
         .eq("workspace_id", workspaceId);
@@ -23,7 +21,7 @@ export function useTeamMembers(): UserProfile[] {
       if (!wm?.length) return;
 
       const userIds = (wm as any[]).map((m: any) => m.user_id);
-      const { data: profiles } = await db
+      const { data: profiles } = await supabase
         .from("user_profiles")
         .select("id, full_name")
         .in("id", userIds);

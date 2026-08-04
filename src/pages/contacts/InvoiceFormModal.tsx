@@ -3,8 +3,6 @@ import { X, Loader2, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export interface Invoice {
   id:            string;
@@ -99,8 +97,8 @@ export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDelet
     };
 
     const q = isNew
-      ? db.from("contact_invoices").insert(payload)
-      : db.from("contact_invoices").update(payload).eq("id", invoice!.id);
+      ? supabase.from("contact_invoices").insert(payload)
+      : supabase.from("contact_invoices").update(payload).eq("id", invoice!.id);
 
     const { error: err } = await q;
     setSaving(false);
@@ -115,7 +113,7 @@ export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDelet
     if (!invoice) return;
     if (!confirm("Excluir este boleto? Esta ação não pode ser desfeita.")) return;
     setDeleting(true);
-    const { error: err } = await db.from("contact_invoices").delete().eq("id", invoice.id);
+    const { error: err } = await supabase.from("contact_invoices").delete().eq("id", invoice.id);
     setDeleting(false);
     if (err) { setError(err.message); return; }
     onDeleted?.();

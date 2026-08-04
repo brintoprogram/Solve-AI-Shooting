@@ -14,8 +14,6 @@ const PRESENCE: Record<PresenceStatus, { label: string; color: string; dot: stri
   offline: { label: "Ausente",    color: "#6b7f6e", dot: "#6b7f6e" },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 interface TopbarProps {
   breadcrumbs: Array<{ label: string; href?: string }>;
@@ -35,7 +33,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
 
   const loadPresence = useCallback(async () => {
     if (!profile?.id) return;
-    const { data } = await db.from("user_profiles").select("presence_status").eq("id", profile.id).single();
+    const { data } = await supabase.from("user_profiles").select("presence_status").eq("id", profile.id).single();
     if (data?.presence_status) setPresence(data.presence_status as PresenceStatus);
   }, [profile?.id]);
 
@@ -45,7 +43,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
     if (!profile?.id || savingPresence) return;
     setSavingPresence(true);
     setPresence(status);
-    await db.from("user_profiles").update({ presence_status: status }).eq("id", profile.id);
+    await supabase.from("user_profiles").update({ presence_status: status }).eq("id", profile.id);
     setSavingPresence(false);
   }
 

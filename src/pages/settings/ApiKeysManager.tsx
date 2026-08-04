@@ -32,7 +32,6 @@ const DB_API_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const db = supabase as any;
 
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
@@ -107,7 +106,7 @@ function CreateKeyModal({ workspaceId, onCreated, onClose }: CreateModalProps) {
         expiresAt = d.toISOString();
       }
 
-      const { data, error } = await db
+      const { data, error } = await supabase
         .from("api_keys")
         .insert({
           workspace_id: workspaceId,
@@ -286,11 +285,11 @@ export function ApiKeysManager() {
   const load = useCallback(async () => {
     setLoading(true);
     const [keysRes, wsRes] = await Promise.all([
-      db.from("api_keys")
+      supabase.from("api_keys")
         .select("id, name, key_prefix, scopes, expires_at, last_used_at, created_at, revoked_at")
         .eq("workspace_id", wsId)
         .order("created_at", { ascending: false }),
-      db.from("workspaces")
+      supabase.from("workspaces")
         .select("api_enabled")
         .eq("id", wsId)
         .single(),
@@ -303,7 +302,7 @@ export function ApiKeysManager() {
   async function handleToggleApi(enable: boolean) {
     setToggling(true);
     setConfirmOff(false);
-    const { error } = await db
+    const { error } = await supabase
       .from("workspaces")
       .update({ api_enabled: enable })
       .eq("id", wsId);
@@ -326,7 +325,7 @@ export function ApiKeysManager() {
 
   async function handleRevoke(keyId: string, keyName: string) {
     setRevokingId(keyId);
-    const { error } = await db
+    const { error } = await supabase
       .from("api_keys")
       .update({ revoked_at: new Date().toISOString(), revoked_reason: "Revogada manualmente" })
       .eq("id", keyId);

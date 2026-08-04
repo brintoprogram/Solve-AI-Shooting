@@ -7,8 +7,6 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 const SUPABASE_URL  = (import.meta.env.VITE_SUPABASE_URL  as string) ?? "";
 const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? "";
@@ -144,7 +142,7 @@ function BaseCadastrada({ workspaceId }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await db
+    const { data } = await supabase
       .from("inbox_contacts")
       .select("id, name, phone, wa_status")
       .eq("workspace_id", workspaceId)
@@ -197,7 +195,7 @@ function BaseCadastrada({ workspaceId }: Props) {
     setCheckProg({ done: 0, total: eligible.length });
     const ids = eligible.map((c) => c.id);
 
-    await db.from("inbox_contacts").update({ wa_status: "checking" }).in("id", ids);
+    await supabase.from("inbox_contacts").update({ wa_status: "checking" }).in("id", ids);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -222,7 +220,7 @@ function BaseCadastrada({ workspaceId }: Props) {
       }
     } catch (err) {
       // Reset contacts so they don't stay stuck as "checking"
-      await db.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
+      await supabase.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
       setChecking(false);
       load();
       toast({
@@ -240,7 +238,7 @@ function BaseCadastrada({ workspaceId }: Props) {
 
     pollRef.current = setInterval(async () => {
       elapsedMs += POLL_INTERVAL;
-      const { data } = await db.from("inbox_contacts").select("id, wa_status").in("id", ids);
+      const { data } = await supabase.from("inbox_contacts").select("id, wa_status").in("id", ids);
       const done = (data ?? []).filter((r: { wa_status: string }) => r.wa_status !== "checking").length;
       setCheckProg({ done, total: eligible.length });
 
@@ -251,7 +249,7 @@ function BaseCadastrada({ workspaceId }: Props) {
         load();
         if (timedOut && done < eligible.length) {
           // Reset stuck "checking" rows
-          await db.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
+          await supabase.from("inbox_contacts").update({ wa_status: "unknown" }).in("id", ids);
           toast({
             title: "Verificação demorou demais",
             description: "A API da Meta não respondeu a tempo. Tente novamente com menos contatos.",
@@ -269,7 +267,7 @@ function BaseCadastrada({ workspaceId }: Props) {
   async function bulkDelete() {
     const ids = [...selected];
     setDeleting(true);
-    const { error } = await db.from("inbox_contacts").delete().in("id", ids).eq("workspace_id", workspaceId);
+    const { error } = await supabase.from("inbox_contacts").delete().in("id", ids).eq("workspace_id", workspaceId);
     setDeleting(false);
     if (error) { toast({ title: "Erro ao excluir", description: error.message }); return; }
     toast({ title: `${ids.length} contato${ids.length > 1 ? "s" : ""} excluído${ids.length > 1 ? "s" : ""}` });
@@ -446,7 +444,7 @@ function PlanilhaAvulsa({ workspaceId }: Props) {
 
   const loadSessions = useCallback(async () => {
     setSessLoading(true);
-    const { data } = await db.from("cleanup_sessions").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(20);
+    const { data } = await supabase.from("cleanup_sessions").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(20);
     setSessions(data ?? []);
     setSessLoading(false);
   }, [workspaceId]);
@@ -571,7 +569,7 @@ function PlanilhaAvulsa({ workspaceId }: Props) {
       wa_invalid:    rows.filter((r) => r.waStatus === "invalid").length,
     };
 
-    const { data: sess, error: sessErr } = await db.from("cleanup_sessions")
+    const { data: sess, error: sessErr } = await supabase.from("cleanup_sessions")
       .insert({ workspace_id: workspaceId, filename, ...stats })
       .select("id").single();
 
@@ -592,7 +590,7 @@ function PlanilhaAvulsa({ workspaceId }: Props) {
         phone_problem: r.problem,
         wa_status:     r.waStatus,
       }));
-      await db.from("cleanup_session_rows").insert(chunk);
+      await supabase.from("cleanup_session_rows").insert(chunk);
     }
 
     setSaving(false);
@@ -604,7 +602,7 @@ function PlanilhaAvulsa({ workspaceId }: Props) {
 
   // ── Download session ─────────────────────────────────────────────
   async function downloadSession(session: CleanupSession) {
-    const { data } = await db.from("cleanup_session_rows")
+    const { data } = await supabase.from("cleanup_session_rows")
       .select("*")
       .eq("session_id", session.id)
       .order("row_index");

@@ -18,8 +18,6 @@ import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 type RoleOption = UserProfile["role"];
 
@@ -110,7 +108,7 @@ function PermissionsModal({ member, onClose, onSaved }: PermissionsModalProps) {
 
   async function handleSave() {
     setSaving(true);
-    const { error } = await db
+    const { error } = await supabase
       .from("user_profiles")
       .update({ permissions: perms })
       .eq("id", member.id);
@@ -277,7 +275,7 @@ function InviteModal({ onClose, onSuccess, workspaceId, invitedBy }: InviteModal
             : `${email} receberá um e-mail de acesso.`,
           variant: "success",
         });
-        db.from("audit_logs").insert({
+        supabase.from("audit_logs").insert({
           workspace_id: workspaceId,
           event_type:   "member_invited",
           entity_type:  "workspace_invite",
@@ -399,13 +397,13 @@ export function Team() {
     if (!workspaceId) return;
 
     const [membersRes, invitesRes, deptsRes] = await Promise.all([
-      db
+      supabase
         .from("workspace_members")
         .select("user_id, role, department_id, created_at")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true }),
       isAdmin
-        ? db
+        ? supabase
             .from("workspace_invites")
             .select("id, email, role, created_at, expires_at")
             .eq("workspace_id", workspaceId)
@@ -413,7 +411,7 @@ export function Team() {
             .gte("expires_at", new Date().toISOString())
             .order("created_at", { ascending: false })
         : Promise.resolve({ data: [], error: null }),
-      db
+      supabase
         .from("departments")
         .select("*")
         .eq("workspace_id", workspaceId)
@@ -430,7 +428,7 @@ export function Team() {
       const userIds = memberRows.map((m) => m.user_id as string);
 
       if (userIds.length > 0) {
-        const { data: profilesData } = await db
+        const { data: profilesData } = await supabase
           .from("user_profiles")
           .select("*")
           .in("id", userIds);
@@ -460,7 +458,7 @@ export function Team() {
 
   async function handleRevokeInvite(inviteId: string) {
     setRevoking(inviteId);
-    const { error } = await db.from("workspace_invites").delete()
+    const { error } = await supabase.from("workspace_invites").delete()
       .eq("id", inviteId)
       .eq("workspace_id", workspaceId);
     if (error) {
@@ -515,7 +513,7 @@ export function Team() {
   async function handleRoleChange(memberId: string, newRole: RoleOption) {
     if (!isAdmin) return;
     setUpdating(memberId);
-    const { error } = await db
+    const { error } = await supabase
       .from("workspace_members")
       .update({ role: newRole })
       .eq("user_id", memberId)
@@ -527,7 +525,7 @@ export function Team() {
       const oldRole = members.find((m) => m.id === memberId)?.role ?? "";
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
       toast({ title: "Cargo atualizado", variant: "success" });
-      db.from("audit_logs").insert({
+      supabase.from("audit_logs").insert({
         workspace_id: workspaceId,
         event_type:   "member_role_changed",
         entity_type:  "user",
@@ -542,7 +540,7 @@ export function Team() {
   async function handleDeptChange(memberId: string, deptId: string | null) {
     if (!isAdmin) return;
     setUpdatingDept(memberId);
-    const { error } = await db
+    const { error } = await supabase
       .from("workspace_members")
       .update({ department_id: deptId })
       .eq("user_id", memberId)

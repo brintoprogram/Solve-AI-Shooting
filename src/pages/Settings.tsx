@@ -563,7 +563,7 @@ export function Settings() {
     // 2. Always save text fields (name + description + avatar if upload succeeded)
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("user_profiles")
         .update({
           full_name:   profileForm.name.trim()        || null,
@@ -627,7 +627,7 @@ export function Settings() {
   useEffect(() => {
     if (!WORKSPACE_ID) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from("workspaces").select("support_email").eq("id", WORKSPACE_ID).maybeSingle()
+    supabase.from("workspaces").select("support_email").eq("id", WORKSPACE_ID).maybeSingle()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }: any) => { if (data?.support_email) setSupportEmail(data.support_email); });
   }, [WORKSPACE_ID]);
@@ -636,7 +636,7 @@ export function Settings() {
     if (!WORKSPACE_ID || !supportEmail.trim()) return;
     setSupportEmailSaving(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from("workspaces").update({ support_email: supportEmail.trim() }).eq("id", WORKSPACE_ID);
+    const { error } = await supabase.from("workspaces").update({ support_email: supportEmail.trim() }).eq("id", WORKSPACE_ID);
     if (error) {
       toast({ title: "Não foi possível salvar o email de suporte", variant: "destructive" });
     } else {
@@ -688,7 +688,7 @@ export function Settings() {
   useEffect(() => {
     if (!WORKSPACE_ID) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
+    supabase
       .from("workspaces")
       .select("ai_provider, anthropic_api_key, openai_api_key")
       .eq("id", WORKSPACE_ID)
@@ -710,7 +710,7 @@ export function Settings() {
     if (openaiKey.trim())    updates.openai_api_key    = openaiKey.trim();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase as any).from("workspaces").update(updates).eq("id", WORKSPACE_ID);
+    const { error } = await supabase.from("workspaces").update(updates).eq("id", WORKSPACE_ID);
     if (error) {
       console.error("[ai] save:", error);
       toast({ title: "Não foi possível salvar as configurações de IA", description: "Tente novamente.", variant: "destructive" });

@@ -29,13 +29,11 @@ export function Inbox() {
   const [showNewConv,    setShowNewConv]    = useState(false);
   const [showSupervision,setShowSupervision]= useState(false);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any;
 
   useEffect(() => {
     if (!wsId) return;
 
-    db.from("departments")
+    supabase.from("departments")
       .select("*")
       .eq("workspace_id", wsId)
       .order("order_index", { ascending: true })
@@ -44,10 +42,10 @@ export function Inbox() {
       });
 
     Promise.all([
-      db.from("meta_connections")
+      supabase.from("meta_connections")
         .select("id, display_phone, phone_number_id")
         .eq("workspace_id", wsId),
-      db.from("z_api_connections")
+      supabase.from("z_api_connections")
         .select("id, phone, name")
         .eq("workspace_id", wsId),
     ]).then(([metaRes, zapiRes]: any[]) => {
@@ -72,7 +70,7 @@ export function Inbox() {
     }
 
     if (profile?.id) {
-      db.from("department_members")
+      supabase.from("department_members")
         .select("department_id")
         .eq("user_id", profile.id)
         .eq("workspace_id", wsId)
@@ -119,7 +117,7 @@ export function Inbox() {
     setShowNewConv(false);
     // Force reload and fetch the new conversation directly (don't rely on Realtime or stale closure)
     await refresh();
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("inbox_conversations")
       .select("*, inbox_contacts(*), departments(*)")
       .eq("id", convId)

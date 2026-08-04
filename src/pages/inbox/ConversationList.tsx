@@ -4,6 +4,7 @@ import { format, isToday, isYesterday } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
 import type { UserProfile } from "@/context/AuthContext";
 import type { InboxConversation, Department } from "@/types/inbox";
+import { initials } from "@/lib/format";
 
 type TabId = "waiting" | "mine" | "all" | "archived";
 
@@ -456,11 +457,6 @@ function formatTime(ts: string | null): string {
   return format(d, "dd/MM");
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 const AVATAR_PALETTE = [
   "#1e6e45", "#2d5a6e", "#5a3d6e", "#6e3d3d",

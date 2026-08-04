@@ -5,8 +5,6 @@ import { useAuth } from "@/context/AuthContext";
 import type { Contact } from "./ContactPanel";
 import { tagColor } from "./ContactPanel";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 interface Props {
   contact?: Contact | null;
@@ -101,8 +99,8 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
     };
 
     const q = isNew
-      ? db.from("inbox_contacts").insert(payload).select().single()
-      : db.from("inbox_contacts").update(payload).eq("id", contact!.id).select().single();
+      ? supabase.from("inbox_contacts").insert(payload).select().single()
+      : supabase.from("inbox_contacts").update(payload).eq("id", contact!.id).select().single();
 
     const { data, error: err } = await q;
 

@@ -50,12 +50,11 @@ function vencOffset(days: number) {
 // ── Seed helpers ───────────────────────────────────────────────────────────────
 
 async function seedContact(wsId: string): Promise<{ contactId: string; name: string; phone: string } | null> {
-  const db = supabase as any;
   const tpl = pick(CONTACT_TEMPLATES);
   const offsets = [-15, -7, -3, 0, 3, 7, 14, 21];
   const venc = vencOffset(pick(offsets));
 
-  const { data: contact, error: cErr } = await db
+  const { data: contact, error: cErr } = await supabase
     .from("inbox_contacts")
     .insert({
       workspace_id: wsId,
@@ -72,7 +71,7 @@ async function seedContact(wsId: string): Promise<{ contactId: string; name: str
   if (cErr || !contact) return null;
   const contactId = contact.id as string;
 
-  await db.from("contact_invoices").insert({
+  await supabase.from("contact_invoices").insert({
     contact_id:    contactId,
     workspace_id:  wsId,
     valor:         tpl.valor + Math.round(Math.random() * 1000),
@@ -86,10 +85,9 @@ async function seedContact(wsId: string): Promise<{ contactId: string; name: str
 }
 
 async function seedConversation(wsId: string, contactId: string, name: string, phone: string): Promise<string | null> {
-  const db = supabase as any;
   const reply = pick(ALERT_SCENARIOS).reply;
 
-  const { data: conv, error: cErr } = await db
+  const { data: conv, error: cErr } = await supabase
     .from("inbox_conversations")
     .insert({
       workspace_id:           wsId,
@@ -107,7 +105,7 @@ async function seedConversation(wsId: string, contactId: string, name: string, p
   const convId = conv.id as string;
 
   const outMsg = `Olá, ${name.split(" ")[0]}! Identificamos um boleto em aberto. Podemos ajudar?`;
-  await db.from("inbox_messages").insert([
+  await supabase.from("inbox_messages").insert([
     {
       workspace_id:    wsId, conversation_id: convId, contact_id: contactId,
       direction:       "outbound", message_type: "text", body: outMsg,
@@ -124,11 +122,10 @@ async function seedConversation(wsId: string, contactId: string, name: string, p
 }
 
 async function seedAlert(wsId: string, contactId: string, convId: string, name: string, phone: string): Promise<void> {
-  const db = supabase as any;
   const scen    = pick(ALERT_SCENARIOS);
   const campaign = pick(CAMPAIGNS);
 
-  const { data: smsg } = await db
+  const { data: smsg } = await supabase
     .from("shooting_messages")
     .insert({ campaign_id: campaign, workspace_id: wsId, recipient_phone: phone, recipient_name: name, status: "read", sent_at: new Date(Date.now() - 3_600_000).toISOString(), replied_at: new Date().toISOString() })
     .select("id")
@@ -136,7 +133,7 @@ async function seedAlert(wsId: string, contactId: string, convId: string, name: 
 
   if (!smsg) return;
 
-  await db.from("campaign_alerts").insert({
+  await supabase.from("campaign_alerts").insert({
     workspace_id:   wsId,
     campaign_id:    campaign,
     message_id:     smsg.id,
@@ -160,11 +157,10 @@ interface DemoStats {
 }
 
 async function loadStats(wsId: string): Promise<DemoStats> {
-  const db = supabase as any;
   const [c, v, a] = await Promise.all([
-    db.from("inbox_contacts")      .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
-    db.from("inbox_conversations")  .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
-    db.from("campaign_alerts")      .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
+    supabase.from("inbox_contacts")      .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
+    supabase.from("inbox_conversations")  .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
+    supabase.from("campaign_alerts")      .select("id", { count: "exact", head: true }).eq("workspace_id", wsId),
   ]);
   return {
     contacts:      c.count  ?? 0,
@@ -174,7 +170,6 @@ async function loadStats(wsId: string): Promise<DemoStats> {
 }
 
 async function clearDemoData(wsId: string): Promise<void> {
-  const db = supabase as any;
   // Only deletes contacts/conversations with no real shooting_messages FK chain
   // Uses the pattern: non-de000000 contacts (i.e. contacts created via DemoSeeder with gen_random_uuid)
   // We safely target only inbox_contacts that have NO original de000000 IDs
@@ -188,7 +183,7 @@ async function clearDemoData(wsId: string): Promise<void> {
   ];
 
   // Get all contact IDs in this workspace that are NOT in the fixed seed
-  const { data: extraContacts } = await db
+  const { data: extraContacts } = await supabase
     .from("inbox_contacts")
     .select("id")
     .eq("workspace_id", wsId)
@@ -198,7 +193,7 @@ async function clearDemoData(wsId: string): Promise<void> {
   if (extraIds.length === 0) return;
 
   // Delete conversations and their messages for extra contacts
-  const { data: extraConvs } = await db
+  const { data: extraConvs } = await supabase
     .from("inbox_conversations")
     .select("id")
     .eq("workspace_id", wsId)
@@ -206,15 +201,15 @@ async function clearDemoData(wsId: string): Promise<void> {
   const extraConvIds = (extraConvs ?? []).map((r: { id: string }) => r.id);
 
   if (extraConvIds.length > 0) {
-    await db.from("inbox_messages").delete().in("conversation_id", extraConvIds);
+    await supabase.from("inbox_messages").delete().in("conversation_id", extraConvIds);
     // Delete campaign_alerts linked to these conversations
-    await db.from("campaign_alerts").delete().eq("workspace_id", wsId).in("conversation_id", extraConvIds);
-    await db.from("inbox_conversations").delete().in("id", extraConvIds);
+    await supabase.from("campaign_alerts").delete().eq("workspace_id", wsId).in("conversation_id", extraConvIds);
+    await supabase.from("inbox_conversations").delete().in("id", extraConvIds);
   }
 
   // Delete invoices and contacts
-  await db.from("contact_invoices").delete().in("contact_id", extraIds);
-  await db.from("inbox_contacts").delete().in("id", extraIds);
+  await supabase.from("contact_invoices").delete().in("contact_id", extraIds);
+  await supabase.from("inbox_contacts").delete().in("id", extraIds);
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

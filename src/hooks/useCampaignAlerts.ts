@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 // Supabase Realtime garante INSERT mas pode perder UPDATE events.
 // Polling de 30s garante que alertas atualizados apareçam mesmo sem o evento realtime.
@@ -33,7 +31,7 @@ export function useCampaignAlerts() {
 
   const fetchAlerts = useCallback(async () => {
     if (!workspaceId) return;
-    const { data } = await db
+    const { data } = await supabase
       .from("campaign_alerts")
       .select("*")
       .eq("workspace_id", workspaceId)
@@ -74,14 +72,14 @@ export function useCampaignAlerts() {
 
   const markAsRead = useCallback(async (id: string) => {
     const now = new Date().toISOString();
-    await db.from("campaign_alerts").update({ read_at: now }).eq("id", id);
+    await supabase.from("campaign_alerts").update({ read_at: now }).eq("id", id);
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, read_at: now } : a));
   }, []);
 
   const markAllRead = useCallback(async () => {
     if (!workspaceId) return;
     const now = new Date().toISOString();
-    await db
+    await supabase
       .from("campaign_alerts")
       .update({ read_at: now })
       .eq("workspace_id", workspaceId)

@@ -34,8 +34,6 @@ const EMPTY_FORM = {
   department_id: "",
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 const SECTION_STYLE: React.CSSProperties = {
   border:       "1px solid #1a2e1f",
@@ -62,12 +60,12 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [agentsRes, deptsRes] = await Promise.all([
-      db.from("ai_agents")
+      supabase.from("ai_agents")
         .select("*")
         .eq("workspace_id", workspaceId)
         .order("is_triage", { ascending: false })
         .order("created_at", { ascending: true }),
-      db.from("departments")
+      supabase.from("departments")
         .select("*")
         .eq("workspace_id", workspaceId)
         .order("order_index", { ascending: true }),
@@ -135,7 +133,7 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
     setSaving(true);
     try {
       if (form.is_triage && existingTriage) {
-        await db.from("ai_agents").update({ is_triage: false }).eq("id", existingTriage.id);
+        await supabase.from("ai_agents").update({ is_triage: false }).eq("id", existingTriage.id);
       }
       const payload = {
         name:          form.name.trim(),
@@ -146,11 +144,11 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
         ...(editingId ? {} : { is_active: !form.is_triage }),
       };
       if (editingId) {
-        const { error } = await db.from("ai_agents").update(payload).eq("id", editingId);
+        const { error } = await supabase.from("ai_agents").update(payload).eq("id", editingId);
         if (error) throw error;
         toast({ title: "Agente atualizado" });
       } else {
-        const { error } = await db.from("ai_agents").insert({ workspace_id: workspaceId, ...payload });
+        const { error } = await supabase.from("ai_agents").insert({ workspace_id: workspaceId, ...payload });
         if (error) throw error;
         toast({ title: form.is_triage ? "Agente de triagem criado (inativo por padrão)" : "Agente criado" });
       }
@@ -166,7 +164,7 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
 
   async function handleDelete(id: string) {
     setDeletingId(id);
-    const { error } = await db.from("ai_agents").delete().eq("id", id);
+    const { error } = await supabase.from("ai_agents").delete().eq("id", id);
     if (error) {
       toast({ title: "Erro ao excluir agente", description: error.message, variant: "destructive" });
     } else {
@@ -178,7 +176,7 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
 
   async function toggleActive(agent: AIAgent) {
     setTogglingId(agent.id);
-    const { error } = await db.from("ai_agents").update({ is_active: !agent.is_active }).eq("id", agent.id);
+    const { error } = await supabase.from("ai_agents").update({ is_active: !agent.is_active }).eq("id", agent.id);
     if (error) {
       toast({ title: "Erro ao alterar status", description: error.message, variant: "destructive" });
     } else {
