@@ -13,6 +13,7 @@ import { ContactFormModal } from "./ContactFormModal";
 import { InvoiceFormModal } from "./InvoiceFormModal";
 import { ContactHistory } from "./ContactHistory";
 import type { Invoice } from "./InvoiceFormModal";
+import { initials, formatBRL, formatDate } from "@/lib/format";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -44,8 +45,6 @@ export interface Contact {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export const TAG_PALETTE = [
   { bg: "rgba(63,176,108,0.12)",  text: "#3fb06c", border: "rgba(63,176,108,0.3)"  },
@@ -62,21 +61,9 @@ export function tagColor(tag: string) {
   return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length];
 }
 
-function initials(name: string | null) {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-export const formatBRL = (v: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-
-export const formatDate = (d: string | null) => {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
-};
+// Reexportados de @/lib/format para não quebrar quem já importa daqui
+// (Contacts.tsx). Em código novo, importar direto de @/lib/format.
+export { formatBRL, formatDate } from "@/lib/format";
 
 const INVOICE_STATUS: Record<string, { label: string; bg: string; text: string; border: string }> = {
   pendente:  { label: "Pendente",  bg: "rgba(245,158,11,0.12)", text: "#fbbf24", border: "rgba(245,158,11,0.3)"  },
@@ -181,7 +168,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
 
   const loadInvoices = () => {
     setInvLoading(true);
-    db.from("contact_invoices")
+    supabase.from("contact_invoices")
       .select("*")
       .eq("contact_id", contact.id)
       .order("vencimento", { ascending: false })
@@ -214,7 +201,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
   useEffect(() => {
     if (tab !== "historico" || histTab !== "disparos" || !contact.phone) return;
     setShootingLoading(true);
-    db.from("shooting_messages")
+    supabase.from("shooting_messages")
       .select("id, status, sent_at, delivered_at, read_at, error_message, shooting_campaigns(name)")
       .eq("phone", contact.phone)
       .eq("workspace_id", workspaceId)
@@ -338,7 +325,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
       y = drawTable(doc,
         ["Valor (R$)", "Vencimento", "NF / Ref.", "Status"],
         invoices.map((inv) => [
-          new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(inv.valor),
+          formatBRL(inv.valor),
           formatDate(inv.vencimento),
           inv.numero_nf ?? "—",
           STATUS_PT[inv.status] ?? inv.status,
@@ -350,7 +337,7 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
       const totalPend = invoices.filter((i) => i.status === "pendente").reduce((s, i) => s + i.valor, 0);
       const totalVenc = invoices.filter((i) => i.status === "vencido").reduce((s,  i) => s + i.valor, 0);
       const totalPago = invoices.filter((i) => i.status === "pago").reduce((s,    i) => s + i.valor, 0);
-      const fmt = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+      const fmt = formatBRL;
       y = drawSection(doc, "Resumo", y);
       y = drawKVRows(doc, [
         ["A receber",  fmt(totalPend)],

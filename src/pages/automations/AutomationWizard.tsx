@@ -12,6 +12,7 @@ import { useZApiConnections } from "@/hooks/useZApiConnections";
 import { useMetaConnections } from "@/hooks/useMetaConnection";
 import { Topbar } from "@/components/layout/Topbar";
 import type { AutomationChannel, TemplateMode, TriggerDraft, RecipientDraft } from "@/types/automations";
+import { formatBRLOrDash } from "@/lib/format";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -71,10 +72,6 @@ function trigLabel(offset: number): string {
   return `${offset} dias depois`;
 }
 
-function fmtBRL(v: number | null) {
-  if (!v) return "-";
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
 
 // ── Step bar ──────────────────────────────────────────────────────────────────
 
@@ -365,12 +362,11 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
     () => new Set(s.selectedRecipients.map((r) => r.invoice_id ?? r.contact_id))
   );
   const [expanded,     setExpanded]     = useState<string | null>(null);
-  const db = supabase as any;
 
   const fetchRows = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true);
-    const { data } = await db
+    const { data } = await supabase
       .from("inbox_contacts")
       .select("id, name, phone, contact_invoices(id, valor, vencimento, status, numero_nf, codigo_barras)")
       .eq("workspace_id", workspaceId)
@@ -676,7 +672,7 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
                     {fmtVenc(nearVenc)}
                   </p>
 
-                  <p className="text-xs font-semibold text-agro-text text-right">{fmtBRL(totalValor)}</p>
+                  <p className="text-xs font-semibold text-agro-text text-right">{formatBRLOrDash(totalValor)}</p>
 
                   {isMulti ? (
                     <p className="text-[10px] text-right font-semibold" style={{ color: selCount > 0 ? "#fbbf24" : "#5a7a66" }}>
@@ -760,7 +756,7 @@ function Step3({ s, patch, workspaceId }: { s: WState; patch: (p: Partial<WState
                                   textDecoration: invSel ? "none"    : "line-through",
                                   opacity:        invSel ? 1         : 0.45,
                                 }}>
-                                {fmtBRL(inv.valor)}
+                                {formatBRLOrDash(inv.valor)}
                               </span>
                             )}
                           </button>
@@ -834,7 +830,7 @@ function Step4({ s, onSave, saving }: { s: WState; onSave: (st: "draft"|"active"
                 style={{ background: "rgba(0,0,0,0.15)", border: "1px solid rgba(63,176,108,0.06)" }}>
                 <span className="font-semibold text-agro-text truncate flex-1">{r.contact_name}</span>
                 <span className="text-agro-muted-2 shrink-0">{r.vencimento.slice(8,10)}/{r.vencimento.slice(5,7)}</span>
-                <span className="text-agro-text shrink-0">{fmtBRL(r.valor)}</span>
+                <span className="text-agro-text shrink-0">{formatBRLOrDash(r.valor)}</span>
               </div>
             ))}
             {s.selectedRecipients.length > 50 && (
@@ -870,7 +866,6 @@ export function AutomationWizard() {
   const { toast }       = useToast();
   const { workspaceId } = useAuth();
   const wsId            = workspaceId ?? "";
-  const db              = supabase as any;
 
   const [s,       setS]       = useState<WState>(INIT);
   const [saving,  setSaving]  = useState(false);
@@ -885,9 +880,9 @@ export function AutomationWizard() {
   useEffect(() => {
     if (!ruleId || !wsId) { setLoading(false); return; }
     Promise.all([
-      db.from("automation_rules").select("*").eq("id", ruleId).single(),
-      db.from("automation_triggers").select("*").eq("rule_id", ruleId).order("day_offset"),
-      db.from("automation_recipients").select("*").eq("rule_id", ruleId).eq("removed", false),
+      supabase.from("automation_rules").select("*").eq("id", ruleId).single(),
+      supabase.from("automation_triggers").select("*").eq("rule_id", ruleId).order("day_offset"),
+      supabase.from("automation_recipients").select("*").eq("rule_id", ruleId).eq("removed", false),
     ]).then(([ruleRes, trigRes, recRes]: any[]) => {
       if (ruleRes.error || !ruleRes.data) { navigate("/automations"); return; }
       const rule = ruleRes.data;
@@ -941,18 +936,18 @@ export function AutomationWizard() {
 
       if (ruleId) {
         // Edit mode: preserve sent_count (it reflects real dispatch history)
-        const { error } = await db.from("automation_rules").update(basePayload).eq("id", ruleId);
+        const { error } = await supabase.from("automation_rules").update(basePayload).eq("id", ruleId);
         if (error) throw error;
-        await db.from("automation_triggers").delete().eq("rule_id", ruleId);
-        await db.from("automation_recipients").delete().eq("rule_id", ruleId);
+        await supabase.from("automation_triggers").delete().eq("rule_id", ruleId);
+        await supabase.from("automation_recipients").delete().eq("rule_id", ruleId);
       } else {
-        const { data, error } = await db.from("automation_rules").insert({ ...basePayload, sent_count: 0 }).select("id").single();
+        const { data, error } = await supabase.from("automation_rules").insert({ ...basePayload, sent_count: 0 }).select("id").single();
         if (error || !data) throw error ?? new Error("Erro ao criar regua");
         savedId = data.id;
       }
 
       if (s.triggers.length > 0) {
-        const { error } = await db.from("automation_triggers").insert(
+        const { error } = await supabase.from("automation_triggers").insert(
           s.triggers.map((t) => ({
             rule_id: savedId, workspace_id: wsId, day_offset: t.day_offset, label: t.label,
             channel: t.channel, z_api_connection_id: t.z_api_connection_id || null,
@@ -965,7 +960,7 @@ export function AutomationWizard() {
       }
 
       for (let i = 0; i < s.selectedRecipients.length; i += 100) {
-        const { error } = await db.from("automation_recipients").insert(
+        const { error } = await supabase.from("automation_recipients").insert(
           s.selectedRecipients.slice(i, i + 100).map((r) => ({
             rule_id: savedId, workspace_id: wsId, contact_id: r.contact_id, invoice_id: r.invoice_id,
             contact_name: r.contact_name, contact_phone: r.contact_phone, vencimento: r.vencimento,
@@ -975,7 +970,7 @@ export function AutomationWizard() {
         if (error) throw error;
       }
 
-      await db.from("automation_rules").update({ total_recipients: s.selectedRecipients.length }).eq("id", savedId);
+      await supabase.from("automation_rules").update({ total_recipients: s.selectedRecipients.length }).eq("id", savedId);
       toast({ title: status === "active" ? "Regua ativada!" : "Rascunho salvo", variant: "success" });
       navigate(`/automations/${savedId}`);
     } catch (err) {

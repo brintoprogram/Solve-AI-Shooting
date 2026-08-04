@@ -9,30 +9,9 @@
 //   media_filename   string? — nome do arquivo (para documents)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decrypt } from "../_shared/crypto.ts";
+import { maskPhone } from "../_shared/logger.ts";
 
-// AES-256-GCM decrypt (inlined — MCP bundler can't resolve cross-function _shared imports)
-const ENC_PREFIX = "enc:v1:";
-function hexToBytes(hex: string): Uint8Array {
-  const b = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) b[i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  return b;
-}
-async function getKey(): Promise<CryptoKey> {
-  const h = Deno.env.get("ENCRYPTION_KEY") ?? "";
-  if (h.length !== 64) throw new Error("ENCRYPTION_KEY must be a 64-char hex string");
-  return crypto.subtle.importKey("raw", hexToBytes(h), "AES-GCM", false, ["encrypt", "decrypt"]);
-}
-async function decrypt(value: string): Promise<string> {
-  if (!value.startsWith(ENC_PREFIX)) return value;
-  const rest = value.slice(ENC_PREFIX.length);
-  const col = rest.indexOf(":");
-  if (col === -1) throw new Error("Invalid encrypted token format");
-  const iv = hexToBytes(rest.slice(0, col));
-  const ct = Uint8Array.from(atob(rest.slice(col + 1)), (c) => c.charCodeAt(0));
-  const key = await getKey();
-  const dec = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return new TextDecoder().decode(dec);
-}
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -171,7 +150,7 @@ async function handleRequest(req: Request, json: JsonFn): Promise<Response> {
 
   const wamid = (metaBody.messages as Array<{ id: string }>)?.[0]?.id ?? null;
   if (!wamid) console.warn("[send] Meta não retornou wamid:", JSON.stringify(metaBody));
-  else        console.log(`[send] ✓ Meta → ${contact.phone} wamid=${wamid}`);
+  else        console.log(`[send] ✓ Meta → ${maskPhone(contact.phone)} wamid=${wamid}`);
 
   // ── 5. Save outbound message ──────────────────────────────────
   const { data: inserted, error: insertErr } = await supabase.from("inbox_messages").insert({

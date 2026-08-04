@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatBRLCompact } from "@/lib/format";
 import {
   Send, Users, MessageSquare, Zap, Clock, DollarSign,
   Download, FileText, Loader2, Sun, Moon,
@@ -10,7 +11,7 @@ import autoTable from "jspdf-autotable";
 import { format, subDays } from "date-fns";
 import { Topbar } from "@/components/layout/Topbar";
 import {
-  useDashboardMetrics, fmtCount, fmtTime, fmtBRL,
+  useDashboardMetrics, fmtCount, fmtTime,
   periodRangeLabel,
   type DashboardDateRange,
 } from "@/hooks/useDashboardMetrics";
@@ -20,8 +21,6 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 // ── Period options ────────────────────────────────────────────────
 const DATE_OPTS: { id: DashboardDateRange; label: string }[] = [
@@ -88,7 +87,7 @@ const LIGHT_THEME: Theme = {
 
 // ── Fetch campaign list for exports ──────────────────────────────
 async function fetchCampaignsForExport(workspaceId: string, periodStart: string | null) {
-  let q = db
+  let q = supabase
     .from("shooting_campaigns")
     .select(
       "name, status, dispatch_channel, total_recipients, sent_count, delivered_count, " +
@@ -360,7 +359,7 @@ export function Dashboard() {
       const cw2 = (totalW - 4) / 2;
       const extraCards = [
         { label: "Economia de tempo",    value: fmtTime(metrics.timeSavedMinutes),                     color: [245, 158, 11]  as [number,number,number] },
-        { label: "Valor disparado (R$)", value: metrics.valueDispatched > 0 ? fmtBRL(metrics.valueDispatched) : "—", color: [52, 211, 153] as [number,number,number] },
+        { label: "Valor disparado (R$)", value: metrics.valueDispatched > 0 ? formatBRLCompact(metrics.valueDispatched) : "—", color: [52, 211, 153] as [number,number,number] },
       ];
       extraCards.forEach((card, i) => {
         metricBox(card.label, card.value, card.color, MX + i * (cw2 + 4), y, cw2, bh);
@@ -593,7 +592,7 @@ export function Dashboard() {
             ) : (
               <>
                 <p className="font-display text-3xl font-bold text-agro-text" style={{ color: T.text }}>
-                  {metrics.valueDispatched > 0 ? fmtBRL(metrics.valueDispatched) : "—"}
+                  {metrics.valueDispatched > 0 ? formatBRLCompact(metrics.valueDispatched) : "—"}
                 </p>
                 <p className="text-sm text-agro-muted mt-1" style={{ color: T.muted }}>Valor disparado</p>
                 <p className="text-xs text-agro-muted-2 mt-2 leading-relaxed" style={{ color: T.muted2 }}>

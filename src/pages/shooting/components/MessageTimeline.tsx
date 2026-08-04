@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { Send, CheckCheck, Eye, MessageCircle, XCircle, Clock } from "lucide-react";
 import type { ShootingMessage } from "@/types/shooting";
+import { formatBRL } from "@/lib/format";
 
 interface MessageTimelineProps {
   message: ShootingMessage;
@@ -174,7 +175,7 @@ export function MessageTimeline({ message, onRetry }: MessageTimelineProps) {
                 const dueStr = inv.vencimento
                   ? (() => { const [y,m,d] = inv.vencimento!.split("-"); return `${d}/${m}/${y}`; })()
                   : "—";
-                const valor = Number(inv.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+                const valor = formatBRL(Number(inv.valor));
                 return (
                   <div key={i}
                     className="flex items-center gap-2 px-3 py-2"

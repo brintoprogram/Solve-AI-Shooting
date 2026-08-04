@@ -3,8 +3,6 @@ import { startOfMonth, subDays, format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 export type DashboardDateRange = "7d" | "30d" | "90d" | "all";
 
@@ -78,7 +76,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
       ] = await Promise.all([
         // ── Total de campanhas (filtrado pelo período se ativo) ───────
         (() => {
-          let q = db.from("shooting_campaigns")
+          let q = supabase.from("shooting_campaigns")
             .select("*", { count: "exact", head: true })
             .eq("workspace_id", workspaceId);
           if (periodStart) q = q.gte("created_at", periodStart);
@@ -86,14 +84,14 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         })(),
 
         // ── Delta de campanhas ────────────────────────────────────────
-        db.from("shooting_campaigns")
+        supabase.from("shooting_campaigns")
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
           .gte("created_at", deltaStart),
 
         // ── Total de mensagens enviadas ───────────────────────────────
         (() => {
-          let q = db.from("shooting_messages")
+          let q = supabase.from("shooting_messages")
             .select("*", { count: "exact", head: true })
             .eq("workspace_id", workspaceId)
             .in("status", [...SENT_STATUSES, "failed"]);
@@ -102,7 +100,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         })(),
 
         // ── Delta de mensagens ────────────────────────────────────────
-        db.from("shooting_messages")
+        supabase.from("shooting_messages")
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
           .in("status", [...SENT_STATUSES, "failed"])
@@ -110,7 +108,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
 
         // ── Total de contatos no Inbox ────────────────────────────────
         (() => {
-          let q = db.from("inbox_contacts")
+          let q = supabase.from("inbox_contacts")
             .select("*", { count: "exact", head: true })
             .eq("workspace_id", workspaceId);
           if (periodStart) q = q.gte("first_seen_at", periodStart);
@@ -118,14 +116,14 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         })(),
 
         // ── Delta de contatos ─────────────────────────────────────────
-        db.from("inbox_contacts")
+        supabase.from("inbox_contacts")
           .select("*", { count: "exact", head: true })
           .eq("workspace_id", workspaceId)
           .gte("first_seen_at", deltaStart),
 
         // ── Agg de campanhas (entrega + tempo de automação) ───────────
         (() => {
-          let q = db.from("shooting_campaigns")
+          let q = supabase.from("shooting_campaigns")
             .select("sent_count, delivered_count, dispatch_channel, total_recipients, started_at, completed_at")
             .eq("workspace_id", workspaceId)
             .not("started_at", "is", null);
@@ -135,7 +133,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
 
         // ── Valor disparado ───────────────────────────────────────────
         (() => {
-          let q = db.from("shooting_messages")
+          let q = supabase.from("shooting_messages")
             .select("recipient_data")
             .eq("workspace_id", workspaceId)
             .in("status", SENT_STATUSES);
@@ -144,7 +142,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         })(),
 
         // ── Dados do gráfico de área ──────────────────────────────────
-        db.from("shooting_messages")
+        supabase.from("shooting_messages")
           .select("sent_at, read_at")
           .eq("workspace_id", workspaceId)
           .in("status", SENT_STATUSES)
@@ -263,9 +261,6 @@ export function fmtTime(minutes: number): string {
 }
 
 /** Formata valor monetário → "R$ 127.540,00" */
-export function fmtBRL(n: number): string {
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-}
 
 /** Label legível para o período */
 export function periodRangeLabel(dateRange: DashboardDateRange): string {

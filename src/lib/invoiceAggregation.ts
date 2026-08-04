@@ -1,3 +1,5 @@
+import { formatBRL } from "@/lib/format";
+
 export interface InvoiceRaw {
   id:            string;
   valor:         number;
@@ -47,7 +49,7 @@ export function aggregateInvoices(
   const total      = invoices.reduce((sum, inv) => sum + (Number(inv.valor) || 0), 0);
   const mostUrgent = sorted[0];
 
-  const valorFormatado = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const valorFormatado = formatBRL(total);
 
   let vencimentoFormatado = "";
   if (mostUrgent.vencimento) {

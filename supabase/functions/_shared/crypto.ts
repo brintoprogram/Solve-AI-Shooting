@@ -8,8 +8,11 @@
 
 const ENC_PREFIX = "enc:v1:";
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
+// O ArrayBuffer é alocado explicitamente para que o tipo seja
+// Uint8Array<ArrayBuffer> e não Uint8Array<ArrayBufferLike>: sem isso o
+// `deno check` recusa passar o valor para crypto.subtle, que espera BufferSource.
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(new ArrayBuffer(hex.length / 2));
   for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
   return bytes;
 }

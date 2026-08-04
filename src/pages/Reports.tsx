@@ -12,9 +12,8 @@ import { Topbar } from "@/components/layout/Topbar";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { formatBRL } from "@/lib/format";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
 
 type MainTab    = "campaigns" | "inbox" | "audit";
 type DateRange  = "7d" | "30d" | "90d" | "all";
@@ -143,7 +142,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    let q = db
+    let q = supabase
       .from("shooting_campaigns")
       .select("id,name,status,dispatch_channel,total_recipients,sent_count,delivered_count,read_count,replied_count,failed_count,created_at,started_at,completed_at,meta_templates(template_name)")
       .eq("workspace_id", workspaceId)
@@ -238,7 +237,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
       let waRows: Record<string, any>[] = [];
       if (waCampIds.length > 0) {
         const msgs = await fetchAll(
-          db.from("shooting_messages")
+          supabase.from("shooting_messages")
             .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,created_at,sent_at,delivered_at,read_at")
             .in("campaign_id", waCampIds)
             .order("campaign_id,created_at", { ascending: true }),
@@ -266,7 +265,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
       const n8nCampIds = target.filter((c) => isEmailCamp(c)).map((c) => c.id);
       if (n8nCampIds.length > 0) {
         const msgs = await fetchAll(
-          db.from("shooting_messages")
+          supabase.from("shooting_messages")
             .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,created_at")
             .in("campaign_id", n8nCampIds)
             .order("campaign_id,created_at", { ascending: true }),
@@ -375,7 +374,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         error_message:  string | null;
         sent_at:        string | null;
       }
-      let msgQuery = db.from("shooting_messages")
+      let msgQuery = supabase.from("shooting_messages")
         .select("campaign_id,recipient_name,recipient_phone,recipient_data,status,error_message,sent_at")
         .in("campaign_id", ids)
         .order("sent_at", { ascending: true, nullsFirst: false });
@@ -624,7 +623,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...DARK);
         doc.text(
-          `Valor total consolidado: ${aggTotalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`,
+          `Valor total consolidado: ${formatBRL(aggTotalValue)}`,
           MX, y,
         );
         y += 10;
@@ -792,7 +791,7 @@ function CampaignReport({ workspaceId }: { workspaceId: string }) {
         delivered_at:    string | null;
       }
       const allDelivered: DeliveredMsg[] = await fetchAll(
-        db.from("shooting_messages")
+        supabase.from("shooting_messages")
           .select("campaign_id,recipient_name,recipient_phone,status,delivered_at")
           .in("campaign_id", ids)
           .in("status", ["delivered", "read", "replied"])
@@ -1260,7 +1259,7 @@ function AuditLogViewer({ workspaceId }: { workspaceId: string }) {
 
   const load = useCallback(async (pg: number, append: boolean) => {
     setLoading(true);
-    let q = db
+    let q = supabase
       .from("audit_logs")
       .select("id,event_type,entity_type,entity_id,status,error,metadata,created_at")
       .eq("workspace_id", workspaceId)
@@ -1489,7 +1488,7 @@ function InboxReport({ workspaceId }: { workspaceId: string }) {
     const since = range === "all" ? null
       : startOfDay(subDays(new Date(), parseInt(range))).toISOString();
 
-    let q = db
+    let q = supabase
       .from("inbox_conversations")
       .select("id, status, department_id, assigned_to, created_at, updated_at, departments(name, color)")
       .eq("workspace_id", workspaceId)
@@ -1502,7 +1501,7 @@ function InboxReport({ workspaceId }: { workspaceId: string }) {
 
     const ids = [...new Set(rows.filter(c => c.assigned_to).map(c => c.assigned_to as string))];
     if (ids.length) {
-      const { data: p } = await db.from("user_profiles").select("id, full_name").in("id", ids);
+      const { data: p } = await supabase.from("user_profiles").select("id, full_name").in("id", ids);
       setAgents(p ?? []);
     } else {
       setAgents([]);
