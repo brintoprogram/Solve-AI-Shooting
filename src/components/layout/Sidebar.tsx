@@ -16,6 +16,7 @@ import {
   LifeBuoy,
   Bot,
   ChevronsUpDown,
+  Rocket,
   Check,
   Sparkles,
   Handshake,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
 import type { PermissionKey } from "@/context/AuthContext";
 import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
+import { useSetupChecklist } from "@/hooks/useSetupChecklist";
 
 interface NavItem {
   to: string;
@@ -34,6 +36,7 @@ interface NavItem {
 }
 
 const BASE_NAV: NavItem[] = [
+  { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
   { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
   { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
   { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
@@ -65,6 +68,7 @@ function isAllowed(profile: ReturnType<typeof useAuth>["profile"], item: NavItem
 export function Sidebar() {
   const { profile, signOut, workspaces, workspaceId, switchWorkspace } = useAuth();
   const { unreadCount } = useCampaignAlerts();
+  const { blockersLeft, doneCount, totalCount } = useSetupChecklist(workspaceId ?? undefined);
   const navigate = useNavigate();
   const [wsOpen, setWsOpen] = useState(false);
 
@@ -196,6 +200,17 @@ export function Sidebar() {
                   {isActive && item.to !== "/alerts" && (
                     <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
                   )}
+                  {item.to === "/primeiros-passos" && doneCount < totalCount && (
+                    <span
+                      className="ml-auto min-w-[18px] h-[18px] rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0"
+                      style={{ background: blockersLeft > 0 ? "#ef4444" : "rgba(63,176,108,0.8)" }}
+                      title={blockersLeft > 0
+                        ? `${blockersLeft} item essencial pendente`
+                        : `${totalCount - doneCount} item opcional pendente`}
+                    >
+                      {blockersLeft > 0 ? blockersLeft : totalCount - doneCount}
+                    </span>
+                  )}
                   {item.to === "/alerts" && unreadCount > 0 && (
                     <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
                       {unreadCount > 99 ? "99+" : unreadCount}
@@ -208,7 +223,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Demo shortcut — always visible for quick access during client calls */}
+      {/* Atalho da demo — só no workspace de demonstração. Antes aparecia em
+          todos, inclusive nos dos clientes, onde não faz sentido nenhum.
+          Usa o mesmo `isDemo` que já controla a tarja "Ambiente de
+          Demonstração" no topo, para os dois nunca divergirem. */}
+      {isDemo && (
       <div className="px-3 pb-2">
         <NavLink
           to="/agents/demo"
@@ -234,6 +253,7 @@ export function Sidebar() {
           </span>
         </NavLink>
       </div>
+      )}
 
       {/* Workspace switcher — only when user belongs to multiple workspaces */}
       {workspaces.length > 1 && (

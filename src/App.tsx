@@ -33,6 +33,7 @@ import { NegotiationPortal } from "@/pages/NegotiationPortal";
 import { Negotiations } from "@/pages/Negotiations";
 import { NegotiationDetail } from "@/pages/negotiations/NegotiationDetail";
 import { NegotiationRulesPage } from "@/pages/negotiations/NegotiationRulesPage";
+import { SetupGuide } from "@/pages/SetupGuide";
 
 // ── Error boundary — shows error message instead of blank screen ──
 class ErrorBoundary extends Component<
@@ -154,6 +155,7 @@ function AppRoutes() {
         <Route path="/settings"               element={<PR permission="can_settings" feature="Configurações"><Settings /></PR>} />
         <Route path="/contacts"               element={<PR permission="can_manage_contacts" feature="Contatos"><Contacts /></PR>} />
         <Route path="/inbox"                  element={<PR permission="can_inbox" feature="Inbox"><Inbox /></PR>} />
+        <Route path="/primeiros-passos"       element={<SetupGuide />} />
         <Route path="/negotiations"           element={<PR permission="can_negotiations" feature="Negociações"><Negotiations /></PR>} />
         <Route path="/negotiations/rules"     element={<PR permission="can_settings" feature="Regras de Negociação"><NegotiationRulesPage /></PR>} />
         <Route path="/negotiations/:id"       element={<PR permission="can_negotiations" feature="Negociação"><NegotiationDetail /></PR>} />

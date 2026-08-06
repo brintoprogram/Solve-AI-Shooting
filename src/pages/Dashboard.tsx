@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { formatBRLCompact } from "@/lib/format";
+import { SetupProgressCard } from "@/pages/SetupGuide";
+import { useSetupChecklist } from "@/hooks/useSetupChecklist";
 import {
   Send, Users, MessageSquare, Zap, Clock, DollarSign,
   Download, FileText, Loader2, Sun, Moon,
@@ -166,6 +168,19 @@ function StatCard({
 export function Dashboard() {
   const navigate = useNavigate();
   const { workspaceId } = useAuth();
+
+  // Workspace recém-criado (sem canal e sem contatos) vai direto para o guia.
+  // Só na primeira vez: depois de visto, o usuário navega livre e acompanha
+  // pelo card abaixo ou pelo item "Primeiros passos" da sidebar.
+  const { isFresh } = useSetupChecklist(workspaceId ?? undefined);
+  useEffect(() => {
+    if (!isFresh) return;
+    try {
+      if (localStorage.getItem("setup_guide_seen") === "true") return;
+      localStorage.setItem("setup_guide_seen", "true");
+    } catch { /* modo privado: mostra o guia mesmo assim */ }
+    navigate("/primeiros-passos", { replace: true });
+  }, [isFresh, navigate]);
 
   const [dateRange,     setDateRange]     = useState<DashboardDateRange>("all");
   const [exportingXlsx, setExportingXlsx] = useState(false);
@@ -469,6 +484,8 @@ export function Dashboard() {
       <Topbar breadcrumbs={[{ label: "Dashboard" }]} />
 
       <div className="max-w-6xl mx-auto px-6 py-8">
+        <SetupProgressCard />
+
         {/* ── Welcome + controls ────────────────────── */}
         <div className="flex items-start justify-between mb-6 animate-fade-up flex-wrap gap-4">
           <div>
