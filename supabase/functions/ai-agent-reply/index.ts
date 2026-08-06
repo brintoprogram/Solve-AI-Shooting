@@ -18,6 +18,12 @@ const supabase = createClient(
 
 const META_API = "https://graph.facebook.com/v25.0";
 
+// Freios de custo, ajustaveis por secret sem novo deploy.
+// Cooldown: segundos minimos entre duas respostas da IA na MESMA conversa.
+const AI_REPLY_COOLDOWN_SECONDS = Number(Deno.env.get("AI_REPLY_COOLDOWN_SECONDS") ?? "8");
+// Teto por conversa por hora: rede de seguranca contra loop ou flood.
+const AI_REPLY_MAX_PER_HOUR     = Number(Deno.env.get("AI_REPLY_MAX_PER_HOUR") ?? "30");
+
 const TYPE_LABELS: Record<string, string> = {
   image: "[Imagem]", audio: "[Áudio]", video: "[Vídeo]",
   document: "[Documento]", sticker: "[Sticker]",
@@ -317,6 +323,41 @@ Deno.serve(async (req: Request) => {
     if (activeNeg) {
       log.info("ai_paused_negotiation_escalated", { conversation_id, negotiation_id: activeNeg.id, status: activeNeg.status });
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: "negotiation_escalated" }), { status: 200 });
+    }
+
+    // ── Proteção de custo ────────────────────────────────────────
+    // Cada mensagem recebida virava UMA chamada de LLM, sem qualquer freio.
+    // Um cliente irritado (ou um bot) mandando 500 mensagens gerava 500
+    // chamadas pagas — e, a partir de out/2026, 500 respostas cobradas
+    // também pela Meta.
+    //
+    // Os dois limites saem do próprio inbox_messages: não precisa de tabela
+    // nova e o dado é a verdade do que já foi respondido.
+    const { data: recentReplies } = await supabase
+      .from("inbox_messages")
+      .select("created_at")
+      .eq("conversation_id", conversation_id)
+      .eq("direction", "outbound")
+      .like("sent_by", "ai_agent:%")
+      .gte("created_at", new Date(Date.now() - 3600_000).toISOString())
+      .order("created_at", { ascending: false });
+
+    const replies = recentReplies ?? [];
+
+    // 1) Cooldown: agrupa rajadas. Quem manda 3 mensagens seguidas recebe uma
+    //    resposta só, que já enxerga as três no transcript.
+    if (replies.length > 0) {
+      const secondsSinceLast = (Date.now() - new Date(replies[0].created_at as string).getTime()) / 1000;
+      if (secondsSinceLast < AI_REPLY_COOLDOWN_SECONDS) {
+        log.info("ai_reply_cooldown", { conversation_id, seconds_since_last: Math.round(secondsSinceLast) });
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: "cooldown" }), { status: 200 });
+      }
+    }
+
+    // 2) Teto por hora: rede de segurança contra loop ou flood sustentado.
+    if (replies.length >= AI_REPLY_MAX_PER_HOUR) {
+      log.warn("ai_reply_hourly_cap", { conversation_id, replies_last_hour: replies.length });
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: "hourly_cap" }), { status: 200 });
     }
 
     // Negociação ativa (proposta em andamento) → delega para o motor de negociação
