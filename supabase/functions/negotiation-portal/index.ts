@@ -10,6 +10,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 import { sendWhatsAppText } from "../_shared/whatsapp.ts";
+import { checkRateLimit, bucketHash } from "../_shared/ratelimit.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -33,6 +34,8 @@ async function sha256Hex(text: string): Promise<string> {
 
 const META_API = "https://graph.facebook.com/v25.0";
 const MAX_ATTEMPTS = 5;
+// Um cliente real faz poucas acoes: verificar, ver, aceitar. 15/min e folga.
+const PORTAL_LIMIT_PER_MINUTE = 15;
 
 // ── Rules + validation (duplicated from negotiation-agent on purpose — see plan notes
 // on cross-function imports not being reliable through the MCP deploy path) ──────────
@@ -144,6 +147,15 @@ Deno.serve(async (req: Request) => {
   const cpfLastDigits = ((body.cpf_last_digits as string) ?? "").replace(/\D/g, "");
 
   if (!action) return json({ error: "action é obrigatório" }, 400, CORS);
+
+  // Endpoint publico: o lockout de 5 tentativas protege o CPF contra forca
+  // bruta, mas nao limitava o NUMERO de requisicoes — e cada uma grava 2
+  // linhas em audit_logs. Sem teto, isso e um vetor de flood de escrita.
+  // O bucket usa hash do token: o token e segredo e nao pode ser persistido.
+  const rl = await checkRateLimit(supabase, `negportal:${await bucketHash(token)}`, PORTAL_LIMIT_PER_MINUTE, 60);
+  if (!rl.allowed) {
+    return json({ error: "Muitas tentativas seguidas. Aguarde um minuto." }, 429, CORS);
+  }
 
   try {
     const verify = await verifyToken(token, cpfLastDigits);

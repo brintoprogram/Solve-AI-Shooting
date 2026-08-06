@@ -9,6 +9,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 import { requireWorkspaceMember } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/ratelimit.ts";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 
 const supabase = createClient(
@@ -127,6 +128,13 @@ Deno.serve(async (req: Request) => {
 
   const authErr = await requireWorkspaceMember(supabase, req, workspace_id);
   if (authErr) return json({ error: authErr }, 401);
+
+  // Cada verificacao faz uma chamada real ao provedor de IA / a Meta. E botao
+  // manual, entao 10/min por workspace e mais que suficiente e evita spam.
+  const rl = await checkRateLimit(supabase, `validate-config:${workspace_id}`, 10, 60);
+  if (!rl.allowed) {
+    return json({ error: "Muitos testes seguidos. Aguarde um minuto." }, 429);
+  }
 
   const result = check === "ai"   ? await checkAi(workspace_id)
                : check === "meta" ? await checkMeta(workspace_id)
