@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate }                  from "react-router-dom";
-import { Leaf, CheckCircle, AlertCircle, Loader2, ChevronRight, Copy, ChevronDown, ChevronUp } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Leaf, CheckCircle, AlertCircle, Loader2, ChevronRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { log } from "@/lib/logger";
@@ -25,86 +24,10 @@ declare global {
 
 type Step = "idle" | "sdk_loading" | "waiting_user" | "processing" | "success" | "error";
 
-const SQL_MIGRATIONS = [
-  {
-    label: "audit_logs",
-    desc:  "Auditoria de disparos, webhooks, erros e retries",
-    sql: `CREATE TABLE IF NOT EXISTS audit_logs (
-  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-  workspace_id TEXT        NOT NULL,
-  event_type   TEXT        NOT NULL,
-  entity_type  TEXT,
-  entity_id    TEXT,
-  status       TEXT        NOT NULL DEFAULT 'info',
-  error        TEXT,
-  metadata     JSONB,
-  created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace
-  ON audit_logs(workspace_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
-  ON audit_logs(entity_id) WHERE entity_id IS NOT NULL;`,
-  },
-  {
-    label: "wa_status + cleanup_sessions",
-    desc:  "Status WhatsApp nos contatos + histórico de higienização de planilhas",
-    sql: `-- Coluna wa_status nos contatos
-ALTER TABLE inbox_contacts
-  ADD COLUMN IF NOT EXISTS wa_status     TEXT DEFAULT 'unknown',
-  ADD COLUMN IF NOT EXISTS wa_checked_at TIMESTAMPTZ;
-
-CREATE INDEX IF NOT EXISTS idx_inbox_contacts_wa
-  ON inbox_contacts(workspace_id, wa_status);
-
--- Sessões de higienização de planilhas avulsas
-CREATE TABLE IF NOT EXISTS cleanup_sessions (
-  id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-  workspace_id  TEXT        NOT NULL,
-  filename      TEXT        NOT NULL,
-  total         INTEGER     DEFAULT 0,
-  valid         INTEGER     DEFAULT 0,
-  invalid_phone INTEGER     DEFAULT 0,
-  no_phone      INTEGER     DEFAULT 0,
-  landline      INTEGER     DEFAULT 0,
-  wa_valid      INTEGER     DEFAULT 0,
-  wa_invalid    INTEGER     DEFAULT 0,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE cleanup_sessions DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_cleanup_sessions_workspace
-  ON cleanup_sessions(workspace_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS cleanup_session_rows (
-  id            UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-  session_id    UUID        NOT NULL,
-  row_index     INTEGER,
-  row_data      JSONB       NOT NULL,
-  name          TEXT,
-  phone         TEXT,
-  phone_norm    TEXT,
-  phone_problem TEXT        DEFAULT 'ok',
-  wa_status     TEXT        DEFAULT 'unknown',
-  wa_checked_at TIMESTAMPTZ
-);
-
-ALTER TABLE cleanup_session_rows DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_cleanup_rows_session
-  ON cleanup_session_rows(session_id);`,
-  },
-];
-
 export function Onboarding() {
   const navigate              = useNavigate();
-  const { toast }             = useToast();
   const [step, setStep]       = useState<Step>("idle");
   const [errorMsg, setErrorMsg] = useState("");
-  const [sqlOpen, setSqlOpen]   = useState(false);
   const sdkLoaded             = useRef(false);
   const { workspaceId }       = useAuth();
   const WORKSPACE_ID          = workspaceId ?? "";
@@ -407,62 +330,6 @@ export function Onboarding() {
               Cancelar
             </button>
 
-            {/* ── SQL migrations panel ── */}
-            <div>
-              <button
-                onClick={() => setSqlOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors"
-                style={{
-                  color:      "rgba(63,176,108,0.5)",
-                  border:     "1px solid rgba(63,176,108,0.08)",
-                  background: sqlOpen ? "rgba(63,176,108,0.04)" : "transparent",
-                }}
-              >
-                <span>SQL do workspace</span>
-                {sqlOpen
-                  ? <ChevronUp   className="w-3 h-3" />
-                  : <ChevronDown className="w-3 h-3" />
-                }
-              </button>
-
-              {sqlOpen && (
-                <div className="mt-2 space-y-3">
-                  {SQL_MIGRATIONS.map((m) => (
-                    <div
-                      key={m.label}
-                      className="rounded-xl overflow-hidden"
-                      style={{ border: "1px solid rgba(63,176,108,0.1)", background: "rgba(8,16,10,0.8)" }}
-                    >
-                      <div
-                        className="flex items-center justify-between px-3 py-2"
-                        style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
-                      >
-                        <div>
-                          <p className="text-xs font-semibold text-agro-text font-mono">{m.label}</p>
-                          <p className="text-[10px] text-agro-muted mt-0.5">{m.desc}</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(m.sql);
-                            toast({ title: "SQL copiado!" });
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-agro-muted hover:text-agro-text transition-colors shrink-0"
-                          style={{ border: "1px solid rgba(63,176,108,0.15)" }}
-                        >
-                          <Copy className="w-3 h-3" /> Copiar
-                        </button>
-                      </div>
-                      <pre className="text-[10px] font-mono text-agro-muted p-3 overflow-x-auto leading-relaxed">
-                        {m.sql}
-                      </pre>
-                    </div>
-                  ))}
-                  <p className="text-[10px] text-agro-muted-2 text-center">
-                    Execute no SQL Editor do Supabase antes de iniciar os disparos.
-                  </p>
-                </div>
-              )}
-            </div>
           </>
         )}
 

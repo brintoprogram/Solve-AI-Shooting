@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   RefreshCw, CheckCircle, XCircle, Copy, Wifi, Settings2,
-  Terminal, ExternalLink, ChevronDown, ChevronUp, User, Shield,
+  ExternalLink, User, Shield,
   Mail, Trash2, Send, LogIn, Zap, Camera, Check, Loader2,
-  QrCode, Smartphone, Plus, Pencil, LayoutTemplate, GitBranch, Rocket, Sparkles, KeyRound,
+  QrCode, Smartphone, GitBranch, Rocket, Sparkles, KeyRound,
 } from "lucide-react";
 import { ALL_CONTACT_FIELDS } from "@/lib/contactFields";
 import { useContactFields }   from "@/hooks/useContactFields";
@@ -29,7 +29,6 @@ const SUPABASE_REF  = SUPABASE_URL
   : "SEU_PROJECT_REF";
 
 const WEBHOOK_URL           = `https://${SUPABASE_REF}.supabase.co/functions/v1/meta-webhook`;
-const CHATWOOT_VERIFY_TOKEN = "73c0163c89186e2fb98921d14d8d1ec4";
 
 // ── Shared sub-components ─────────────────────────────────────────
 
@@ -67,37 +66,6 @@ function ReadonlyField({ value, onCopy }: { value: string; onCopy: () => void })
       >
         <Copy className="w-4 h-4" />
       </button>
-    </div>
-  );
-}
-
-function CodeBlock({ code, onCopy }: { code: string; onCopy: () => void }) {
-  return (
-    <div
-      className="relative rounded-xl overflow-hidden"
-      style={{ background: "rgba(8,16,10,0.95)", border: "1px solid rgba(63,176,108,0.12)" }}
-    >
-      <pre className="text-xs font-mono text-agro-muted p-4 overflow-x-auto scrollbar-thin leading-relaxed whitespace-pre">
-        {code}
-      </pre>
-      <button
-        onClick={onCopy}
-        className="absolute top-2 right-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium text-agro-muted hover:text-agro-text transition-colors"
-        style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.15)" }}
-      >
-        <Copy className="w-3 h-3" /> Copiar
-      </button>
-    </div>
-  );
-}
-
-function StepBadge({ n }: { n: number }) {
-  return (
-    <div
-      className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
-      style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
-    >
-      {n}
     </div>
   );
 }
@@ -506,7 +474,7 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"avancado"|"disparo"|"demo"|"api"|"setores">("perfil");
+  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"disparo"|"demo"|"api"|"setores">("perfil");
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);
@@ -515,7 +483,6 @@ export function Settings() {
   const [testing,  setTesting]    = useState(false);
   const [saving,   setSaving]     = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; info?: string } | null>(null);
-  const [deployOpen, setDeployOpen] = useState(false);
 
   // ── Profile editing state ─────────────────────────────────────────
   const [profileForm,    setProfileForm]    = useState({ name: "", description: "" });
@@ -938,120 +905,6 @@ export function Settings() {
     RED:    "#f87171",
   };
 
-  const cmd_deploy = `# 1. Instale o CLI e autentique (se ainda não fez)
-npm install -g supabase
-supabase login
-
-# 2. Vincule o projeto (rode na pasta do projeto)
-supabase link --project-ref ${SUPABASE_REF}
-
-# 3. Publique as Edge Functions
-supabase functions deploy meta-webhook
-supabase functions deploy send-inbox-message
-supabase functions deploy campaign-engine
-supabase functions deploy email-engine
-supabase functions deploy test-email-connection
-supabase functions deploy ms-oauth-callback
-supabase functions deploy embedded-signup
-supabase functions deploy invite-user
-supabase functions deploy analyze-reply
-
-# 4. Configure a chave da IA (necessário para alertas de resposta)
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-COLOQUE_SUA_CHAVE_AQUI`;
-
-  const sql_workspaces = `-- Multi-tenant: workspaces, membros e convites
-CREATE TABLE IF NOT EXISTS workspaces (
-  id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name       TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE workspaces DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS workspace_members (
-  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id      UUID NOT NULL,
-  role         TEXT NOT NULL DEFAULT 'agent',
-  created_at   TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (workspace_id, user_id)
-);
-ALTER TABLE workspace_members DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS workspace_invites (
-  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  email        TEXT        NOT NULL,
-  role         TEXT        NOT NULL DEFAULT 'agent',
-  token        TEXT        NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(32), 'hex'),
-  expires_at   TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
-  invited_by   UUID        NOT NULL,
-  accepted_at  TIMESTAMPTZ,
-  created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE workspace_invites DISABLE ROW LEVEL SECURITY;
-CREATE INDEX IF NOT EXISTS idx_workspace_invites_email
-  ON workspace_invites(email, accepted_at) WHERE accepted_at IS NULL;`;
-
-  const sql_audit_logs = `-- Tabela de auditoria estruturada (webhook, disparos, erros, retries)
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
-  workspace_id TEXT        NOT NULL,
-  event_type   TEXT        NOT NULL,
-  entity_type  TEXT,
-  entity_id    TEXT,
-  status       TEXT        NOT NULL DEFAULT 'info',
-  error        TEXT,
-  metadata     JSONB,
-  created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace
-  ON audit_logs(workspace_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
-  ON audit_logs(entity_id) WHERE entity_id IS NOT NULL;`;
-
-  const sql_bucket = `-- Bucket para mídias do Inbox (50 MB por arquivo)
-INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('inbox_media', 'inbox_media', true, 52428800)
-ON CONFLICT (id) DO NOTHING;
-
-DROP POLICY IF EXISTS "inbox_media_select" ON storage.objects;
-CREATE POLICY "inbox_media_select" ON storage.objects
-  FOR SELECT USING (bucket_id = 'inbox_media');
-
-DROP POLICY IF EXISTS "inbox_media_insert" ON storage.objects;
-CREATE POLICY "inbox_media_insert" ON storage.objects
-  FOR INSERT WITH CHECK (bucket_id = 'inbox_media');
-
-DROP POLICY IF EXISTS "inbox_media_delete" ON storage.objects;
-CREATE POLICY "inbox_media_delete" ON storage.objects
-  FOR DELETE USING (bucket_id = 'inbox_media');`;
-
-  const sql_profile = `-- Campos de perfil e bucket de fotos
-ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS avatar_url  TEXT;
-
-INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('avatars', 'avatars', true, 5242880)
-ON CONFLICT (id) DO NOTHING;
-
-DROP POLICY IF EXISTS "avatars_select" ON storage.objects;
-CREATE POLICY "avatars_select" ON storage.objects
-  FOR SELECT USING (bucket_id = 'avatars');
-
-DROP POLICY IF EXISTS "avatars_insert" ON storage.objects;
-CREATE POLICY "avatars_insert" ON storage.objects
-  FOR INSERT WITH CHECK (bucket_id = 'avatars');
-
-DROP POLICY IF EXISTS "avatars_update" ON storage.objects;
-CREATE POLICY "avatars_update" ON storage.objects
-  FOR UPDATE USING (bucket_id = 'avatars');
-
-DROP POLICY IF EXISTS "avatars_delete" ON storage.objects;
-CREATE POLICY "avatars_delete" ON storage.objects
-  FOR DELETE USING (bucket_id = 'avatars');`;
 
   const rs        = profile ? ROLE_STYLE[profile.role]  : null;
   const roleLabel = profile ? ROLE_LABELS[profile.role] : null;
@@ -1061,7 +914,9 @@ CREATE POLICY "avatars_delete" ON storage.objects
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
       <Topbar breadcrumbs={[{ label: "Configurações" }]} />
 
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+      {/* max-w-2xl (672px) espremia tudo numa coluna estreita mesmo em monitor
+          largo. 5xl da respiro sem esticar linha de texto a ponto de cansar. */}
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
 
         {/* ── Header ──────────────────────────── */}
         <div className="animate-fade-up">
@@ -1078,14 +933,20 @@ CREATE POLICY "avatars_delete" ON storage.objects
             { id: "setores",   label: "Setores",   icon: GitBranch     },
             { id: "ia",        label: "IA",        icon: Zap           },
             { id: "disparo",   label: "Disparo",   icon: Rocket        },
-            { id: "avancado",  label: "Avançado",  icon: Terminal      },
             { id: "demo",      label: "Demo",      icon: Sparkles      },
             { id: "api",       label: "API",       icon: KeyRound      },
           ];
           return (
+            /* Antes: overflow-x-auto + "scrollbar-none", classe que nunca
+               existiu no CSS do projeto — so scrollbar-thin existe. Resultado:
+               a barra de rolagem padrao do navegador aparecia cortando as abas.
+               Com flex-wrap elas quebram para a linha de baixo e nao ha o que
+               rolar, em qualquer largura. */
             <div
-              className="flex gap-1 p-1 rounded-2xl overflow-x-auto scrollbar-none"
+              className="flex flex-wrap gap-1 p-1 rounded-2xl"
               style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(63,176,108,0.1)" }}
+              role="tablist"
+              aria-label="Seções de configurações"
             >
               {TABS.map((tab) => {
                 const isActive = settingsTab === tab.id;
@@ -1093,7 +954,9 @@ CREATE POLICY "avatars_delete" ON storage.objects
                   <button
                     key={tab.id}
                     onClick={() => setSettingsTab(tab.id)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0"
+                    role="tab"
+                    aria-selected={isActive}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap"
                     style={isActive
                       ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
                       : { color: "#6b8a75", background: "transparent", border: "1px solid transparent" }
@@ -1583,126 +1446,6 @@ CREATE POLICY "avatars_delete" ON storage.objects
         })()}
 
         {/* ══ Tab: Avançado (Deploy) ═════════════════════════ */}
-        {settingsTab === "avancado" && <>
-
-        {/* ── Deploy & Storage ────────────────── */}
-        <div className="animate-fade-up-delay-1">
-          <div
-            className="rounded-2xl overflow-hidden"
-            style={{ background: "rgba(13,26,17,0.7)", backdropFilter: "blur(20px)", border: "1px solid rgba(63,176,108,0.1)" }}
-          >
-            <button
-              onClick={() => setDeployOpen(!deployOpen)}
-              className="w-full flex items-center justify-between p-6 text-left"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)" }}
-                >
-                  <Terminal className="w-4 h-4" style={{ color: "#34d399" }} />
-                </div>
-                <div className="text-left">
-                  <p className="text-base font-semibold text-agro-text">Deploy das Edge Functions & Storage</p>
-                  <p className="text-sm text-agro-muted mt-0.5">Publique o webhook, envio de mensagens e bucket de mídia</p>
-                </div>
-              </div>
-              {deployOpen
-                ? <ChevronUp   className="w-4 h-4 text-agro-muted shrink-0" />
-                : <ChevronDown className="w-4 h-4 text-agro-muted shrink-0" />
-              }
-            </button>
-
-            {deployOpen && (
-              <div className="px-6 pb-6 space-y-6" style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}>
-                <div className="mt-5 p-4 rounded-xl text-center"
-                  style={{ background: "rgba(8,16,10,0.8)", border: "1px solid rgba(63,176,108,0.08)" }}
-                >
-                  <p className="text-xs font-mono text-agro-muted leading-loose">
-                    <span className="text-agro-green font-semibold">Meta</span>
-                    {" → "}
-                    <span style={{ color: "#34d399" }} className="font-semibold">meta-webhook</span>
-                    {" → "}
-                    <span className="text-agro-green font-semibold">Supabase DB</span>
-                    {"  |  "}
-                    <span className="text-agro-text font-semibold">Inbox UI</span>
-                    {" → "}
-                    <span style={{ color: "#34d399" }} className="font-semibold">send-inbox-message</span>
-                    {" → "}
-                    <span className="text-agro-green font-semibold">Meta</span>
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={1} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Autentique, vincule e publique</p>
-                      <p className="text-xs text-agro-muted">Execute no terminal, na pasta do projeto</p>
-                    </div>
-                  </div>
-                  <CodeBlock code={cmd_deploy} onCopy={() => copy(cmd_deploy, "Comandos copiados!")} />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={2} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Crie o bucket de mídia no Supabase</p>
-                      <p className="text-xs text-agro-muted">Cole no SQL Editor e clique em Run</p>
-                    </div>
-                  </div>
-                  <CodeBlock code={sql_bucket} onCopy={() => copy(sql_bucket, "SQL copiado!")} />
-                  <a
-                    href={`https://supabase.com/dashboard/project/${SUPABASE_REF}/sql`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 text-xs font-semibold hover:opacity-80 transition-opacity"
-                    style={{ color: "#34d399" }}
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Abrir SQL Editor do projeto
-                  </a>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={3} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Crie as tabelas de multi-tenant</p>
-                      <p className="text-xs text-agro-muted">workspaces + workspace_members — necessário para autenticação</p>
-                    </div>
-                  </div>
-                  <CodeBlock code={sql_workspaces} onCopy={() => copy(sql_workspaces, "SQL copiado!")} />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={4} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Crie a tabela de auditoria</p>
-                      <p className="text-xs text-agro-muted">Registra disparos, erros, eventos de webhook e retries</p>
-                    </div>
-                  </div>
-                  <CodeBlock code={sql_audit_logs} onCopy={() => copy(sql_audit_logs, "SQL copiado!")} />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <StepBadge n={5} />
-                    <div>
-                      <p className="text-sm font-semibold text-agro-text">Habilite fotos de perfil</p>
-                      <p className="text-xs text-agro-muted">Adiciona campos de descrição e avatar + bucket de storage</p>
-                    </div>
-                  </div>
-                  <CodeBlock code={sql_profile} onCopy={() => copy(sql_profile, "SQL copiado!")} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        </> /* end Avançado (Deploy) tab */}
 
         {/* ══ Tab: Email ═════════════════════════════════════ */}
         {settingsTab === "email" && <>
@@ -2215,7 +1958,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
         </> /* end IA tab */}
 
         {/* ══ Tab: Avançado ══════════════════════════════════ */}
-        {settingsTab === "avancado" && <>
+        {settingsTab === "whatsapp" && <>
 
         {/* ── Webhook Meta ─────────────────────── */}
         <div className="animate-fade-up-delay-1">
@@ -2275,7 +2018,7 @@ CREATE POLICY "avatars_delete" ON storage.objects
           </DarkCard>
         </div>
 
-        </> /* end Avançado tab */}
+        </> /* end Webhook Meta (aba WhatsApp) */}
 
         {/* ══ Tab: Demo ════════════════════════════════════════ */}
         {settingsTab === "demo" && (
