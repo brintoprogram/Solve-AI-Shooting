@@ -10,6 +10,11 @@ const META_APP_ID    = (import.meta.env.VITE_META_APP_ID   as string) ?? "";
 const META_CONFIG_ID = (import.meta.env.VITE_META_CONFIG_ID as string) ?? "";
 const SUPABASE_URL   = (import.meta.env.VITE_SUPABASE_URL   as string) ?? "";
 
+// Versão do SDK do Facebook. Estava em v19.0 (fev/2024) enquanto o painel da
+// Meta recomenda v26.0 — coexistência exige versão recente. Manter numa
+// constante evita que as duas chamadas a FB.init divirjam de novo.
+const FB_SDK_VERSION = "v26.0";
+
 declare global {
   interface Window {
     // deno-lint-ignore no-explicit-any
@@ -111,14 +116,14 @@ export function Onboarding() {
 
     // If SDK already loaded from a previous navigation, just re-init
     if (window.FB) {
-      window.FB.init({ appId: META_APP_ID, version: "v19.0", xfbml: false, cookie: true });
+      window.FB.init({ appId: META_APP_ID, version: FB_SDK_VERSION, xfbml: false, cookie: true });
       return;
     }
 
     setStep("sdk_loading");
 
     window.fbAsyncInit = function () {
-      window.FB.init({ appId: META_APP_ID, version: "v19.0", xfbml: false, cookie: true });
+      window.FB.init({ appId: META_APP_ID, version: FB_SDK_VERSION, xfbml: false, cookie: true });
       setStep("idle");
     };
 

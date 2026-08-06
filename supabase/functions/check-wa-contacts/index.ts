@@ -8,7 +8,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 
-const META_API = "https://graph.facebook.com/v21.0";
+const META_API = "https://graph.facebook.com/v25.0";
 const BATCH    = 50;
 
 
