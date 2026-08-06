@@ -2344,6 +2344,7 @@ export type Database = {
     Functions: {
       get_my_role: { Args: never; Returns: string }
       get_my_workspace_ids: { Args: never; Returns: string[] }
+      get_setup_status: { Args: { p_workspace_id: string }; Returns: Json }
       increment_campaign_counters: {
         Args: {
           p_campaign_id: string
@@ -2353,6 +2354,7 @@ export type Database = {
         Returns: undefined
       }
       is_workspace_member: { Args: { ws_id: string }; Returns: boolean }
+      purge_observability_logs: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never
