@@ -3,6 +3,8 @@ import { useNavigate }                  from "react-router-dom";
 import { Leaf, CheckCircle, AlertCircle, Loader2, ChevronRight, Copy, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
+import { supabase } from "@/lib/supabase";
+import { log } from "@/lib/logger";
 
 const META_APP_ID    = (import.meta.env.VITE_META_APP_ID   as string) ?? "";
 const META_CONFIG_ID = (import.meta.env.VITE_META_CONFIG_ID as string) ?? "";
@@ -156,13 +158,30 @@ export function Onboarding() {
       } catch { return; }
 
       if (data?.type !== "WA_EMBEDDED_SIGNUP") return;
-      console.log("[onboarding] WA_EMBEDDED_SIGNUP", data);
 
-      if (data.event === "FINISH") {
+      // Session logging: a Meta EXIGE que o parceiro registre estes eventos.
+      // Logamos só o nome do evento e se os IDs vieram — nunca os IDs em si,
+      // que identificam a conta do cliente.
+      log.info("embedded_signup_event", {
+        signup_event: String(data.event ?? "?"),
+        has_waba:     !!data.data?.waba_id,
+        has_phone:    !!data.data?.phone_number_id,
+      });
+
+      // "FINISH"                                → número novo, registrado por nós
+      // "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" → coexistência: o cliente mantém
+      //   o app WhatsApp Business e a Meta devolve APENAS o waba_id.
+      //   A versão anterior tratava só "FINISH" e exigia phone_number_id, então
+      //   a coexistência falhava sempre com "IDs não recebidos".
+      if (data.event === "FINISH" || data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
         const { phone_number_id, waba_id } = data.data ?? {};
-        if (phone_number_id) sessionStorage.setItem("_ob_phone", phone_number_id);
         if (waba_id)         sessionStorage.setItem("_ob_waba",  waba_id);
+        if (phone_number_id) sessionStorage.setItem("_ob_phone", phone_number_id);
+        if (data.event === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING") {
+          sessionStorage.setItem("_ob_coex", "1");
+        }
       } else if (data.event === "ERROR" || data.event === "CANCEL") {
+        log.warn("embedded_signup_aborted", { signup_event: String(data.event) });
         setStep("error");
         setErrorMsg("Fluxo cancelado ou erro reportado pela Meta.");
       }
@@ -211,43 +230,63 @@ export function Onboarding() {
           return;
         }
 
-        const waba_id        = sessionStorage.getItem("_ob_waba")  ?? "";
+        const waba_id         = sessionStorage.getItem("_ob_waba")  ?? "";
         const phone_number_id = sessionStorage.getItem("_ob_phone") ?? "";
+        const coexistence     = sessionStorage.getItem("_ob_coex") === "1";
 
-        if (!waba_id || !phone_number_id) {
+        // Na coexistência o phone_number_id NÃO vem — o servidor descobre pela
+        // WABA. Exigir os dois aqui era o que travava esse fluxo.
+        if (!waba_id) {
+          log.error("embedded_signup_missing_waba", { coexistence });
           setStep("error");
           setErrorMsg(
-            "WABA ID ou Phone Number ID não recebidos da Meta. " +
-            "Certifique-se de concluir todas as etapas do fluxo de conexão."
+            "A Meta não devolveu a identificação da conta. " +
+            "Conclua todas as etapas do popup sem fechá-lo e tente de novo."
           );
           return;
         }
 
         sessionStorage.removeItem("_ob_waba");
         sessionStorage.removeItem("_ob_phone");
+        sessionStorage.removeItem("_ob_coex");
 
         setStep("processing");
 
         try {
+          // A função exige sessão: sem o token, qualquer um poderia anexar um
+          // número ao workspace de outro cliente.
+          const { data: session } = await supabase.auth.getSession();
+          const accessToken = session.session?.access_token;
+          if (!accessToken) throw new Error("Sua sessão expirou. Entre novamente e repita a conexão.");
+
           const res = await fetch(`${SUPABASE_URL}/functions/v1/embedded-signup`, {
             method:  "POST",
-            headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ code, waba_id, phone_number_id, workspace_id: WORKSPACE_ID }),
+            headers: {
+              "Content-Type":  "application/json",
+              "Authorization": `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              code, waba_id, workspace_id: WORKSPACE_ID,
+              ...(phone_number_id ? { phone_number_id } : {}),
+              ...(coexistence ? { coexistence: true } : {}),
+            }),
           });
 
-          // deno-lint-ignore no-explicit-any
-          const data: any = await res.json().catch(() => ({}));
+          const data = await res.json().catch(() => ({})) as { ok?: boolean; error?: string };
 
           if (!res.ok || !data.ok) {
             throw new Error(data.error ?? `Erro HTTP ${res.status}`);
           }
 
+          log.info("embedded_signup_connected", { coexistence });
           setStep("success");
-          setTimeout(() => navigate("/settings"), 2500);
+          setTimeout(() => navigate("/primeiros-passos"), 2500);
 
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.error("embedded_signup_failed", { err: msg, coexistence });
           setStep("error");
-          setErrorMsg(err instanceof Error ? err.message : String(err));
+          setErrorMsg(msg);
         }
       })(); },
       {
@@ -257,8 +296,13 @@ export function Onboarding() {
         scope: "whatsapp_business_management,whatsapp_business_messaging",
         extras: {
           // Enables coexistence: user keeps the WA Business App + Cloud API simultaneously
+          // Coexistência: o cliente mantém o app WhatsApp Business no celular
+          // e ganha a Cloud API no mesmo número. Precisa estar habilitado
+          // também na configuração do Embedded Signup no painel da Meta.
           featureType:        "whatsapp_business_app_onboarding",
-          sessionInfoVersion: 2,
+          // v3 é a versão que entrega o evento
+          // FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING.
+          sessionInfoVersion: 3,
         },
       }
     );

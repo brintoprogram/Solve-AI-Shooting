@@ -303,6 +303,24 @@ async function processWebhook(body: Record<string, unknown>, requestId: string) 
         continue;
       }
 
+      // ── Coexistência: número que segue ativo no app WhatsApp Business ──
+      // Estes três campos só chegam quando o número foi conectado por
+      // coexistência. Sem tratá-los explicitamente eles caíam no fluxo de
+      // mensagens abaixo, que espera outro formato de payload.
+      //
+      //   history            → histórico (até 6 meses) sincronizado no onboarding
+      //   smb_app_state_sync → contatos criados/alterados no app do cliente
+      //   smb_message_echoes → mensagens que o cliente enviou PELO APP, não por aqui
+      if (field === "history" || field === "smb_app_state_sync" || field === "smb_message_echoes") {
+        await handleCoexistenceEvent(field, value, connectionId, workspaceId, requestId).catch((e) =>
+          console.error(JSON.stringify({
+            level: "error", event: "coexistence_handler_failed", fn: "meta-webhook",
+            request_id: requestId, field, err: e?.message,
+          }))
+        );
+        continue;
+      }
+
       // ── 1. Mensagens inbound → inbox ────────────────────────────
       const rawMessages = (value?.messages as unknown[]) ?? [];
       const rawContacts = (value?.contacts as unknown[]) ?? [];
@@ -970,4 +988,98 @@ function buildShortBody(type: string, msg: Record<string, unknown>): string {
       return (typeData?.body as string) ?? (typeData?.text as string) ?? "Mensagem";
     }
   }
+}
+
+// ── Coexistência ────────────────────────────────────────────────────
+// Chega quando o número segue ativo no app WhatsApp Business do cliente.
+//
+// Defensivo de propósito: a forma exata destes payloads varia e um erro aqui
+// não pode derrubar o processamento das mensagens normais. Tudo que não for
+// reconhecido é registrado em webhook_events com o payload cru, para dar para
+// ajustar o parser depois sem perder o evento.
+async function handleCoexistenceEvent(
+  field:        string,
+  value:        Record<string, unknown>,
+  connectionId: string,
+  workspaceId:  string,
+  requestId:    string,
+): Promise<void> {
+  const clog = (level: "info" | "warn" | "error", event: string, data?: Record<string, unknown>) =>
+    console[level === "info" ? "log" : level](JSON.stringify({
+      level, event, fn: "meta-webhook", request_id: requestId, field, workspace_id: workspaceId, ...data,
+    }));
+
+  // Guarda o evento cru sempre: é a rede de segurança para reprocessar.
+  await supabase.from("webhook_events").insert({
+    workspace_id: workspaceId, meta_connection_id: connectionId,
+    event_type: field, payload: value, processed: false,
+  }).then(({ error }) => { if (error) clog("error", "raw_event_save_failed", { err: error.message }); });
+
+  // ── Contatos criados/alterados no app do cliente ──────────────────
+  if (field === "smb_app_state_sync") {
+    const contacts = (value.contacts as Array<Record<string, unknown>>) ?? [];
+    let synced = 0;
+    for (const c of contacts) {
+      const phone = String((c.wa_id ?? c.phone_number ?? "") as string).replace(/\D/g, "");
+      if (!phone) continue;
+      const name = ((c.profile as { name?: string })?.name ?? c.full_name ?? undefined) as string | undefined;
+      const id = await upsertContact(workspaceId, phone, name, new Date().toISOString());
+      if (id) synced++;
+    }
+    clog("info", "coexistence_contacts_synced", { received: contacts.length, synced });
+    return;
+  }
+
+  // ── Mensagens que o cliente enviou PELO APP ───────────────────────
+  // Sem isto o atendente vê a conversa pela metade: só o que o cliente
+  // escreveu, nunca as respostas dadas pelo celular.
+  if (field === "smb_message_echoes") {
+    const echoes = (value.message_echoes as Array<Record<string, unknown>>) ?? [];
+    let saved = 0;
+    for (const m of echoes) {
+      const to    = String((m.to ?? "") as string).replace(/\D/g, "");
+      const wamid = m.id as string | undefined;
+      if (!to || !wamid) continue;
+
+      const ts       = m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : new Date().toISOString();
+      const body     = ((m.text as { body?: string })?.body ?? "") as string;
+      const contactId = await upsertContact(workspaceId, to, undefined, ts);
+      if (!contactId) continue;
+      const conv = await upsertConversation(workspaceId, connectionId, contactId, ts, body);
+      if (!conv.id) continue;
+
+      const { error } = await supabase.from("inbox_messages").upsert({
+        workspace_id: workspaceId, conversation_id: conv.id, contact_id: contactId,
+        wamid, direction: "outbound", message_type: String(m.type ?? "text"),
+        body: body || null,
+        // Marca a origem: foi digitada no celular, não enviada pelo sistema.
+        sent_by: "whatsapp_business_app",
+        is_internal: false, status: "sent", created_at: ts,
+      }, { onConflict: "wamid", ignoreDuplicates: true });
+
+      if (error) clog("error", "echo_save_failed", { err: error.message });
+      else saved++;
+    }
+    clog("info", "coexistence_echoes_saved", { received: echoes.length, saved });
+    return;
+  }
+
+  // ── Histórico sincronizado no onboarding ──────────────────────────
+  if (field === "history") {
+    const history = (value.history as Array<Record<string, unknown>>) ?? [];
+    let threads = 0, messages = 0;
+    for (const chunk of history) {
+      for (const t of ((chunk.threads as Array<Record<string, unknown>>) ?? [])) {
+        threads++;
+        messages += ((t.messages as unknown[]) ?? []).length;
+      }
+    }
+    // Importação em massa fica de fora por ora: o volume (6 meses) exige
+    // paginação e o formato precisa ser validado contra um payload real.
+    // O evento cru está salvo em webhook_events, então nada se perde.
+    clog("info", "coexistence_history_received", { threads, messages, imported: false });
+    return;
+  }
+
+  clog("warn", "coexistence_unknown_field");
 }
