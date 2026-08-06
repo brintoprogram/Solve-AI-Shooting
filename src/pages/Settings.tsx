@@ -752,9 +752,17 @@ export function Settings() {
 
       let res: Response;
       try {
+        // A function exige sessão desde que deixou de ser pública — sem isso
+        // ela virava um brute-forcer de credencial SMTP hospedado por nós.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Sessão expirada. Entre novamente.");
+
         res = await fetch(endpoint, {
           method:  "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
           signal:  controller.signal,
           body: JSON.stringify({
             provider:    emailForm.provider,

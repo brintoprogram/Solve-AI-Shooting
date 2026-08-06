@@ -8,6 +8,14 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
+import { decrypt } from "../_shared/crypto.ts";
+import { bearerToken } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/ratelimit.ts";
+import { createLogger, requestIdFrom } from "../_shared/logger.ts";
+
+// Cada chamada baixa midia da Meta e sobe no Storage: e banda + armazenamento
+// pagos. 30/min por workspace cobre abrir uma conversa cheia de anexos.
+const LIMIT_PER_MINUTE = 30;
 
 const META_API = "https://graph.facebook.com/v25.0";
 
@@ -99,6 +107,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  const log = createLogger("resolve-media", { request_id: requestIdFrom(req) });
+
   let body: { conversation_id?: string; message_id?: string };
   try { body = await req.json(); }
   catch { return json({ error: "Invalid JSON" }, 400); }
@@ -108,23 +118,38 @@ Deno.serve(async (req: Request) => {
     return json({ error: "conversation_id or message_id required" }, 400);
   }
 
-  // ── Build query for pending messages ───────────────────────
-  let q = supabase
-    .from("inbox_messages")
-    .select("id, media_id, media_mime_type, conversation_id, workspace_id")
-    .not("media_id", "is", null)
-    .is("media_url", null);
+  // ── Autenticação ───────────────────────────────────────────────
+  // A função estava PÚBLICA: bastava chutar um conversation_id para o servidor
+  // baixar mídia da Meta e gravar no nosso Storage — banda e armazenamento
+  // pagos por nós, além de expor mídia de outro tenant.
+  //
+  // A validação do token vem ANTES de qualquer query: sem isso, um anônimo em
+  // loop ainda faria um SELECT em inbox_messages por requisição, que é
+  // exatamente o flood de banco que se quer evitar.
+  const token = bearerToken(req);
+  if (!token) return json({ error: "Não autorizado" }, 401);
 
-  if (message_id)      q = q.eq("id", message_id);
-  else if (conversation_id) q = q.eq("conversation_id", conversation_id);
+  const { data: { user }, error: userErr } = await supabase.auth.getUser(token);
+  if (userErr || !user) {
+    log.warn("auth_rejected", { reason: "token inválido" });
+    return json({ error: "Sessão inválida. Entre novamente." }, 401);
+  }
 
-  const { data: pending, error: fetchErr } = await q;
-  if (fetchErr) return json({ error: fetchErr.message }, 500);
-  if (!pending || pending.length === 0) return json({ resolved: 0, skipped: 0 });
+  const ulog = log.child({ user_id: user.id });
 
-  // ── Get access_token via conversation → meta_connection ────
-  // Use first message's conversation_id to resolve connection
-  const convId = conversation_id ?? (pending[0].conversation_id as string);
+  // ── Resolver a conversa (é ela que diz o workspace) ────────────
+  // Pelo message_id o caminho é indireto: mensagem → conversa.
+  let convId = conversation_id ?? "";
+  if (!convId) {
+    const { data: msgRow } = await supabase
+      .from("inbox_messages")
+      .select("conversation_id")
+      .eq("id", message_id!)
+      .maybeSingle();
+    if (!msgRow) return json({ error: "Mensagem não encontrada" }, 404);
+    convId = msgRow.conversation_id as string;
+  }
+
   const { data: conv, error: convErr } = await supabase
     .from("inbox_conversations")
     .select("meta_connection_id, workspace_id")
@@ -132,6 +157,44 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (convErr || !conv) return json({ error: "Conversa não encontrada" }, 404);
+
+  // ── Autorização: o usuário pertence ao workspace desta conversa? ──
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", user.id)
+    .eq("workspace_id", conv.workspace_id as string)
+    .maybeSingle();
+
+  if (!membership) {
+    ulog.warn("cross_tenant_blocked", { conversation_id: convId });
+    return json({ error: "Sem permissão neste workspace" }, 403);
+  }
+
+  const rl = await checkRateLimit(supabase, `resolve-media:${conv.workspace_id}`, LIMIT_PER_MINUTE, 60);
+  if (!rl.allowed) {
+    ulog.warn("rate_limited", { workspace_id: conv.workspace_id, used: rl.used, limit: rl.limit });
+    return json({ error: "Muitas mídias seguidas. Aguarde um minuto." }, 429);
+  }
+
+  // ── Mensagens com mídia ainda não baixada ──────────────────────
+  // Escopado ao workspace já autorizado: um id de outro tenant não retorna nada.
+  let q = supabase
+    .from("inbox_messages")
+    .select("id, media_id, media_mime_type, conversation_id, workspace_id")
+    .eq("workspace_id", conv.workspace_id as string)
+    .not("media_id", "is", null)
+    .is("media_url", null);
+
+  if (message_id)           q = q.eq("id", message_id);
+  else if (conversation_id) q = q.eq("conversation_id", conversation_id);
+
+  const { data: pending, error: fetchErr } = await q;
+  if (fetchErr) {
+    ulog.error("pending_query_failed", { err: fetchErr.message });
+    return json({ error: "Não foi possível carregar as mídias." }, 500);
+  }
+  if (!pending || pending.length === 0) return json({ resolved: 0, total: 0 });
 
   const { data: conn, error: connErr } = await supabase
     .from("meta_connections")
@@ -142,7 +205,10 @@ Deno.serve(async (req: Request) => {
   if (connErr || !conn?.access_token) return json({ error: "Conexão Meta não encontrada" }, 404);
 
   const workspaceId  = conv.workspace_id as string;
-  const accessToken  = conn.access_token as string;
+  // decrypt() e retrocompativel: valor sem o prefixo "enc:v1:" passa direto.
+  // Sem isto, toda conexao criada pelo embedded-signup (que cifra o token)
+  // falharia aqui com 401 da Graph.
+  const accessToken  = await decrypt(conn.access_token as string);
 
   // ── Resolve each message sequentially (avoid rate limits) ──
   let resolved = 0;
@@ -157,6 +223,6 @@ Deno.serve(async (req: Request) => {
     if (ok) resolved++;
   }
 
-  console.log(`[resolve] done — ${resolved}/${pending.length} resolved`);
+  ulog.info("resolve_done", { resolved, total: pending.length, workspace_id: conv.workspace_id });
   return json({ resolved, total: pending.length });
 });

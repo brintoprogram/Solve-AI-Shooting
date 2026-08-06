@@ -4,6 +4,18 @@ import { corsHeaders as getCors } from "../_shared/cors.ts";
 // POST body (Graph): { provider:"graph", tenant_id, client_id, password (=client_secret), from_name, from_email }
 
 import nodemailer from "npm:nodemailer@6";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireWorkspaceMember } from "../_shared/auth.ts";
+import { checkRateLimit } from "../_shared/ratelimit.ts";
+import { createLogger, requestIdFrom } from "../_shared/logger.ts";
+
+// Testar conexao e acao manual: 6 por minuto por workspace e folgado.
+const LIMIT_PER_MINUTE = 6;
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
 
 
 
@@ -116,6 +128,31 @@ Deno.serve(async (req: Request) => {
     return json({ error: "JSON inválido" }, 400);
   }
 
+  const log = createLogger("test-email-connection", { request_id: requestIdFrom(req) });
+
+  // ── Autenticacao ────────────────────────────────────────────────
+  // Esta funcao estava PUBLICA. Como ela tenta autenticar em um SMTP/Graph
+  // arbitrario e devolve a mensagem de erro do provedor, qualquer pessoa podia
+  // usa-la como brute-forcer de credencial de e-mail hospedado por nos — e,
+  // com uma credencial valida, como relay de spam. Agora exige sessao com
+  // acesso ao workspace.
+  const workspace_id = String(body.workspace_id ?? "");
+  if (!workspace_id) return json({ error: "workspace_id é obrigatório" }, 400);
+
+  const authErr = await requireWorkspaceMember(supabase, req, workspace_id);
+  if (authErr) {
+    log.warn("auth_rejected", { workspace_id, reason: authErr });
+    return json({ error: authErr }, 401);
+  }
+
+  const wlog = log.child({ workspace_id });
+
+  const rl = await checkRateLimit(supabase, `test-email:${workspace_id}`, LIMIT_PER_MINUTE, 60);
+  if (!rl.allowed) {
+    wlog.warn("rate_limited", { used: rl.used, limit: rl.limit });
+    return json({ error: "Muitos testes seguidos. Aguarde um minuto." }, 429);
+  }
+
   const provider    = String(body.provider ?? "smtp");
   const from_email  = String(body.from_email ?? "");
   const from_name   = String(body.from_name  ?? from_email);
@@ -136,7 +173,7 @@ Deno.serve(async (req: Request) => {
         "✅ Teste Microsoft 365 — Solve AI",
         "<p>Sua conexão Microsoft 365 (Graph API) está funcionando corretamente.</p><p>Este email foi enviado como teste de configuração.</p>",
       );
-      console.log(`[test-email-connection] Graph OK → ${from_email}`);
+      wlog.info("graph_test_ok");
       return json({ ok: true });
 
     } else {
@@ -160,12 +197,12 @@ Deno.serve(async (req: Request) => {
         subject: "Teste de conexao SMTP - Solve AI",
         text:    "Sua conexao SMTP esta funcionando corretamente.",
       });
-      console.log(`[test-email-connection] SMTP OK → ${host}:${port} / ${from_email}`);
+      wlog.info("smtp_test_ok", { host, port });
       return json({ ok: true });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[test-email-connection] error:", msg);
+    wlog.error("connection_test_failed", { provider, err: msg });
     return json({ error: msg }, 400);
   }
 });

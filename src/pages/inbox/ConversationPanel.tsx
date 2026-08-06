@@ -32,6 +32,11 @@ interface Props {
 
 async function triggerResolveMedia(conversationId: string) {
   try {
+    // A function passou a exigir sessão (antes era pública, e qualquer um podia
+    // fazer o servidor baixar mídia e pagar a conta de storage).
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
     await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-media`,
       {
@@ -39,6 +44,7 @@ async function triggerResolveMedia(conversationId: string) {
         headers: {
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({ conversation_id: conversationId }),
       },
