@@ -2487,3 +2487,52 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aliases de domínio
+//
+// Tudo acima é gerado pelo Supabase a partir do schema real. O restante do app
+// importa nomes curtos (MetaConnection, ShootingCampaign…) que existiam quando
+// este arquivo era escrito à mão. Ao regenerá-lo esses nomes sumiram e ~14
+// imports quebraram — só não estourou em runtime porque tipo é apagado na
+// compilação.
+//
+// Derivar de Tables<> em vez de redeclarar à mão é o ponto: se uma coluna mudar
+// no banco, o tipo muda junto e o erro aparece aqui, não em produção.
+
+export type MetaConnection   = Tables<"meta_connections">;
+export type MetaTemplate     = Tables<"meta_templates">;
+export type ShootingCampaign = Tables<"shooting_campaigns">;
+export type ShootingMessage  = Tables<"shooting_messages">;
+export type ShootingUpload   = Tables<"shooting_uploads">;
+export type WebhookEvent     = Tables<"webhook_events">;
+export type ZApiTemplate     = Tables<"z_api_templates">;
+
+// Estes não são tabelas: são o formato de colunas jsonb. O gerador só sabe
+// dizer "Json", então a forma precisa continuar declarada aqui.
+
+export interface TemplateComponent {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
+  text?: string;
+  buttons?: TemplateButton[];
+}
+
+export interface TemplateButton {
+  type: "URL" | "PHONE_NUMBER" | "QUICK_REPLY";
+  text: string;
+  url?: string;
+  phone_number?: string;
+}
+
+export interface ZApiTemplateButton {
+  id: string;
+  label: string;
+}
+
+export interface ColumnMapping {
+  phone_column: string;
+  header_variables?: Record<string, string>;
+  body_variables?: Record<string, string>;
+  button_variables?: Record<string, Record<string, string>>;
+}

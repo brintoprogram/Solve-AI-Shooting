@@ -10,6 +10,7 @@ const PERMISSION_LABELS: Record<PermissionKey, string> = {
   can_inbox:            "Acessar Inbox",
   can_manage_team:      "Gerenciar Equipe",
   can_settings:         "Configurações",
+  can_negotiations:     "Negociações",
 };
 
 interface AccessDeniedProps {
