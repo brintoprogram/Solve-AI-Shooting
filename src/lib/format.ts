@@ -77,3 +77,20 @@ export function formatPhone(raw: string | null | undefined, empty = "—"): stri
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return raw;
 }
+
+/**
+ * Dias de atraso de um vencimento. Negativo = ainda vai vencer.
+ *
+ * Compara data-calendário, não instante: ambos os lados são normalizados para
+ * meia-noite local. Sem isso, um boleto que vence hoje apareceria como
+ * "vencido" ou "a vencer" dependendo da hora em que a tela foi aberta.
+ */
+export function diasDeAtraso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const venc = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+  if (isNaN(venc.getTime())) return null;
+  venc.setHours(0, 0, 0, 0);
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  return Math.round((hoje.getTime() - venc.getTime()) / 86_400_000);
+}

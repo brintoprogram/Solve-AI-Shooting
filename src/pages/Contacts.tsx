@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { OPEN_INVOICE_STATUSES } from "@/lib/invoiceStatus";
 import { safeFilterTerm } from "@/lib/utils";
-import { formatPhone } from "@/lib/format";
+import { formatPhone, diasDeAtraso } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { ImportModal } from "./contacts/ImportModal";
@@ -286,11 +286,19 @@ function EmptyState({ search, hasFilters, onImport }: { search: string; hasFilte
 
 // ── Column header helper ───────────────────────────────────────────
 
+/** Fundo opaco das colunas fixas — acompanha o estado da linha.
+ *  Precisa ser opaco: célula fixa translúcida deixa o conteúdo das colunas de
+ *  trás aparecer por baixo durante o scroll horizontal. Os valores são a
+ *  mistura já resolvida (a seleção é rgba(63,176,108,0.05) sobre #0d1710). */
+const BG_LINHA          = "#0d1710";
+const BG_LINHA_SELECIONADA = "#0f1f15";
+
 function TH({
-  children, className = "", sortKey, sortOrder, onSort,
+  children, className = "", style, sortKey, sortOrder, onSort,
 }: {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
   sortKey?: "name";
   sortOrder?: SortOrder;
   onSort?: () => void;
@@ -299,6 +307,7 @@ function TH({
   return (
     <th
       className={`px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap ${className} ${onSort ? "cursor-pointer select-none hover:text-white transition-colors" : ""}`}
+      style={style}
       onClick={onSort}
     >
       <span className="flex items-center gap-1">
@@ -960,7 +969,7 @@ export function Contacts() {
                 {filteredTotalLoading ? (
                   <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
                 ) : filteredTotal !== null && filteredTotal > 0 ? (
-                  <span className="font-bold text-amber-400 text-sm">{formatBRL(filteredTotal)}</span>
+                  <span className="font-bold text-amber-400 text-sm tabular-nums">{formatBRL(filteredTotal)}</span>
                 ) : (
                   <span className="text-[#3a4d3e]">—</span>
                 )}
@@ -972,7 +981,7 @@ export function Contacts() {
               {globalTotalLoading ? (
                 <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
               ) : globalTotal !== null && globalTotal > 0 ? (
-                <span className="font-bold text-[#3fb06c] text-sm">{formatBRL(globalTotal)}</span>
+                <span className="font-bold text-[#3fb06c] text-sm tabular-nums">{formatBRL(globalTotal)}</span>
               ) : (
                 <span className="text-[#3a4d3e]">—</span>
               )}
@@ -992,10 +1001,12 @@ export function Contacts() {
             <EmptyState search={debouncedSearch} hasFilters={activeFilterCount > 0} onImport={() => setShowImport(true)} />
           ) : (
             <table className="w-full text-sm" style={{ minWidth: 1200 }}>
-              <thead className="sticky top-0 z-10" style={{ background: "#0d1710", borderBottom: "1px solid #1e2e22" }}>
+              {/* z-20 no cabecalho porque as celulas fixas da esquerda usam z-10:
+                  sem isso o nome da linha passaria por cima do cabecalho ao rolar. */}
+              <thead className="sticky top-0 z-20" style={{ background: "#0d1710", borderBottom: "1px solid #1e2e22" }}>
                 <tr>
                   {/* Bulk-select checkbox */}
-                  <th className="w-10 px-3 py-3">
+                  <th className="w-10 px-3 py-3 sticky left-0 z-20" style={{ background: "#0d1710" }}>
                     <div
                       onClick={toggleAll}
                       className="w-4 h-4 rounded cursor-pointer flex items-center justify-center transition-all border"
@@ -1010,7 +1021,8 @@ export function Contacts() {
                     </div>
                   </th>
                   <TH
-                    className="pl-2 w-[220px]"
+                    className="pl-2 w-[220px] sticky left-10 z-20"
+                    style={{ background: "#0d1710" }}
                     sortKey="name"
                     sortOrder={filters.sortOrder}
                     onSort={() => patchFilters({ sortOrder: filters.sortOrder === "name_asc" ? "name_desc" : "name_asc" })}
@@ -1022,7 +1034,7 @@ export function Contacts() {
                   <TH className="w-[190px]">Email</TH>
                   <TH className="w-[150px]">Representante</TH>
                   <TH className="w-[130px]">Saldo em aberto</TH>
-                  <TH className="w-[110px]">Próx. venc.</TH>
+                  <TH className="w-[155px]">Próx. venc.</TH>
                   <TH className="w-[140px]">Cidade / UF</TH>
                   <TH>Tags</TH>
                 </tr>
@@ -1040,9 +1052,10 @@ export function Contacts() {
                         background: selectedIds.has(contact.id) ? "rgba(63,176,108,0.05)" : undefined,
                       }}
                     >
-                      {/* Checkbox */}
+                      {/* Checkbox — fixo na esquerda junto com o nome */}
                       <td
-                        className="px-3 py-3"
+                        className="px-3 py-3 sticky left-0 z-10"
+                        style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
                         onClick={(e) => { e.stopPropagation(); toggleOne(contact.id); }}
                       >
                         <div
@@ -1055,8 +1068,12 @@ export function Contacts() {
                         </div>
                       </td>
 
-                      {/* Name + company */}
-                      <td className="pl-2 pr-4 py-3">
+                      {/* Nome — fica visível durante o scroll horizontal, senão você
+                          rola até "saldo" e perde de vista de quem é a linha. */}
+                      <td
+                        className="pl-2 pr-4 py-3 sticky left-10 z-10"
+                        style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
+                      >
                         <div className="flex items-center gap-3">
                           <Avatar name={contact.name} />
                           <div className="min-w-0">
@@ -1109,8 +1126,10 @@ export function Contacts() {
                         ) : "—"}
                       </td>
 
-                      {/* Saldo em aberto */}
-                      <td className="px-4 py-3 text-xs text-right">
+                      {/* Saldo em aberto — tabular-nums alinha os dígitos em coluna.
+                          Sem isso a fonte é proporcional e "R$ 1.111,11" não fica
+                          sob "R$ 9.999,99", que é justamente o que se compara aqui. */}
+                      <td className="px-4 py-3 text-xs text-right tabular-nums">
                         {inv && inv.total > 0 ? (
                           <span className="font-semibold text-amber-400">{formatBRL(inv.total)}</span>
                         ) : (
@@ -1118,17 +1137,27 @@ export function Contacts() {
                         )}
                       </td>
 
-                      {/* Próximo vencimento */}
-                      <td className="px-4 py-3 text-xs">
-                        {inv?.nextDue ? (
-                          <span className={
-                            inv.nextDue < new Date().toISOString().slice(0, 10)
-                              ? "text-red-400 font-medium"
-                              : "text-[#6b7f6e]"
-                          }>
-                            {formatDate(inv.nextDue)}
-                          </span>
-                        ) : (
+                      {/* Próximo vencimento — o atraso era sinalizado SÓ pela cor
+                          vermelha. Para quem tem deficiência de visão de cor (cerca
+                          de 8% dos homens) a informação mais importante da tela
+                          simplesmente não existia. Agora vem também o ícone e os
+                          dias, que funcionam sem depender de enxergar o vermelho. */}
+                      <td className="px-4 py-3 text-xs tabular-nums">
+                        {inv?.nextDue ? (() => {
+                          const atraso = diasDeAtraso(inv.nextDue);
+                          const vencido = atraso !== null && atraso > 0;
+                          return (
+                            <span className={`flex items-center gap-1.5 ${vencido ? "text-red-400 font-medium" : "text-[#6b7f6e]"}`}>
+                              {vencido && <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden />}
+                              <span>{formatDate(inv.nextDue)}</span>
+                              {vencido && (
+                                <span className="text-[10px] text-red-400/70 whitespace-nowrap">
+                                  {atraso === 1 ? "1 dia" : `${atraso} dias`}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })() : (
                           <span className="text-[#3a4d3e]">—</span>
                         )}
                       </td>
