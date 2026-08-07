@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useId } from "react";
 import {
-  X, Plus, Trash2, Type, Image, Video, FileText, Mic,
+  X, Plus, Trash2, Type, Image, Video, FileText, 
   Link2, Phone, MessageSquare, AlertCircle, Loader2,
   Info, ChevronDown, CornerDownLeft,
 } from "lucide-react";

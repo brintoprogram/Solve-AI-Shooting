@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Pencil, Pause, Play, Trash2, Users, Clock, Zap,
   CheckCircle2, XCircle, Loader2, CalendarDays, GitBranch,
-  Check, CheckCheck, MessageSquare,
+  Check, CheckCheck, 
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -56,8 +56,6 @@ export function AutomationDetail() {
   const { id }          = useParams<{ id: string }>();
   const navigate        = useNavigate();
   const { toast }       = useToast();
-  const { workspaceId } = useAuth();
-  const wsId            = workspaceId ?? "";
 
   const [rule,       setRule]       = useState<AutomationRule | null>(null);
   const [triggers,   setTriggers]   = useState<AutomationTrigger[]>([]);

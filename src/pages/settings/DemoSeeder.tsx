@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Sparkles, Plus, Trash2, Users, MessageSquare, Bell, RefreshCw, Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Demo workspace guard ───────────────────────────────────────────────────────
@@ -84,7 +83,7 @@ async function seedContact(wsId: string): Promise<{ contactId: string; name: str
   return { contactId, name: tpl.name, phone: tpl.phone };
 }
 
-async function seedConversation(wsId: string, contactId: string, name: string, phone: string): Promise<string | null> {
+async function seedConversation(wsId: string, contactId: string, name: string, _phone: string): Promise<string | null> {
   const reply = pick(ALERT_SCENARIOS).reply;
 
   const { data: conv, error: cErr } = await supabase
@@ -121,7 +120,7 @@ async function seedConversation(wsId: string, contactId: string, name: string, p
   return convId;
 }
 
-async function seedAlert(wsId: string, contactId: string, convId: string, name: string, phone: string): Promise<void> {
+async function seedAlert(wsId: string, _contactId: string, convId: string, name: string, phone: string): Promise<void> {
   const scen    = pick(ALERT_SCENARIOS);
   const campaign = pick(CAMPAIGNS);
 

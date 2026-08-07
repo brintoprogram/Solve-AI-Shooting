@@ -250,12 +250,16 @@ export function CampaignDetail() {
       }
 
       // Computed metrics
-      const total      = campaign.total_recipients;
-      const sent       = campaign.sent_count - campaign.failed_count;
-      const delivered  = campaign.delivered_count;
-      const read       = campaign.read_count;
-      const failed     = campaign.failed_count;
-      const attempted  = campaign.sent_count;
+      // Os contadores são nullable no banco. A aritmética direta "funcionava"
+      // porque o JS coage null para 0, mas por acidente: bastava um deles virar
+      // null no meio de uma expressão para o percentual sair errado em vez de
+      // zerado. Normalizados na leitura, uma vez só.
+      const total      = campaign.total_recipients ?? 0;
+      const failed     = campaign.failed_count     ?? 0;
+      const attempted  = campaign.sent_count       ?? 0;
+      const delivered  = campaign.delivered_count  ?? 0;
+      const read       = campaign.read_count       ?? 0;
+      const sent       = attempted - failed;
       const pending    = Math.max(0, total - attempted);
       const sentPct    = total     > 0 ? (sent      / total     * 100) : 0;
       const delivPct   = sent      > 0 ? (delivered / sent      * 100) : 0;

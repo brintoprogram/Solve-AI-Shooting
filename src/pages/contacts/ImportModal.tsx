@@ -20,11 +20,6 @@ interface Progress { phase: string; done: number; total: number }
 const CONTACT_FIELDS = MAPPABLE_FIELDS.filter((f) => f.category === "contact");
 const INVOICE_FIELDS  = MAPPABLE_FIELDS.filter((f) => f.category === "invoice");
 
-function fieldLabel(key: FieldKey | ""): string {
-  if (!key) return "— Ignorar —";
-  return MAPPABLE_FIELDS.find((f) => f.key === key)?.label ?? key;
-}
-
 function pct(done: number, total: number) {
   if (!total) return 0;
   return Math.round((done / total) * 100);

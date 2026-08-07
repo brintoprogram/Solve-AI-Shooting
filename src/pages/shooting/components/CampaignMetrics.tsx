@@ -8,7 +8,14 @@ interface CampaignMetricsProps {
 }
 
 export function CampaignMetrics({ campaign, light }: CampaignMetricsProps) {
-  const { sent_count, delivered_count, read_count, failed_count, total_recipients } = campaign;
+  // Contadores sao nullable no banco; a UI trata ausencia como zero.
+  // Precisa ser ?? e nao valor padrao de destructuring: aquele so cobre
+  // `undefined`, e aqui o valor que chega e `null`.
+  const sent_count       = campaign.sent_count       ?? 0;
+  const delivered_count  = campaign.delivered_count  ?? 0;
+  const read_count       = campaign.read_count       ?? 0;
+  const failed_count     = campaign.failed_count     ?? 0;
+  const total_recipients = campaign.total_recipients ?? 0;
 
   const metrics = [
     {

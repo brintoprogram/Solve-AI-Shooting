@@ -2536,12 +2536,21 @@ export const Constants = {
 // no banco, o tipo muda junto e o erro aparece aqui, não em produção.
 
 export type MetaConnection   = Tables<"meta_connections">;
-export type MetaTemplate     = Tables<"meta_templates">;
+
+// components e buttons sao colunas jsonb. O gerador so sabe dizer "Json", entao
+// todo lugar que faz template.components.map(...) virava erro de tipo — e, pior,
+// ficava sem checagem nenhuma sobre o formato real. Aqui a coluna e estreitada
+// para a forma que o app de fato grava e le.
+export type MetaTemplate     = Omit<Tables<"meta_templates">, "components"> & {
+  components: TemplateComponent[];
+};
 export type ShootingCampaign = Tables<"shooting_campaigns">;
 export type ShootingMessage  = Tables<"shooting_messages">;
 export type ShootingUpload   = Tables<"shooting_uploads">;
 export type WebhookEvent     = Tables<"webhook_events">;
-export type ZApiTemplate     = Tables<"z_api_templates">;
+export type ZApiTemplate     = Omit<Tables<"z_api_templates">, "buttons"> & {
+  buttons: ZApiTemplateButton[] | null;
+};
 
 // Estes não são tabelas: são o formato de colunas jsonb. O gerador só sabe
 // dizer "Json", então a forma precisa continuar declarada aqui.

@@ -407,7 +407,7 @@ function MessageContent({ message }: { message: InboxMessage }) {
 }
 
 function MediaPlaceholder({
-  icon, label, mediaId, messageId,
+  icon, label, messageId,
 }: {
   icon: string; label: string; mediaId: string | null; messageId?: string;
 }) {

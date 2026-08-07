@@ -635,7 +635,6 @@ const FILTERS: { id: FilterKey; label: string }[] = [
 
 export function Support() {
   const { profile, workspaceId } = useAuth();
-  const { toast }                = useToast();
   const wid     = workspaceId ?? "";
   const uid     = profile?.id  ?? "";
   const isStaff = profile?.role === "admin" || profile?.role === "manager";

@@ -197,13 +197,3 @@ function FullScreenLoader() {
   );
 }
 
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "#0a110e" }}>
-      <div className="text-center">
-        <p className="text-3xl font-bold text-agro-muted-2">{title}</p>
-        <p className="text-sm text-agro-muted mt-2">Em desenvolvimento</p>
-      </div>
-    </div>
-  );
-}

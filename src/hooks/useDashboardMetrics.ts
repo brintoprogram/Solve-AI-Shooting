@@ -46,6 +46,10 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
 
   useEffect(() => {
     if (!workspaceId) return;
+    // O guard acima ja garante que nao e nulo, mas o TS perde esse
+    // estreitamento dentro dos closures das consultas abaixo. Capturar numa
+    // const resolve sem espalhar "!" por nove chamadas.
+    const wsId = workspaceId;
     let cancelled = false;
     setLoading(true);
 
@@ -78,7 +82,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         (() => {
           let q = supabase.from("shooting_campaigns")
             .select("*", { count: "exact", head: true })
-            .eq("workspace_id", workspaceId);
+            .eq("workspace_id", wsId);
           if (periodStart) q = q.gte("created_at", periodStart);
           return q;
         })(),
@@ -86,14 +90,14 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         // ── Delta de campanhas ────────────────────────────────────────
         supabase.from("shooting_campaigns")
           .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId)
+          .eq("workspace_id", wsId)
           .gte("created_at", deltaStart),
 
         // ── Total de mensagens enviadas ───────────────────────────────
         (() => {
           let q = supabase.from("shooting_messages")
             .select("*", { count: "exact", head: true })
-            .eq("workspace_id", workspaceId)
+            .eq("workspace_id", wsId)
             .in("status", [...SENT_STATUSES, "failed"]);
           if (periodStart) q = q.gte("created_at", periodStart);
           return q;
@@ -102,7 +106,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         // ── Delta de mensagens ────────────────────────────────────────
         supabase.from("shooting_messages")
           .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId)
+          .eq("workspace_id", wsId)
           .in("status", [...SENT_STATUSES, "failed"])
           .gte("created_at", deltaStart),
 
@@ -110,7 +114,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         (() => {
           let q = supabase.from("inbox_contacts")
             .select("*", { count: "exact", head: true })
-            .eq("workspace_id", workspaceId);
+            .eq("workspace_id", wsId);
           if (periodStart) q = q.gte("first_seen_at", periodStart);
           return q;
         })(),
@@ -118,14 +122,14 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         // ── Delta de contatos ─────────────────────────────────────────
         supabase.from("inbox_contacts")
           .select("*", { count: "exact", head: true })
-          .eq("workspace_id", workspaceId)
+          .eq("workspace_id", wsId)
           .gte("first_seen_at", deltaStart),
 
         // ── Agg de campanhas (entrega + tempo de automação) ───────────
         (() => {
           let q = supabase.from("shooting_campaigns")
             .select("sent_count, delivered_count, dispatch_channel, total_recipients, started_at, completed_at")
-            .eq("workspace_id", workspaceId)
+            .eq("workspace_id", wsId)
             .not("started_at", "is", null);
           if (periodStart) q = q.gte("created_at", periodStart);
           return q;
@@ -135,7 +139,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         (() => {
           let q = supabase.from("shooting_messages")
             .select("recipient_data")
-            .eq("workspace_id", workspaceId)
+            .eq("workspace_id", wsId)
             .in("status", SENT_STATUSES);
           if (periodStart) q = q.gte("created_at", periodStart);
           return q;
@@ -144,7 +148,7 @@ export function useDashboardMetrics(dateRange: DashboardDateRange = "all"): Dash
         // ── Dados do gráfico de área ──────────────────────────────────
         supabase.from("shooting_messages")
           .select("sent_at, read_at")
-          .eq("workspace_id", workspaceId)
+          .eq("workspace_id", wsId)
           .in("status", SENT_STATUSES)
           .gte("sent_at", chartStart),
       ]);

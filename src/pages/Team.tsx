@@ -10,7 +10,7 @@ import type { LucideIcon } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import {
   useAuth, ROLE_LABELS, ROLE_STYLE, initials,
-  DEFAULT_PERMISSIONS, hasPermission,
+  DEFAULT_PERMISSIONS,
 } from "@/context/AuthContext";
 import type { UserProfile, PermissionKey } from "@/context/AuthContext";
 import type { Department } from "@/types/inbox";
