@@ -10,15 +10,15 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-/** Espelho de src/lib/aiModels.ts. Opus custa muito mais por token que Haiku;
- *  cobrar o mesmo pelos dois faria o plano perder dinheiro exatamente nos
- *  workspaces que mais usam o modelo caro. Modelo desconhecido conta como 1 —
- *  nao penaliza agente configurado antes desta tabela existir. */
+/** Espelho de src/lib/aiModels.ts — as duas listas precisam bater. Os valores
+ *  sao a razao de preco por token contra o Haiku; a derivacao esta la.
+ *  Modelo desconhecido conta como 1 — nao penaliza agente configurado antes
+ *  desta tabela existir. */
 const MULTIPLICADOR: Record<string, number> = {
   "claude-haiku-4-5-20251001": 1,
   "gpt-4o-mini":               1,
   "claude-sonnet-5":           3,
-  "claude-opus-5":             8,
+  "claude-opus-5":             5,
 };
 
 export function multiplicadorDoModelo(modelo: string | null | undefined): number {

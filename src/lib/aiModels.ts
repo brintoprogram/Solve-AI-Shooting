@@ -17,9 +17,21 @@ export interface ModeloIA {
   nivel:  NivelModelo;
   /** Para que serve, em uma linha — aparece na tela ao escolher. */
   quando: string;
-  /** Multiplicador de crédito. Opus custa muito mais que Haiku por chamada;
-   *  cobrar o mesmo pelos dois faria o plano perder dinheiro exatamente nos
-   *  workspaces que mais usam o modelo caro. */
+  /**
+   * Multiplicador de crédito — a razão de preço por token contra o Haiku 4.5,
+   * que é a base 1x. Preço da Anthropic por 1M de tokens (jun/2026):
+   *
+   *   Haiku 4.5   $1 in / $5  out   → 1x
+   *   Sonnet 5    $3 in / $15 out   → 3x
+   *   Opus 5      $5 in / $25 out   → 5x
+   *
+   * Input e output escalam na mesma proporção nos três, então um multiplicador
+   * único é exato — não precisa ponderar entrada contra saída.
+   *
+   * Cobrar o mesmo por todos faria o plano perder dinheiro exatamente nos
+   * workspaces que mais usam o modelo caro. Ao mexer aqui, mexa também no
+   * espelho em supabase/functions/_shared/credits.ts.
+   */
   multiplicador: number;
 }
 
@@ -43,7 +55,7 @@ export const MODELOS: ModeloIA[] = [
     label: "Claude Opus 5",
     nivel: "maximo",
     quando: "Quando errar custa dinheiro — negociação de dívida, regra complexa",
-    multiplicador: 8,
+    multiplicador: 5,
   },
   {
     value: "gpt-4o-mini",
