@@ -4,6 +4,7 @@
 //   verify boleto is still pending, dedup via automation_logs, send, log result.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 import { decrypt } from "../_shared/crypto.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -314,6 +315,17 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
         return;
       }
 
+      const credito = await consumirCredito(db, rule.workspace_id, "mensagem", {
+        destino: recipient.contact_phone,
+        canal:   "whatsapp",
+        detalhe: { origem: "automacao", rule_id: rule.id },
+      });
+      if (!credito.permitido) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: `Sem créditos (saldo: ${credito.saldo})` });
+        return;
+      }
+
       const result = await sendZApiMessage(instanceId, token, clientToken, recipient.contact_phone, message);
 
       if (result.zaapId) {
@@ -362,6 +374,17 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
         recipient,
         trigger.day_offset,
       );
+
+      const credito = await consumirCredito(db, rule.workspace_id, "mensagem", {
+        destino: recipient.contact_phone,
+        canal:   "whatsapp",
+        detalhe: { origem: "automacao", rule_id: rule.id },
+      });
+      if (!credito.permitido) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: `Sem créditos (saldo: ${credito.saldo})` });
+        return;
+      }
 
       const result = await sendMetaTemplate(
         phoneNumberId, accessToken, recipient.contact_phone,

@@ -10,6 +10,7 @@
 // calculated delay between batches based on campaign.sending_speed (msg/min).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 import { decrypt } from "../_shared/crypto.ts";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 import { sanitize } from "../_shared/logger.ts";
@@ -580,6 +581,25 @@ async function processMessage(
   connectionId: string,
 ): Promise<void> {
   const components = buildComponents(tpl.components, mapping, msg.recipient_data ?? {});
+
+  // Credito antes do envio. Chave da janela e o telefone: se este numero ja foi
+  // alcancado nas ultimas 24h por qualquer caminho, nao cobra de novo.
+  const credito = await consumirCredito(db, workspaceId, "mensagem", {
+    destino: msg.recipient_phone,
+    canal:   "whatsapp",
+    detalhe: { origem: "campanha_meta", campaign_id: campaignId },
+  });
+  if (!credito.permitido) {
+    await db.from("shooting_campaigns")
+      .update({ status: "paused", next_message_at: null,
+                error_summary: `Pausada por falta de créditos (saldo: ${credito.saldo}).` })
+      .eq("id", campaignId);
+    console.warn(JSON.stringify({
+      level: "warn", event: "campanha_meta_pausada_sem_credito",
+      workspace_id: workspaceId, campaign_id: campaignId, saldo: credito.saldo,
+    }));
+    return;
+  }
 
   const result = await sendTemplate(
     conn.phone_number_id,

@@ -4,6 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
+import { consumirCredito } from "../_shared/credits.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
 
@@ -428,6 +429,33 @@ async function processCampaign(campaign: Campaign, tickStart: number): Promise<v
     }
 
     const msg = msgs[0] as Message;
+
+    // ── Credito, por destinatario ─────────────────────────────────
+    // Antes do envio. A janela de 24h e chaveada pelo telefone: se este
+    // numero ja foi alcancado nas ultimas 24h (por outra campanha ou pelo
+    // Inbox), nao cobra de novo — e uma conversa so para a Meta.
+    const credito = await consumirCredito(db, campaign.workspace_id, "mensagem", {
+      destino: msg.recipient_phone,
+      canal:   "whatsapp",
+      detalhe: { origem: "campanha", campaign_id: campaign.id },
+    });
+
+    if (!credito.permitido) {
+      // Pausa em vez de falhar: o que falta e saldo, nao a campanha. Assim ela
+      // retoma de onde parou depois da recarga, sem reenviar para quem ja
+      // recebeu.
+      await db.from("shooting_campaigns")
+        .update({ status: "paused", next_message_at: null,
+                  error_summary: `Pausada por falta de créditos (saldo: ${credito.saldo}).` })
+        .eq("id", campaign.id);
+      writeAuditLog(campaign.workspace_id, "campaign_paused_no_credit", campaign.id, "campaign",
+                    "error", `Saldo insuficiente (${credito.saldo})`);
+      console.warn(JSON.stringify({
+        level: "warn", event: "campanha_pausada_sem_credito",
+        workspace_id: campaign.workspace_id, campaign_id: campaign.id, saldo: credito.saldo,
+      }));
+      return;
+    }
 
     const delayMs = isRandom
       ? minDelayMs + Math.random() * (maxDelayMs - minDelayMs)

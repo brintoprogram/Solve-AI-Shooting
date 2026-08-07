@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 import { isInternalCall } from "../_shared/auth.ts";
 import { maskPhone } from "../_shared/logger.ts";
 import { sanitize } from "../_shared/logger.ts";
@@ -303,6 +304,22 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── 5. Classify with AI ─────────────────────────────────────────
+  // Cada resposta de campanha classificada e uma chamada paga. Sem freio, uma
+  // campanha grande com muitas respostas vira uma fatura sozinha.
+  const creditoIA = await consumirCredito(supabase, workspace_id, "ia", {
+    detalhe: { etapa: "analise_de_resposta", campaign_id },
+  });
+  if (!creditoIA.permitido) {
+    console.warn(JSON.stringify({
+      level: "warn", event: "analise_bloqueada_sem_credito",
+      workspace_id, saldo: creditoIA.saldo,
+    }));
+    return new Response(
+      JSON.stringify({ ok: true, skipped: "sem_credito", saldo: creditoIA.saldo }),
+      { status: 200 },
+    );
+  }
+
   let result: AnalyzeResult;
   try {
     result = provider === "openai"

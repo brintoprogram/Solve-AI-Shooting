@@ -35,13 +35,21 @@ export async function consumirCredito(
   supabase: SupabaseClient,
   workspaceId: string,
   tipo: TipoConsumo,
-  opts: { contactId?: string | null; canal?: Canal; detalhe?: Record<string, unknown> } = {},
+  opts: {
+    /** Telefone ou e-mail do cliente. É a CHAVE da janela de 24h. */
+    destino?:   string | null;
+    canal?:     Canal;
+    /** Só para o extrato — campanha dispara para planilha e pode não ter. */
+    contactId?: string | null;
+    detalhe?:   Record<string, unknown>;
+  } = {},
 ): Promise<ResultadoCredito> {
   const { data, error } = await supabase.rpc("consume_credit", {
     p_workspace_id: workspaceId,
     p_tipo:         tipo,
-    p_contact_id:   opts.contactId ?? null,
+    p_destino:      opts.destino ?? null,
     p_canal:        opts.canal ?? null,
+    p_contact_id:   opts.contactId ?? null,
     p_detalhe:      opts.detalhe ?? {},
   });
 

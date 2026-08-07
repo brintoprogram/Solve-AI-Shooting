@@ -96,7 +96,11 @@ async function handleRequest(req: Request, json: JsonFn): Promise<Response> {
   // ── Credito ───────────────────────────────────────────────────
   // Depois da autorizacao (nao cobra de quem nem podia enviar) e antes de
   // qualquer chamada ao provedor.
+  const { data: destinatario } = await supabase
+    .from("inbox_contacts").select("phone").eq("id", conv.contact_id as string).maybeSingle();
+
   const credito = await consumirCredito(supabase, workspace_id, "mensagem", {
+    destino:   (destinatario?.phone as string | undefined) ?? null,
     contactId: conv.contact_id as string,
     canal:     "whatsapp",
     detalhe:   { origem: "inbox_manual", sent_by },

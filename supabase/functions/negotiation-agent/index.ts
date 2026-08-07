@@ -18,6 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
+import { consumirCredito } from "../_shared/credits.ts";
 import { sendWhatsAppText } from "../_shared/whatsapp.ts";
 import { isInternalCall, bearerToken } from "../_shared/auth.ts";
 import { createLogger, requestIdFrom } from "../_shared/logger.ts";
@@ -448,6 +449,24 @@ Deno.serve(async (req: Request) => {
     ]);
     const systemPrompt = buildSystemPrompt(basePrompt, rules, negotiation, offersHistory);
 
+    // Debito antes da chamada: token e cobrado no instante em que a requisicao
+    // sai. A auto-correcao abaixo pode disparar uma segunda chamada — e uma
+    // segunda cobranca, porque e um segundo custo real.
+    const creditoIA = await consumirCredito(supabase, conv.workspace_id, "ia", {
+      contactId: conv.contact_id,
+      detalhe:   { etapa: "negociacao", modelo: model },
+    });
+    if (!creditoIA.permitido) {
+      console.warn(JSON.stringify({
+        level: "warn", event: "negociacao_bloqueada_sem_credito",
+        workspace_id: conv.workspace_id, saldo: creditoIA.saldo,
+      }));
+      return new Response(
+        JSON.stringify({ ok: true, skipped: "sem_credito", saldo: creditoIA.saldo }),
+        { status: 200 },
+      );
+    }
+
     let raw = await callAI(apiKey, model, systemPrompt, transcript);
     let { replyText, directive, payload } = parseDirective(raw);
 
@@ -460,6 +479,10 @@ Deno.serve(async (req: Request) => {
       if (!validation.ok) {
         console.warn(`[negotiation-agent] oferta inválida (${validation.reason}) — tentando 1 auto-correção`);
         const correctionPrompt = `${transcript}\n\n[SISTEMA] Sua última proposta violou uma regra: ${validation.reason}. Gere uma nova resposta e uma nova linha OFFER dentro dos limites definidos, ou ESCALATE se não for possível atender o cliente dentro das regras.`;
+        await consumirCredito(supabase, conv.workspace_id, "ia", {
+          contactId: conv.contact_id,
+          detalhe:   { etapa: "negociacao_autocorrecao", modelo: model },
+        });
         raw = await callAI(apiKey, model, systemPrompt, correctionPrompt);
         ({ replyText, directive, payload } = parseDirective(raw));
 

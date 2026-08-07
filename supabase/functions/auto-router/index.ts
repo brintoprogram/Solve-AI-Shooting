@@ -5,6 +5,7 @@
 // in a workspace with routing_enabled = true.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 import { decrypt } from "../_shared/crypto.ts";
 import { isInternalCall } from "../_shared/auth.ts";
 
@@ -122,7 +123,20 @@ async function runAutoRouter(
     },
   };
 
-  // 3. Send via Meta API
+  // 3. Credito, e so entao o envio
+  const credito = await consumirCredito(supabase, workspaceId, "mensagem", {
+    destino: contactPhone,
+    canal:   "whatsapp",
+    detalhe: { origem: "auto_router" },
+  });
+  if (!credito.permitido) {
+    console.warn(JSON.stringify({
+      level: "warn", event: "auto_router_bloqueado_sem_credito",
+      workspace_id: workspaceId, saldo: credito.saldo,
+    }));
+    return;
+  }
+
   const sendRes = await fetch(`${META_API}/${conn.phone_number_id}/messages`, {
     method:  "POST",
     headers: {

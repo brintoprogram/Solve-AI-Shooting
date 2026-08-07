@@ -10,6 +10,7 @@
 // Rate limiting: targetIntervalMs = 60_000 / sending_speed — elapsed time per message
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 import nodemailer from "npm:nodemailer@6";
 import { decrypt } from "../_shared/crypto.ts";
 
@@ -282,6 +283,24 @@ async function processMessage(
   workspaceId: string,
 ): Promise<void> {
   const now    = new Date().toISOString();
+  // Credito antes do envio. Canal "email" tem janela propria: falar por
+  // WhatsApp e por e-mail com a mesma pessoa sao dois contatos e custam dois.
+  const credito = await consumirCredito(db, workspaceId, "mensagem", {
+    destino: msg.recipient_email,
+    canal:   "email",
+    detalhe: { origem: "campanha_email", campaign_id: campaignId },
+  });
+  if (!credito.permitido) {
+    await db.from("email_campaigns")
+      .update({ status: "paused" })
+      .eq("id", campaignId);
+    console.warn(JSON.stringify({
+      level: "warn", event: "campanha_email_pausada_sem_credito",
+      workspace_id: workspaceId, campaign_id: campaignId, saldo: credito.saldo,
+    }));
+    return;
+  }
+
   const result = await sendEmail(conn, msg, subject, bodyHtml, graphToken);
 
   if (result.ok) {

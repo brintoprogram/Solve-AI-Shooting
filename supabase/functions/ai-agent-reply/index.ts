@@ -211,7 +211,7 @@ async function handleTriage(
   // Debito ANTES da chamada: token e cobrado pelo provedor no instante em que
   // a requisicao sai, entao verificar depois seria verificar tarde demais.
   const creditoTriagem = await consumirCredito(supabase, conv.workspace_id, "ia", {
-    contactId: conv.contact_id,
+    contactId: conv.contact_id,   // IA nao usa janela; isto e so referencia no extrato
     detalhe:   { etapa: "triagem", agente: triageAgent.name, modelo: triageAgent.model },
   });
   if (!creditoTriagem.permitido) {
@@ -343,7 +343,7 @@ async function handleAgentReply(
   const transcript = await fetchTranscript(conversationId, messageBody);
 
   const creditoAgente = await consumirCredito(supabase, conv.workspace_id, "ia", {
-    contactId: conv.contact_id,
+    contactId: conv.contact_id,   // idem
     detalhe:   { etapa: "agente", agente: agent.name, modelo: agent.model },
   });
   if (!creditoAgente.permitido) {

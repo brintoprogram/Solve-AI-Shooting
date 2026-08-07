@@ -16,6 +16,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
 import { bearerToken } from "../_shared/auth.ts";
 import { checkRateLimit } from "../_shared/ratelimit.ts";
+import { consumirCredito, mensagemSemCredito } from "../_shared/credits.ts";
 import { createLogger, requestIdFrom } from "../_shared/logger.ts";
 
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
@@ -82,6 +83,21 @@ Deno.serve(async (req) => {
   if (!rl.allowed) {
     ulog.warn("rate_limited", { used: rl.used, limit: rl.limit });
     return json({ error: "Muitas correções seguidas. Aguarde um minuto." }, 429);
+  }
+
+  // Correcao de texto e chamada paga como qualquer outra. O workspace vem da
+  // associacao do usuario, nao do corpo da requisicao.
+  const { data: membro } = await supabase
+    .from("workspace_members").select("workspace_id").eq("user_id", user.id).limit(1).maybeSingle();
+
+  if (membro?.workspace_id) {
+    const creditoIA = await consumirCredito(supabase, membro.workspace_id as string, "ia", {
+      detalhe: { etapa: "correcao_de_texto" },
+    });
+    if (!creditoIA.permitido) {
+      ulog.warn("correcao_bloqueada_sem_credito", { saldo: creditoIA.saldo });
+      return json({ error: mensagemSemCredito(creditoIA) }, 402);
+    }
   }
 
   try {

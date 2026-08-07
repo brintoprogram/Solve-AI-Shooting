@@ -8,6 +8,7 @@
 //   sent_by              string? — UUID do usuário que iniciou
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito, mensagemSemCredito } from "../_shared/credits.ts";
 import { decrypt } from "../_shared/crypto.ts";
 
 const supabase = createClient(
@@ -150,7 +151,20 @@ Deno.serve(async (req: Request) => {
     conversationId = newConv.id as string;
   }
 
-  // ── 5. Enviar mensagem via Z-API ──────────────────────────────
+  // ── 5. Credito, e so entao o envio ────────────────────────────
+  const credito = await consumirCredito(supabase, workspace_id, "mensagem", {
+    destino: phone,
+    canal:   "whatsapp",
+    detalhe: { origem: "nova_conversa_zapi", sent_by },
+  });
+  if (!credito.permitido) {
+    console.warn(JSON.stringify({
+      level: "warn", event: "nova_conversa_bloqueada_sem_credito",
+      workspace_id, saldo: credito.saldo,
+    }));
+    return json({ error: mensagemSemCredito(credito), sem_credito: true, saldo: credito.saldo }, 402);
+  }
+
   const token       = await decrypt(zapiConn.token        as string);
   const clientToken = await decrypt(zapiConn.client_token as string);
 

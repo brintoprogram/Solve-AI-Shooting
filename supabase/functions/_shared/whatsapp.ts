@@ -79,7 +79,14 @@ export async function sendWhatsAppText(
   // nao impede nada — a mensagem ja teria saido.
   const temCanal = !!(conv.z_api_connection_id || conv.meta_connection_id);
   if (temCanal) {
+    // A janela e chaveada pelo TELEFONE, nao pelo contato: a campanha dispara
+    // para planilha e nem sempre tem contact_id. Chavear por contato cobraria
+    // duas vezes a mesma pessoa alcancada pelos dois caminhos.
+    const { data: destinatario } = await supabase
+      .from("inbox_contacts").select("phone").eq("id", conv.contact_id).maybeSingle();
+
     const credito = await consumirCredito(supabase, conv.workspace_id, "mensagem", {
+      destino:   (destinatario?.phone as string | undefined) ?? null,
       contactId: conv.contact_id,
       canal:     "whatsapp",
       detalhe:   { origem: logLabel },
