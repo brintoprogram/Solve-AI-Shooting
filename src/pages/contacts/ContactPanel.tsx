@@ -19,6 +19,11 @@ import { initials, formatBRL, formatDate } from "@/lib/format";
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface Contact {
+  /** Agregados que vêm da view inbox_contacts_com_saldo. Opcionais porque o
+   *  contato também chega da tabela crua em outros fluxos (edição, seleção). */
+  saldo_em_aberto?:    number | null;
+  proximo_vencimento?: string | null;
+
   id:                  string;
   name:                string | null;
   phone:               string | null;

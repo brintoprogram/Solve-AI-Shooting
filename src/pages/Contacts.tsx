@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2,
   Plus, Download, Sparkles, ArrowUpAZ, ArrowDownAZ, X, Filter, Trash2,
-  AlertTriangle,
+  AlertTriangle, SlidersHorizontal,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
@@ -17,6 +17,7 @@ import { Presence } from "@/components/ui/Presence";
 import { ContactFormModal } from "./contacts/ContactFormModal";
 import { BaseCleanup } from "./contacts/BaseCleanup";
 import { log } from "@/lib/logger";
+import { useTablePrefs, padCelula, COLUNAS_OPCIONAIS } from "@/hooks/useTablePrefs";
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -25,7 +26,22 @@ const PAGE_SIZE = 25;
 // ── Helpers ────────────────────────────────────────────────────────
 
 
-type SortOrder = "name_asc" | "name_desc";
+type SortOrder =
+  | "name_asc"   | "name_desc"
+  | "saldo_desc" | "saldo_asc"
+  | "venc_asc"   | "venc_desc";
+
+/** Coluna e direcao de cada ordenacao, do jeito que o PostgREST espera.
+ *  nullsFirst: false mantem quem nao tem boleto no fim das duas ordenacoes
+ *  financeiras — contato sem divida no topo da lista de cobranca seria ruido. */
+const SORT: Record<SortOrder, { coluna: string; asc: boolean; nullsFirst?: boolean }> = {
+  name_asc:   { coluna: "name",               asc: true  },
+  name_desc:  { coluna: "name",               asc: false },
+  saldo_desc: { coluna: "saldo_em_aberto",    asc: false },
+  saldo_asc:  { coluna: "saldo_em_aberto",    asc: true  },
+  venc_asc:   { coluna: "proximo_vencimento", asc: true,  nullsFirst: false },
+  venc_desc:  { coluna: "proximo_vencimento", asc: false, nullsFirst: false },
+};
 
 // ── Hook ───────────────────────────────────────────────────────────
 
@@ -51,13 +67,20 @@ function useContacts(
     setLoading(true);
     const from = (page - 1) * PAGE_SIZE;
     const to   = from + PAGE_SIZE - 1;
-    const asc  = sortOrder === "name_asc";
+    const ord  = SORT[sortOrder] ?? SORT.name_asc;
 
+    // View em vez da tabela: ela traz o saldo em aberto e o proximo vencimento
+    // ja agregados, o que permite ORDENAR POR ELES no banco. Ordenar no cliente
+    // daria "a pagina 1 ordenada por saldo", nao "os 25 que mais devem".
+    // De quebra elimina a segunda consulta que buscava os totais da pagina.
     let q = supabase
-      .from("inbox_contacts")
+      .from("inbox_contacts_com_saldo")
       .select("*", { count: "exact" })
       .eq("workspace_id", workspaceId)
-      .order("name", { ascending: asc })
+      .order(ord.coluna, { ascending: ord.asc, nullsFirst: ord.nullsFirst })
+      // Desempate estavel: sem isto, contatos com o mesmo saldo (zero, por
+      // exemplo) trocam de lugar entre paginas e alguns nunca aparecem.
+      .order("id", { ascending: true })
       .range(from, to);
 
     const s = safeFilterTerm(search);
@@ -176,6 +199,113 @@ async function exportXlsx(workspaceId: string) {
 
   const date = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `contatos_${date}.xlsx`);
+}
+
+/** Controle de densidade e de colunas visíveis.
+ *  Fica na barra da tela e não em Configurações porque é ajuste de quem está
+ *  olhando a tabela agora — a decisão e o efeito precisam estar no mesmo lugar. */
+function ControleExibicao({ prefs }: { prefs: ReturnType<typeof useTablePrefs> }) {
+  const [aberto, setAberto] = useState(false);
+
+  // Fecha ao clicar fora. Sem isto o painel fica preso na tela.
+  useEffect(() => {
+    if (!aberto) return;
+    const fechar = () => setAberto(false);
+    // setTimeout: sem ele o próprio clique que abriu já fecharia o painel.
+    const t = setTimeout(() => document.addEventListener("click", fechar), 0);
+    return () => { clearTimeout(t); document.removeEventListener("click", fechar); };
+  }, [aberto]);
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setAberto((v) => !v)}
+        className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl text-[#6b7f6e] transition-colors hover:bg-[#1e2e22] hover:text-white"
+        style={{ border: "1px solid #2a3d30" }}
+        aria-expanded={aberto}
+      >
+        <SlidersHorizontal className="w-4 h-4" /> Exibição
+      </button>
+
+      {aberto && (
+        <div
+          className="absolute right-0 mt-2 w-56 rounded-xl p-3 z-30 animate-scale-in"
+          style={{ background: "#0d1710", border: "1px solid #2a3d30", boxShadow: "0 20px 50px rgba(0,0,0,0.6)" }}
+        >
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[#6b7f6e] mb-2">Densidade</p>
+          <div className="flex gap-1 mb-4">
+            {([["compacta", "Compacta"], ["confortavel", "Confortável"]] as const).map(([valor, rotulo]) => (
+              <button
+                key={valor}
+                onClick={() => prefs.setDensidade(valor)}
+                className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style={prefs.densidade === valor
+                  ? { background: "rgba(63,176,108,0.18)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.3)" }
+                  : { color: "#6b7f6e", border: "1px solid transparent" }}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[#6b7f6e] mb-2">Colunas</p>
+          <div className="space-y-0.5">
+            {COLUNAS_OPCIONAIS.map((col) => {
+              const visivel = prefs.mostrar(col.key);
+              return (
+                <button
+                  key={col.key}
+                  onClick={() => prefs.alternarColuna(col.key)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors hover:bg-[#1e2e22]"
+                  role="switch"
+                  aria-checked={visivel}
+                >
+                  <span
+                    className="w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border"
+                    style={visivel
+                      ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)", border: "none" }
+                      : { borderColor: "#3a4d3e" }}
+                  >
+                    {visivel && <span className="text-white text-[8px] leading-none font-bold">✓</span>}
+                  </span>
+                  <span className={visivel ? "text-[#b0c4b8]" : "text-[#6b7f6e]"}>{col.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Linhas cinza no lugar dos dados enquanto a página carrega.
+ *  Antes a tabela inteira era trocada por um spinner centralizado: o layout
+ *  colapsava e voltava a cada troca de página ou filtro, e a barra de rolagem
+ *  pulava junto. Manter a estrutura no lugar elimina o salto. */
+function LinhasEsqueleto({ colunas, pad }: { colunas: number; pad: string }) {
+  return (
+    <tbody aria-hidden>
+      {Array.from({ length: 8 }).map((_, linha) => (
+        <tr key={linha} style={{ borderBottom: "1px solid #1a2a1e" }}>
+          {Array.from({ length: colunas }).map((_, col) => (
+            <td key={col} className={`px-4 ${pad}`}>
+              <div
+                className="h-3 rounded animate-pulse"
+                style={{
+                  background: "#1a2a1e",
+                  // Larguras irregulares: barras de tamanho idêntico leem como
+                  // grade quebrada, não como texto carregando.
+                  width: col === 0 ? "60%" : `${55 + ((linha * 7 + col * 13) % 35)}%`,
+                  animationDelay: `${linha * 60}ms`,
+                }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  );
 }
 
 // ── Tag chips ──────────────────────────────────────────────────────
@@ -299,11 +429,12 @@ function TH({
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-  sortKey?: "name";
+  sortKey?: "name" | "saldo" | "venc";
   sortOrder?: SortOrder;
   onSort?: () => void;
 }) {
-  const isSorted = sortKey && sortOrder?.startsWith(sortKey);
+  const isSorted = !!sortKey && !!sortOrder && sortOrder.startsWith(sortKey);
+  const ascendente = !!sortOrder && sortOrder.endsWith("_asc");
   return (
     <th
       className={`px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7f6e] whitespace-nowrap ${className} ${onSort ? "cursor-pointer select-none hover:text-white transition-colors" : ""}`}
@@ -314,7 +445,7 @@ function TH({
         {children}
         {onSort && (
           isSorted
-            ? sortOrder === "name_asc"
+            ? ascendente
               ? <ArrowUpAZ className="w-3 h-3 text-[#3fb06c]" />
               : <ArrowDownAZ className="w-3 h-3 text-[#3fb06c]" />
             : <ArrowUpAZ className="w-3 h-3 opacity-30" />
@@ -572,6 +703,8 @@ export function Contacts() {
 
   const workspaceId = useAuth().workspaceId ?? "";
   const { toast } = useToast();
+  const prefs = useTablePrefs();
+  const pad = padCelula(prefs.densidade);
 
   // contacts must be declared before the selection helpers that reference it.
   // useContacts is a hook so it must be called unconditionally at the top level.
@@ -803,34 +936,19 @@ export function Contacts() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
-  // Fetch invoice totals for current page of contacts
+  // Saldo e vencimento vêm agregados na própria linha da view — não há mais
+  // uma segunda consulta por página. Isso também elimina o intervalo em que a
+  // lista já estava desenhada mas a coluna de saldo ainda mostrava "—".
   useEffect(() => {
-    if (contacts.length === 0) { setInvoiceTotals({}); return; }
-    const ids = contacts.map((c) => c.id);
-    supabase
-      // Agrupa no banco. A mesma regra de "em aberto" das outras somas vive
-      // dentro da função, então a lista não pode divergir do rodapé nem da
-      // variável usada nas mensagens de campanha.
-      .rpc("invoice_totais_por_contato", { p_workspace_id: workspaceId, p_contact_ids: ids })
-      .then(({ data, error }: {
-        data: { contact_id: string; total: number | null; proximo_vencimento: string | null }[] | null;
-        error: { message: string } | null;
-      }) => {
-        if (error) {
-          log.error("Falha ao carregar totais por contato", { err: error.message });
-          setInvoiceTotals({});
-          return;
-        }
-        const map: Record<string, { total: number; nextDue: string | null }> = {};
-        for (const row of (data ?? [])) {
-          map[row.contact_id] = {
-            total:   Number(row.total ?? 0),
-            nextDue: row.proximo_vencimento,
-          };
-        }
-        setInvoiceTotals(map);
-      });
-  }, [contacts, workspaceId]);
+    const map: Record<string, { total: number; nextDue: string | null }> = {};
+    for (const c of contacts) {
+      map[c.id] = {
+        total:   Number(c.saldo_em_aberto ?? 0),
+        nextDue: c.proximo_vencimento ?? null,
+      };
+    }
+    setInvoiceTotals(map);
+  }, [contacts]);
 
   async function handleExport() {
     setExporting(true);
@@ -856,6 +974,7 @@ export function Contacts() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ControleExibicao prefs={prefs} />
           <button
             onClick={handleExport}
             disabled={exporting || total === 0}
@@ -994,9 +1113,9 @@ export function Contacts() {
       {mainTab === "lista" && (<>
         <div className="flex-1 overflow-auto">
           {loading || filterLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-6 h-6 text-[#3fb06c] animate-spin" />
-            </div>
+            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
+              <LinhasEsqueleto colunas={2 + prefs.colunas.length + 1} pad={pad} />
+            </table>
           ) : contacts.length === 0 ? (
             <EmptyState search={debouncedSearch} hasFilters={activeFilterCount > 0} onImport={() => setShowImport(true)} />
           ) : (
@@ -1029,14 +1148,31 @@ export function Contacts() {
                   >
                     Nome / Empresa
                   </TH>
-                  <TH className="w-[150px]">Telefone</TH>
-                  <TH className="w-[140px]">CPF / CNPJ</TH>
-                  <TH className="w-[190px]">Email</TH>
-                  <TH className="w-[150px]">Representante</TH>
-                  <TH className="w-[130px]">Saldo em aberto</TH>
-                  <TH className="w-[155px]">Próx. venc.</TH>
-                  <TH className="w-[140px]">Cidade / UF</TH>
-                  <TH>Tags</TH>
+                  {prefs.mostrar("phone") && <TH className="w-[150px]">Telefone</TH>}
+                  {prefs.mostrar("cpf_cnpj") && <TH className="w-[140px]">CPF / CNPJ</TH>}
+                  {prefs.mostrar("email") && <TH className="w-[190px]">Email</TH>}
+                  {prefs.mostrar("representante") && <TH className="w-[150px]">Representante</TH>}
+                  <TH
+                    className="w-[130px]"
+                    sortKey="saldo"
+                    sortOrder={filters.sortOrder}
+                    /* Primeiro clique traz o MAIOR devedor: e o que se procura
+                       ao ordenar por saldo numa tela de cobranca. */
+                    onSort={() => patchFilters({ sortOrder: filters.sortOrder === "saldo_desc" ? "saldo_asc" : "saldo_desc" })}
+                  >
+                    Saldo em aberto
+                  </TH>
+                  {prefs.mostrar("vencimento") && <TH
+                    className="w-[155px]"
+                    sortKey="venc"
+                    sortOrder={filters.sortOrder}
+                    /* Ascendente primeiro: a data mais antiga e a mais atrasada. */
+                    onSort={() => patchFilters({ sortOrder: filters.sortOrder === "venc_asc" ? "venc_desc" : "venc_asc" })}
+                  >
+                    Próx. venc.
+                  </TH>}
+                  {prefs.mostrar("cidade") && <TH className="w-[140px]">Cidade / UF</TH>}
+                  {prefs.mostrar("tags") && <TH>Tags</TH>}
                 </tr>
               </thead>
               <tbody>
@@ -1054,7 +1190,7 @@ export function Contacts() {
                     >
                       {/* Checkbox — fixo na esquerda junto com o nome */}
                       <td
-                        className="px-3 py-3 sticky left-0 z-10"
+                        className={`px-3 ${pad} sticky left-0 z-10`}
                         style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
                         onClick={(e) => { e.stopPropagation(); toggleOne(contact.id); }}
                       >
@@ -1071,7 +1207,7 @@ export function Contacts() {
                       {/* Nome — fica visível durante o scroll horizontal, senão você
                           rola até "saldo" e perde de vista de quem é a linha. */}
                       <td
-                        className="pl-2 pr-4 py-3 sticky left-10 z-10"
+                        className={`pl-2 pr-4 ${pad} sticky left-10 z-10`}
                         style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
                       >
                         <div className="flex items-center gap-3">
@@ -1087,13 +1223,16 @@ export function Contacts() {
                         </div>
                       </td>
 
+                      {prefs.mostrar("phone") && (<>
                       {/* Phone — formatted */}
-                      <td className="px-4 py-3 text-xs text-[#6b7f6e] font-mono">
+                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e] font-mono`}>
                         {formatPhone(contact.phone)}
                       </td>
+                      </>)}
 
+                      {prefs.mostrar("cpf_cnpj") && (<>
                       {/* CPF/CNPJ */}
-                      <td className="px-4 py-3 text-xs text-[#6b7f6e] font-mono">
+                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e] font-mono`}>
                         {(() => {
                           const raw = contact.cpf_cnpj;
                           if (!raw) return "—";
@@ -1103,9 +1242,11 @@ export function Contacts() {
                           return raw;
                         })()}
                       </td>
+                      </>)}
 
+                      {prefs.mostrar("email") && (<>
                       {/* Email */}
-                      <td className="px-4 py-3 text-xs text-[#6b7f6e] max-w-[190px]">
+                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e] max-w-[190px]`}>
                         {contact.email ? (
                           <span className="truncate block" title={contact.email}>{contact.email}</span>
                         ) : "—"}
@@ -1113,9 +1254,11 @@ export function Contacts() {
                           <span className="truncate block text-[#4a6b50] mt-0.5" title={contact.email2}>{contact.email2}</span>
                         )}
                       </td>
+                      </>)}
 
+                      {prefs.mostrar("representante") && (<>
                       {/* Representante */}
-                      <td className="px-4 py-3 text-xs max-w-[150px]">
+                      <td className={`px-4 ${pad} text-xs max-w-[150px]`}>
                         {contact.nome_representante ? (
                           <>
                             <p className="text-[#b0c4b8] truncate" title={contact.nome_representante}>{contact.nome_representante}</p>
@@ -1125,11 +1268,12 @@ export function Contacts() {
                           </>
                         ) : "—"}
                       </td>
+                      </>)}
 
                       {/* Saldo em aberto — tabular-nums alinha os dígitos em coluna.
                           Sem isso a fonte é proporcional e "R$ 1.111,11" não fica
                           sob "R$ 9.999,99", que é justamente o que se compara aqui. */}
-                      <td className="px-4 py-3 text-xs text-right tabular-nums">
+                      <td className={`px-4 ${pad} text-xs text-right tabular-nums`}>
                         {inv && inv.total > 0 ? (
                           <span className="font-semibold text-amber-400">{formatBRL(inv.total)}</span>
                         ) : (
@@ -1137,12 +1281,13 @@ export function Contacts() {
                         )}
                       </td>
 
+                      {prefs.mostrar("vencimento") && (<>
                       {/* Próximo vencimento — o atraso era sinalizado SÓ pela cor
                           vermelha. Para quem tem deficiência de visão de cor (cerca
                           de 8% dos homens) a informação mais importante da tela
                           simplesmente não existia. Agora vem também o ícone e os
                           dias, que funcionam sem depender de enxergar o vermelho. */}
-                      <td className="px-4 py-3 text-xs tabular-nums">
+                      <td className={`px-4 ${pad} text-xs tabular-nums`}>
                         {inv?.nextDue ? (() => {
                           const atraso = diasDeAtraso(inv.nextDue);
                           const vencido = atraso !== null && atraso > 0;
@@ -1161,22 +1306,27 @@ export function Contacts() {
                           <span className="text-[#3a4d3e]">—</span>
                         )}
                       </td>
+                      </>)}
 
+                      {prefs.mostrar("cidade") && (<>
                       {/* Cidade / UF */}
-                      <td className="px-4 py-3 text-xs text-[#6b7f6e]">
+                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e]`}>
                         {contact.cidade || contact.estado
                           ? [contact.cidade, contact.estado].filter(Boolean).join(" / ")
                           : "—"}
                       </td>
+                      </>)}
 
+                      {prefs.mostrar("tags") && (<>
                       {/* Tags */}
-                      <td className="px-4 py-3">
+                      <td className={`px-4 ${pad}`}>
                         {contact.tags?.length > 0 ? (
                           <TagChips tags={contact.tags} />
                         ) : (
                           <span className="text-xs text-[#3a4d3e]">—</span>
                         )}
                       </td>
+                      </>)}
                     </tr>
                   );
                 })}

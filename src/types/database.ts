@@ -2339,7 +2339,17 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      // inbox_contacts + saldo em aberto e próximo vencimento já agregados
+      // (20260807120000_contatos_com_saldo.sql). Existe para que a lista possa
+      // ORDENAR por saldo/vencimento no banco: ordenar uma página de 25 já
+      // paginada não ordena a base.
+      inbox_contacts_com_saldo: {
+        Row: Database["public"]["Tables"]["inbox_contacts"]["Row"] & {
+          saldo_em_aberto: number
+          proximo_vencimento: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_my_role: { Args: never; Returns: string }
