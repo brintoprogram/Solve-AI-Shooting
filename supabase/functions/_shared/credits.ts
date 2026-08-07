@@ -10,6 +10,21 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/** Espelho de src/lib/aiModels.ts. Opus custa muito mais por token que Haiku;
+ *  cobrar o mesmo pelos dois faria o plano perder dinheiro exatamente nos
+ *  workspaces que mais usam o modelo caro. Modelo desconhecido conta como 1 —
+ *  nao penaliza agente configurado antes desta tabela existir. */
+const MULTIPLICADOR: Record<string, number> = {
+  "claude-haiku-4-5-20251001": 1,
+  "gpt-4o-mini":               1,
+  "claude-sonnet-5":           3,
+  "claude-opus-5":             8,
+};
+
+export function multiplicadorDoModelo(modelo: string | null | undefined): number {
+  return MULTIPLICADOR[modelo ?? ""] ?? 1;
+}
+
 export type TipoConsumo = "mensagem" | "ia";
 export type Canal       = "whatsapp" | "email";
 
@@ -42,6 +57,8 @@ export async function consumirCredito(
     /** Só para o extrato — campanha dispara para planilha e pode não ter. */
     contactId?: string | null;
     detalhe?:   Record<string, unknown>;
+    /** Modelo usado, quando tipo = "ia". Define o multiplicador do custo. */
+    modelo?:    string | null;
   } = {},
 ): Promise<ResultadoCredito> {
   const { data, error } = await supabase.rpc("consume_credit", {
@@ -50,7 +67,8 @@ export async function consumirCredito(
     p_destino:      opts.destino ?? null,
     p_canal:        opts.canal ?? null,
     p_contact_id:   opts.contactId ?? null,
-    p_detalhe:      opts.detalhe ?? {},
+    p_detalhe:      { ...(opts.detalhe ?? {}), modelo: opts.modelo ?? null },
+    p_multiplicador: multiplicadorDoModelo(opts.modelo),
   });
 
   if (error) {

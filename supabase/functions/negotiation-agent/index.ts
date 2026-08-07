@@ -433,7 +433,10 @@ Deno.serve(async (req: Request) => {
 
     // ── Resolve which ai_agents persona/model to speak as ──────────
     let basePrompt = "Você é um atendente cordial e objetivo de uma empresa, negociando uma dívida em atraso via WhatsApp.";
-    let model       = "claude-haiku-4-5-20251001";
+    /* Negociacao decide desconto e parcela: um erro aqui sai mais caro que a
+       diferenca de preco entre os modelos. O agente pode sobrescrever, mas o
+       padrao e o modelo mais capaz. */
+    let model       = "claude-opus-5";
     let agentId: string | null = null;
     if (conv.ai_agent_id) {
       const { data: agent } = await supabase.from("ai_agents").select("id, system_prompt, model, is_active").eq("id", conv.ai_agent_id).maybeSingle();
@@ -454,7 +457,8 @@ Deno.serve(async (req: Request) => {
     // segunda cobranca, porque e um segundo custo real.
     const creditoIA = await consumirCredito(supabase, conv.workspace_id, "ia", {
       contactId: conv.contact_id,
-      detalhe:   { etapa: "negociacao", modelo: model },
+      modelo:    model,
+      detalhe:   { etapa: "negociacao" },
     });
     if (!creditoIA.permitido) {
       console.warn(JSON.stringify({
@@ -481,7 +485,8 @@ Deno.serve(async (req: Request) => {
         const correctionPrompt = `${transcript}\n\n[SISTEMA] Sua última proposta violou uma regra: ${validation.reason}. Gere uma nova resposta e uma nova linha OFFER dentro dos limites definidos, ou ESCALATE se não for possível atender o cliente dentro das regras.`;
         await consumirCredito(supabase, conv.workspace_id, "ia", {
           contactId: conv.contact_id,
-          detalhe:   { etapa: "negociacao_autocorrecao", modelo: model },
+          modelo:    model,
+          detalhe:   { etapa: "negociacao_autocorrecao" },
         });
         raw = await callAI(apiKey, model, systemPrompt, correctionPrompt);
         ({ replyText, directive, payload } = parseDirective(raw));

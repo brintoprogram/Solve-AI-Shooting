@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
+import {
+  MODELOS, MODELO_PADRAO, SUGESTAO, NIVEL_ESTILO, modeloPorId,
+} from "@/lib/aiModels";
 import { Plus, Pencil, Trash2, Bot, Save, X, Loader2, Shuffle, Play } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -15,11 +18,7 @@ interface AIAgent {
   created_at:    string;
 }
 
-const MODELS = [
-  { value: "claude-haiku-4-5-20251001", label: "Claude Haiku (rápido, econômico)" },
-  { value: "claude-sonnet-4-6",         label: "Claude Sonnet (equilibrado)"      },
-  { value: "gpt-4o-mini",               label: "GPT-4o Mini (OpenAI)"             },
-];
+
 
 const TRIAGE_TEMPLATE = `Analise a mensagem do cliente e determine o setor. Responda APENAS com a rota correspondente:
 - Se o assunto for [Palavra-chave], retorne: ROUTE:Suporte
@@ -29,7 +28,7 @@ const TRIAGE_TEMPLATE = `Analise a mensagem do cliente e determine o setor. Resp
 const EMPTY_FORM = {
   name:          "",
   system_prompt: "",
-  model:         MODELS[0].value,
+  model:         MODELO_PADRAO,
   is_triage:     false,
   department_id: "",
 };
@@ -314,16 +313,61 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
 
                 {/* Model */}
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-widest mb-1.5">Modelo de IA</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs text-gray-500 uppercase tracking-widest">Modelo de IA</p>
+                    {(() => {
+                      /* Sugestao conforme o papel do agente. A triagem roda em
+                         TODA mensagem que chega e so escolhe um setor — e o
+                         pior lugar para gastar com o modelo caro. */
+                      const sugerido = form.is_triage ? SUGESTAO.triagem : SUGESTAO.setor;
+                      if (form.model === sugerido) return null;
+                      const m = modeloPorId(sugerido);
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, model: sugerido }))}
+                          className="text-[10px] text-agro-green hover:brightness-125 transition-all"
+                        >
+                          Usar o sugerido: {m?.label}
+                        </button>
+                      );
+                    })()}
+                  </div>
+
                   <select
                     className="input-agro w-full text-sm"
                     value={form.model}
                     onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
                   >
-                    {MODELS.map((m) => (
+                    {MODELOS.map((m) => (
                       <option key={m.value} value={m.value}>{m.label}</option>
                     ))}
                   </select>
+
+                  {/* Para que serve e quanto consome. Sem isto, a escolha e um
+                      nome de modelo sem consequencia visivel — e o custo so
+                      aparece na fatura. */}
+                  {(() => {
+                    const m = modeloPorId(form.model);
+                    if (!m) return null;
+                    const est = NIVEL_ESTILO[m.nivel];
+                    return (
+                      <div className="flex items-start gap-2 mt-2">
+                        <span
+                          className="text-[9px] px-2 py-0.5 rounded-md font-semibold shrink-0 mt-0.5"
+                          style={{ background: est.fundo, color: est.cor }}
+                        >
+                          {est.rotulo}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-agro-muted leading-relaxed">{m.quando}</p>
+                          <p className="text-[10px] text-agro-muted-2 mt-0.5">
+                            Consome {m.multiplicador}x o crédito de IA por resposta.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* System prompt */}
@@ -452,7 +496,7 @@ export function SettingsAIAgents({ workspaceId }: { workspaceId: string }) {
                         )}
 
                         <span className="text-xs text-agro-muted bg-agro-muted/10 px-2 py-0.5 rounded-full shrink-0">
-                          {MODELS.find((m) => m.value === agent.model)?.label.split(" ")[0] ?? agent.model}
+                          {modeloPorId(agent.model)?.label ?? agent.model}
                         </span>
                       </div>
 

@@ -212,7 +212,8 @@ async function handleTriage(
   // a requisicao sai, entao verificar depois seria verificar tarde demais.
   const creditoTriagem = await consumirCredito(supabase, conv.workspace_id, "ia", {
     contactId: conv.contact_id,   // IA nao usa janela; isto e so referencia no extrato
-    detalhe:   { etapa: "triagem", agente: triageAgent.name, modelo: triageAgent.model },
+    modelo:    triageAgent.model as string,
+    detalhe:   { etapa: "triagem", agente: triageAgent.name },
   });
   if (!creditoTriagem.permitido) {
     await rastro(conv, conversationId, "sem_credito", {
@@ -344,7 +345,8 @@ async function handleAgentReply(
 
   const creditoAgente = await consumirCredito(supabase, conv.workspace_id, "ia", {
     contactId: conv.contact_id,   // idem
-    detalhe:   { etapa: "agente", agente: agent.name, modelo: agent.model },
+    modelo:    agent.model as string,
+    detalhe:   { etapa: "agente", agente: agent.name },
   });
   if (!creditoAgente.permitido) {
     await rastro(conv, conversationId, "sem_credito", {
