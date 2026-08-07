@@ -102,8 +102,27 @@ export interface CampaignWithTemplate extends ShootingCampaign {
   meta_connections?: MetaConnection;
 }
 
-export type MessageStatus = ShootingMessage["status"];
-export type CampaignStatus = ShootingCampaign["status"];
+// Derivar de ShootingMessage["status"] trazia `string | null` junto, e um tipo
+// nulavel nao pode ser chave de Record nem indice. As unioes abaixo sao os
+// valores que o sistema de fato grava — os mesmos que os mapas de rotulo mais
+// abaixo enumeram.
+export type MessageStatus =
+  | "pending" | "sent" | "delivered" | "read"
+  | "replied" | "failed" | "undeliverable";
+
+export type CampaignStatus =
+  | "draft" | "scheduled" | "sending" | "paused"
+  | "completed" | "cancelled" | "failed";
+
+/** Normaliza o status cru do banco (nulavel, texto livre) para a uniao. */
+export function asMessageStatus(raw: string | null | undefined): MessageStatus {
+  return (raw && raw in MESSAGE_STATUS_LABELS) ? (raw as MessageStatus) : "pending";
+}
+
+/** Idem para campanha. */
+export function asCampaignStatus(raw: string | null | undefined): CampaignStatus {
+  return (raw && raw in STATUS_LABELS) ? (raw as CampaignStatus) : "draft";
+}
 
 export const STATUS_LABELS: Record<CampaignStatus, string> = {
   draft: "Rascunho",

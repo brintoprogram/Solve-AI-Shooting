@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { CampaignWithTemplate, CampaignStatus } from "@/types/shooting";
-import { STATUS_LABELS } from "@/types/shooting";
+import { STATUS_LABELS, asCampaignStatus } from "@/types/shooting";
 import { calcPercent } from "@/lib/utils";
 
 const CHANNEL_CONFIG = {
@@ -142,7 +142,15 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
             </thead>
             <tbody>
               {filtered.map((c, i) => {
-                const st = STATUS_STYLE[c.status];
+                // Status e contadores sao nulaveis no banco; normaliza uma vez
+                // por linha em vez de espalhar ?? por cada uso.
+                const status    = asCampaignStatus(c.status);
+                const st        = STATUS_STYLE[status];
+                const enviadas  = c.sent_count       ?? 0;
+                const entregues = c.delivered_count  ?? 0;
+                const lidas     = c.read_count       ?? 0;
+                const falhas    = c.failed_count     ?? 0;
+                const alvos     = c.total_recipients ?? 0;
                 return (
                   <tr
                     key={c.id}
@@ -157,7 +165,7 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
                       <ChannelBadge campaign={c} />
                     </td>
                     <td className="px-4 py-3.5 text-agro-muted text-xs">
-                      {format(new Date(c.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                      {c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy", { locale: ptBR }) : "—"}
                     </td>
                     <td className="px-4 py-3.5">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
@@ -166,16 +174,16 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
                         {c.status === "sending" && (
                           <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                         )}
-                        {STATUS_LABELS[c.status]}
+                        {STATUS_LABELS[status]}
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3 text-xs text-agro-muted">
-                        <span title="Enviadas">📤 {c.sent_count}</span>
-                        <span title="Entregues">✅ {calcPercent(c.delivered_count, c.total_recipients)}%</span>
-                        <span title="Lidas">👀 {calcPercent(c.read_count, c.total_recipients)}%</span>
-                        {c.failed_count > 0 && (
-                          <span title="Falhas" className="text-red-400">❌ {c.failed_count}</span>
+                        <span title="Enviadas">📤 {enviadas}</span>
+                        <span title="Entregues">✅ {calcPercent(entregues, alvos)}%</span>
+                        <span title="Lidas">👀 {calcPercent(lidas, alvos)}%</span>
+                        {falhas > 0 && (
+                          <span title="Falhas" className="text-red-400">❌ {falhas}</span>
                         )}
                       </div>
                     </td>
@@ -243,7 +251,7 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
                             <Copy className="w-3.5 h-3.5 mr-2" />
                             Duplicar
                           </DropdownMenuItem>
-                          {["sending", "paused"].includes(c.status) && onAction && (
+                          {["sending", "paused"].includes(status) && onAction && (
                             <>
                               <DropdownMenuSeparator style={{ background: "rgba(63,176,108,0.1)" }} />
                               <DropdownMenuItem

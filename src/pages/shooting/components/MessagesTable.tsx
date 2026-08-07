@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MessageTimeline } from "./MessageTimeline";
 import { useCampaignMessages } from "@/hooks/useCampaignMessages";
 import type { ShootingMessage, MessageStatus } from "@/types/shooting";
-import { MESSAGE_STATUS_LABELS } from "@/types/shooting";
+import { MESSAGE_STATUS_LABELS, asMessageStatus } from "@/types/shooting";
 import * as XLSX from "xlsx";
 
 interface StatusDef {
@@ -28,8 +28,8 @@ const STATUS_STYLE: Record<MessageStatus, StatusDef> = {
 
 const STATUS_FALLBACK: StatusDef = { bg: "rgba(107,114,128,0.1)", color: "#9ca3af", border: "rgba(107,114,128,0.2)", label: "Desconhecido", Icon: AlertCircle, iconStyle: {} };
 
-function getStatusStyle(status: string): StatusDef {
-  return STATUS_STYLE[status as MessageStatus] ?? STATUS_FALLBACK;
+function getStatusStyle(status: MessageStatus): StatusDef {
+  return STATUS_STYLE[status] ?? STATUS_FALLBACK;
 }
 
 interface MessagesTableProps {
@@ -72,7 +72,7 @@ export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTa
         ...(isEmail
           ? { "Email": (d?.email as string) ?? "" }
           : { "Telefone": m.recipient_phone }),
-        "Status":  MESSAGE_STATUS_LABELS[m.status],
+        "Status":  MESSAGE_STATUS_LABELS[asMessageStatus(m.status)],
         "Enviado": m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy HH:mm") : "",
         ...(!isEmail && {
           "Entregue":   m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
@@ -201,7 +201,7 @@ export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTa
                   </tr>
                 ))
               : messages.map((msg, i) => {
-                  const s = getStatusStyle(msg.status);
+                  const s = getStatusStyle(asMessageStatus(msg.status));
                   const rd = msg.recipient_data as Record<string, unknown> | null;
                   return (
                     <tr
@@ -216,10 +216,10 @@ export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTa
                       {isEmail ? (
                         <td className="px-4 py-3 font-mono text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
                           <div>{rd?.email as string ?? "—"}</div>
-                          {rd?.email2 && <div style={{ color: mutedText ?? "#5a7a65" }}>{rd.email2 as string}</div>}
-                          {rd?.email_representante && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>Rep: {rd.email_representante as string}</div>}
-                          {rd?.gerente1_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G1: {rd.gerente1_email as string}</div>}
-                          {rd?.gerente2_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G2: {rd.gerente2_email as string}</div>}
+                          {!!rd?.email2 && <div style={{ color: mutedText ?? "#5a7a65" }}>{rd.email2 as string}</div>}
+                          {!!rd?.email_representante && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>Rep: {rd.email_representante as string}</div>}
+                          {!!rd?.gerente1_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G1: {rd.gerente1_email as string}</div>}
+                          {!!rd?.gerente2_email && <div className="text-[10px]" style={{ color: mutedText ?? "#5a7a65" }}>G2: {rd.gerente2_email as string}</div>}
                         </td>
                       ) : (
                         <td className="px-4 py-3 font-mono text-xs" style={{ color: mutedText ?? "#6b8a75" }}>
