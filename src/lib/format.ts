@@ -71,11 +71,39 @@ export function initials(name: string | null | undefined): string {
 export function formatPhone(raw: string | null | undefined, empty = "—"): string {
   if (!raw) return empty;
   const d = raw.replace(/\D/g, "");
-  if (d.length === 13) return `+${d.slice(0, 2)} (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
-  if (d.length === 12) return `+${d.slice(0, 2)} (${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}`;
-  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+
+  // O mesmo telefone chega gravado com e sem o código do país — depende da
+  // planilha que originou o contato. Exibir "+55 (62) 9967-9017" para um e
+  // "(62) 9967-9017" para outro fazia a coluna parecer ter dois formatos e
+  // estourava a largura no primeiro caso. Aqui o 55 é retirado quando sobra um
+  // número brasileiro válido, então os dois viram a mesma coisa na tela.
+  const br = d.startsWith("55") && (d.length === 12 || d.length === 13)
+    ? d.slice(2)
+    : d;
+
+  if (br.length === 11) return `(${br.slice(0, 2)}) ${br.slice(2, 7)}-${br.slice(7)}`;
+  if (br.length === 10) return `(${br.slice(0, 2)}) ${br.slice(2, 6)}-${br.slice(6)}`;
+
+  // Número estrangeiro (ou fora do padrão): mantém o formato internacional,
+  // porque aí o código do país é informação, não ruído.
+  if (d.length > 11) return `+${d}`;
   return raw;
+}
+
+/**
+ * Chave canônica de telefone, para comparar dois registros.
+ *
+ * Existe porque `cleanPhone` só tira pontuação: "5515997721491" e
+ * "15997721491" são o MESMO telefone e viravam chaves diferentes, then a
+ * importação criava dois contatos para a mesma pessoa. Isso é visível na base:
+ * o mesmo cliente aparece duplicado, um registro com código do país e outro
+ * sem.
+ *
+ * Não serve para exibir nem para enviar mensagem — só para comparar.
+ */
+export function phoneKey(raw: string | null | undefined): string {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  return d.startsWith("55") && (d.length === 12 || d.length === 13) ? d.slice(2) : d;
 }
 
 /**

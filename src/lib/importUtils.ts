@@ -6,6 +6,7 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
+import { phoneKey } from "./format";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -434,7 +435,10 @@ export async function runImport(
       stats.errors.push(`Contatos chunk ${i}: ${error.message}`);
     } else if (data) {
       for (const c of data) {
-        if (c.phone)    phoneIdMap.set(c.phone, c.id);
+        // Chave canonica: o mesmo telefone chega com e sem o codigo do pais
+        // dependendo da planilha. Sem normalizar, o boleto de uma linha nao
+        // encontrava o contato criado por outra e ficava orfao.
+        if (c.phone)    phoneIdMap.set(phoneKey(c.phone), c.id);
         if (c.cpf_cnpj) cpfIdMap.set(c.cpf_cnpj, c.id);
       }
       // Conta inseridos vs atualizados (Supabase não diferencia, estimamos)
@@ -473,7 +477,7 @@ export async function runImport(
       // Não faz fallback para CPF — evita atribuir boleto ao contato errado
       // caso o upsert do contato tenha falhado ou o telefone não esteja no mapa.
       const cid: string | undefined =
-        r.phone    ? phoneIdMap.get(r.phone)
+        r.phone    ? phoneIdMap.get(phoneKey(r.phone))
         : r.cpf_cnpj ? cpfIdMap.get(r.cpf_cnpj)
         : undefined;
       if (!cid) return null;

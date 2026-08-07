@@ -1225,7 +1225,7 @@ export function Contacts() {
 
                       {prefs.mostrar("phone") && (<>
                       {/* Phone — formatted */}
-                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e] font-mono`}>
+                      <td className={`px-4 ${pad} text-xs text-[#6b7f6e] font-mono whitespace-nowrap`}>
                         {formatPhone(contact.phone)}
                       </td>
                       </>)}
