@@ -9,6 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
 import { sendWhatsAppText } from "../_shared/whatsapp.ts";
 import { isInternalCall } from "../_shared/auth.ts";
+import { consumirCredito } from "../_shared/credits.ts";
 import { createLogger, requestIdFrom } from "../_shared/logger.ts";
 
 const supabase = createClient(
@@ -207,6 +208,24 @@ async function handleTriage(
   const transcript  = await fetchTranscript(conversationId, messageBody);
   const systemPrompt = (triageAgent.system_prompt as string) + ROUTING_INSTRUCTION;
 
+  // Debito ANTES da chamada: token e cobrado pelo provedor no instante em que
+  // a requisicao sai, entao verificar depois seria verificar tarde demais.
+  const creditoTriagem = await consumirCredito(supabase, conv.workspace_id, "ia", {
+    contactId: conv.contact_id,
+    detalhe:   { etapa: "triagem", agente: triageAgent.name, modelo: triageAgent.model },
+  });
+  if (!creditoTriagem.permitido) {
+    await rastro(conv, conversationId, "sem_credito", {
+      saldo: creditoTriagem.saldo,
+      dica: "O workspace ficou sem créditos. Recarregue para a IA voltar a responder.",
+    });
+    console.warn(JSON.stringify({
+      level: "warn", event: "triagem_bloqueada_sem_credito",
+      workspace_id: conv.workspace_id, saldo: creditoTriagem.saldo,
+    }));
+    return;
+  }
+
   const rawResponse = await callAI(apiKey, triageAgent.model as string, systemPrompt, transcript);
   // A resposta do LLM contém a conversa do cliente — logar só o tamanho.
   console.log(`[triage] resposta recebida (${rawResponse.length} chars)`);
@@ -322,6 +341,23 @@ async function handleAgentReply(
   if (!apiKey) { console.error("[agent] API key não configurada"); return; }
 
   const transcript = await fetchTranscript(conversationId, messageBody);
+
+  const creditoAgente = await consumirCredito(supabase, conv.workspace_id, "ia", {
+    contactId: conv.contact_id,
+    detalhe:   { etapa: "agente", agente: agent.name, modelo: agent.model },
+  });
+  if (!creditoAgente.permitido) {
+    await rastro(conv, conversationId, "sem_credito", {
+      saldo: creditoAgente.saldo,
+      dica: "O workspace ficou sem créditos. Recarregue para a IA voltar a responder.",
+    });
+    console.warn(JSON.stringify({
+      level: "warn", event: "agente_bloqueado_sem_credito",
+      workspace_id: conv.workspace_id, saldo: creditoAgente.saldo,
+    }));
+    return;
+  }
+
   const replyText  = await callAI(apiKey, agent.model as string, agent.system_prompt as string, transcript);
 
   if (!replyText) { console.warn("[agent] resposta vazia — não enviando"); return; }

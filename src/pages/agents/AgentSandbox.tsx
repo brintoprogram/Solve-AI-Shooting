@@ -50,6 +50,7 @@ const PASSOS: Record<string, { rotulo: string; tom: "neutro" | "ok" | "alerta" |
   triagem_sem_agente:  { rotulo: "Nenhum agente de triagem",      tom: "erro"   },
   sem_chave_de_ia:     { rotulo: "Chave de IA não configurada",   tom: "erro"   },
   erro_no_agente:      { rotulo: "O agente falhou",               tom: "erro"   },
+  sem_credito:         { rotulo: "Sem créditos",                    tom: "erro"   },
 };
 
 const TOM_ESTILO = {

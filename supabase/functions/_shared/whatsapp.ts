@@ -9,8 +9,21 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "./crypto.ts";
+import { consumirCredito } from "./credits.ts";
 
 const META_API = "https://graph.facebook.com/v25.0";
+
+/** Lancado quando o workspace nao tem saldo. Erro proprio para o chamador poder
+ *  tratar diferente de uma falha de rede — um e problema de plano, o outro e
+ *  problema tecnico, e a mensagem ao usuario precisa ser outra. */
+export class SemCreditoError extends Error {
+  readonly saldo: number;
+  constructor(saldo: number) {
+    super("Créditos insuficientes");
+    this.name  = "SemCreditoError";
+    this.saldo = saldo;
+  }
+}
 
 export interface ConvRef {
   id:                  string;
@@ -56,6 +69,29 @@ export async function sendWhatsAppText(
 
   const now = new Date().toISOString();
   let wamid: string | null = null;
+
+  // ── Credito ───────────────────────────────────────────────────────
+  // So cobra quando existe canal para enviar. Conversa sem conexao (o
+  // ambiente de teste de agentes, por exemplo) grava a mensagem sem manda-la:
+  // nao saiu nada, nao ha o que cobrar.
+  //
+  // Antes do envio, de proposito. Debitar depois significaria que saldo zerado
+  // nao impede nada — a mensagem ja teria saido.
+  const temCanal = !!(conv.z_api_connection_id || conv.meta_connection_id);
+  if (temCanal) {
+    const credito = await consumirCredito(supabase, conv.workspace_id, "mensagem", {
+      contactId: conv.contact_id,
+      canal:     "whatsapp",
+      detalhe:   { origem: logLabel },
+    });
+    if (!credito.permitido) {
+      console.warn(JSON.stringify({
+        level: "warn", event: "envio_bloqueado_sem_credito",
+        workspace_id: conv.workspace_id, saldo: credito.saldo, origem: logLabel,
+      }));
+      throw new SemCreditoError(credito.saldo);
+    }
+  }
 
   try {
     const { data: contact } = await supabase

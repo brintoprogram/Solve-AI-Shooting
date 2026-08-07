@@ -10,6 +10,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decrypt } from "../_shared/crypto.ts";
+import { consumirCredito, mensagemSemCredito } from "../_shared/credits.ts";
 import { maskPhone } from "../_shared/logger.ts";
 
 
@@ -90,6 +91,22 @@ async function handleRequest(req: Request, json: JsonFn): Promise<Response> {
   if (!membership) {
     console.warn(`[send] usuário ${caller.id} sem acesso ao workspace ${workspace_id}`);
     return json({ error: "Sem permissão para enviar mensagens neste workspace" }, 403);
+  }
+
+  // ── Credito ───────────────────────────────────────────────────
+  // Depois da autorizacao (nao cobra de quem nem podia enviar) e antes de
+  // qualquer chamada ao provedor.
+  const credito = await consumirCredito(supabase, workspace_id, "mensagem", {
+    contactId: conv.contact_id as string,
+    canal:     "whatsapp",
+    detalhe:   { origem: "inbox_manual", sent_by },
+  });
+  if (!credito.permitido) {
+    console.warn(JSON.stringify({
+      level: "warn", event: "envio_manual_bloqueado_sem_credito",
+      workspace_id, saldo: credito.saldo,
+    }));
+    return json({ error: mensagemSemCredito(credito), sem_credito: true, saldo: credito.saldo }, 402);
   }
 
   // ── 2. Contact → phone ────────────────────────────────────────
