@@ -58,7 +58,23 @@ Deno.serve(async (req: Request) => {
   }
 
   const email = (user.email ?? "").toLowerCase();
+
+  // Defesa em profundidade: e-mail nao confirmado nao vale como identidade.
+  // Sem isto, alguem que se cadastrasse com o endereco autorizado e nunca
+  // confirmasse passaria pela checagem.
+  if (!user.email_confirmed_at) {
+    log.warn("acesso_negado_email_nao_confirmado", { user_id: user.id });
+    return json({ error: "Confirme seu e-mail para administrar créditos." }, 403);
+  }
+
   if (!permitidos.includes(email)) {
+    // Tentativa negada e informacao de seguranca: um padrao delas e o primeiro
+    // sinal de conta comprometida. Fica na trilha, nao so no log.
+    await supabase.rpc("log_credit_access_denied", {
+      p_ator_id:    user.id,
+      p_ator_email: email || "sem_email",
+      p_detalhe:    { acao_tentada: String((await req.clone().json().catch(() => ({}))).acao ?? "") },
+    });
     log.warn("acesso_negado_creditos", { user_id: user.id });
     return json({ error: "Sem permissão para administrar créditos." }, 403);
   }
@@ -122,7 +138,11 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase.rpc("add_credits", {
         p_workspace_id: workspace_id,
         p_quantidade:   quantidade,
-        p_motivo:       `${motivo} (por ${email})`,
+        p_motivo:       motivo,
+        // Autor explicito: a funcao roda com service role, onde auth.uid() e
+        // NULL. Antes disto o campo "quem lancou" ficava sempre vazio.
+        p_ator_id:      user.id,
+        p_ator_email:   email,
       });
       if (error) throw new Error(error.message);
 
@@ -135,33 +155,53 @@ Deno.serve(async (req: Request) => {
       const workspace_id = String(body.workspace_id ?? "");
       if (!workspace_id) return json({ error: "workspace_id é obrigatório" }, 400);
 
-      const patch: Record<string, unknown> = {};
-      if (body.custo_mensagem !== undefined) {
-        const v = Number(body.custo_mensagem);
-        if (!Number.isInteger(v) || v < 0) return json({ error: "custo_mensagem inválido" }, 400);
-        patch.custo_mensagem = v;
+      // null = nao mexer. A RPC registra antes/depois de tudo que mudar.
+      const num = (v: unknown): number | null => {
+        if (v === undefined || v === null || v === "") return null;
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 0 ? n : NaN;
+      };
+      const custoMensagem = num(body.custo_mensagem);
+      const custoIa       = num(body.custo_ia);
+      if (Number.isNaN(custoMensagem) || Number.isNaN(custoIa)) {
+        return json({ error: "custos precisam ser inteiros não negativos" }, 400);
       }
-      if (body.custo_ia !== undefined) {
-        const v = Number(body.custo_ia);
-        if (!Number.isInteger(v) || v < 0) return json({ error: "custo_ia inválido" }, 400);
-        patch.custo_ia = v;
-      }
-      if (body.cobranca_ativa !== undefined) patch.cobranca_ativa = body.cobranca_ativa === true;
 
-      if (Object.keys(patch).length === 0) return json({ error: "nada para ajustar" }, 400);
-
-      // upsert: workspace que nunca consumiu ainda não tem linha.
-      const { error } = await supabase
-        .from("workspace_credits")
-        .upsert({ workspace_id, ...patch, updated_at: new Date().toISOString() },
-                { onConflict: "workspace_id" });
+      const { data, error } = await supabase.rpc("set_credit_config", {
+        p_workspace_id:   workspace_id,
+        p_custo_mensagem: custoMensagem,
+        p_custo_ia:       custoIa,
+        p_cobranca_ativa: body.cobranca_ativa === undefined ? null : body.cobranca_ativa === true,
+        p_ator_id:        user.id,
+        p_ator_email:     email,
+      });
       if (error) throw new Error(error.message);
 
-      alog.info("credito_ajustado", { workspace_id, patch });
-      return json({ ok: true });
+      alog.info("credito_config_alterada", { workspace_id, config: data });
+      return json(data);
     }
 
-    return json({ error: "acao inválida (use listar, recarregar ou ajustar)" }, 400);
+    // ── trilha de auditoria ─────────────────────────────────────────
+    if (acao === "trilha") {
+      const { data, error } = await supabase
+        .from("credit_admin_log")
+        .select("id, workspace_id, acao, ator_email, antes, depois, detalhe, created_at")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw new Error(error.message);
+
+      const { data: nomes } = await supabase.from("workspaces").select("id, name");
+      const porId = new Map((nomes ?? []).map((w) => [w.id as string, w.name as string]));
+
+      return json({
+        registros: (data ?? []).map((r) => ({
+          ...r,
+          workspace_nome: r.workspace_id ? (porId.get(r.workspace_id as string) ?? "—") : "—",
+        })),
+      });
+    }
+
+    return json({ error: "acao inválida (use listar, recarregar, ajustar ou trilha)" }, 400);
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

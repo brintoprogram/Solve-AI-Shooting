@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Coins, Plus, Loader2, TrendingDown, Bot, MessageSquare,
-  Mail, RefreshCw, AlertTriangle, Settings2,
+  Mail, RefreshCw, AlertTriangle, Settings2, ShieldCheck, ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -32,6 +32,24 @@ interface Lancamento {
   detalhe:    Record<string, unknown>;
   created_at: string;
 }
+
+interface RegistroTrilha {
+  id:             string;
+  workspace_nome: string;
+  acao:           string;
+  ator_email:     string;
+  antes:          Record<string, unknown> | null;
+  depois:         Record<string, unknown> | null;
+  detalhe:        Record<string, unknown>;
+  created_at:     string;
+}
+
+const ACAO_INFO: Record<string, { rotulo: string; cor: string }> = {
+  recarga:         { rotulo: "Recarga",              cor: "#3fb06c" },
+  ajuste_custo:    { rotulo: "Custo alterado",       cor: "#fbbf24" },
+  ajuste_cobranca: { rotulo: "Cobrança alterada",    cor: "#fb923c" },
+  acesso_negado:   { rotulo: "Acesso negado",        cor: "#f87171" },
+};
 
 interface WorkspaceSaldo {
   id:             string;
@@ -64,6 +82,14 @@ export function Credits() {
   const [alvo,       setAlvo]       = useState<WorkspaceSaldo | null>(null);
   const [quantidade, setQuantidade] = useState("");
   const [salvando,   setSalvando]   = useState(false);
+
+  // Configuração
+  const [config,     setConfig]     = useState<WorkspaceSaldo | null>(null);
+  const [formCusto,  setFormCusto]  = useState({ mensagem: "", ia: "", ativa: true });
+
+  // Trilha de auditoria
+  const [trilha,     setTrilha]     = useState<RegistroTrilha[]>([]);
+  const [verTrilha,  setVerTrilha]  = useState(false);
 
   const chamarAdmin = useCallback(async (acao: string, extra: Record<string, unknown> = {}) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -139,6 +165,35 @@ export function Credits() {
       setSalvando(false);
     }
   }
+
+  async function salvarConfig() {
+    if (!config) return;
+    setSalvando(true);
+    try {
+      await chamarAdmin("ajustar", {
+        workspace_id:   config.id,
+        custo_mensagem: formCusto.mensagem === "" ? undefined : Number(formCusto.mensagem),
+        custo_ia:       formCusto.ia       === "" ? undefined : Number(formCusto.ia),
+        cobranca_ativa: formCusto.ativa,
+      });
+      toast({ title: `Configuração de ${config.nome} salva` });
+      setConfig(null);
+      await Promise.all([carregarAdmin(), credito.recarregar(), carregarTrilha()]);
+    } catch (e) {
+      toast({ title: e instanceof Error ? e.message : "Falha ao salvar", variant: "destructive" });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  const carregarTrilha = useCallback(async () => {
+    try {
+      const r = await chamarAdmin("trilha") as { registros: RegistroTrilha[] };
+      setTrilha(r.registros ?? []);
+    } catch { /* quem nao e dono nao ve trilha; nao e erro */ }
+  }, [chamarAdmin]);
+
+  useEffect(() => { if (ehDono) carregarTrilha(); }, [ehDono, carregarTrilha]);
 
   const semSaldo = credito.cobranca_ativa && credito.saldo <= 0;
 
@@ -250,18 +305,117 @@ export function Credits() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <button
-                          onClick={() => { setAlvo(w); setQuantidade(""); }}
-                          className="text-xs font-medium text-agro-green hover:brightness-125 transition-all"
-                        >
-                          Recarregar
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => {
+                              setConfig(w);
+                              setFormCusto({
+                                mensagem: String(w.custo_mensagem),
+                                ia:       String(w.custo_ia),
+                                ativa:    w.cobranca_ativa,
+                              });
+                            }}
+                            className="text-xs font-medium text-agro-muted hover:text-agro-text transition-colors"
+                          >
+                            Configurar
+                          </button>
+                          <button
+                            onClick={() => { setAlvo(w); setQuantidade(""); }}
+                            className="text-xs font-medium text-agro-green hover:brightness-125 transition-all"
+                          >
+                            Recarregar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Trilha de auditoria (so dono) */}
+        {ehDono && (
+          <div
+            className="rounded-2xl overflow-hidden animate-fade-up-delay-2"
+            style={{ background: "rgba(13,26,17,0.7)", border: "1px solid rgba(63,176,108,0.1)" }}
+          >
+            <button
+              onClick={() => setVerTrilha((v) => !v)}
+              className="w-full flex items-center justify-between px-5 py-3 transition-colors hover:bg-[#111a14]"
+              style={{ borderBottom: verTrilha ? "1px solid rgba(63,176,108,0.1)" : undefined }}
+            >
+              <span className="flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-agro-green" />
+                <span className="text-xs font-semibold text-agro-text">Trilha de auditoria</span>
+                <span className="text-[10px] text-agro-muted-2">
+                  {trilha.length} registro{trilha.length === 1 ? "" : "s"}
+                </span>
+              </span>
+              <ChevronDown
+                className="w-4 h-4 text-agro-muted transition-transform"
+                style={{ transform: verTrilha ? "rotate(180deg)" : undefined }}
+              />
+            </button>
+
+            {verTrilha && (
+              <div className="max-h-96 overflow-y-auto scrollbar-thin divide-y" style={{ borderColor: "#1a2a1e" }}>
+                {trilha.length === 0 ? (
+                  <p className="text-xs text-agro-muted-2 text-center py-8">
+                    Nenhuma acao administrativa registrada.
+                  </p>
+                ) : trilha.map((r) => {
+                  const info = ACAO_INFO[r.acao] ?? { rotulo: r.acao, cor: "#6b7f6e" };
+                  /* Mostra so o que MUDOU: despejar os dois objetos inteiros
+                     esconde a alteracao no meio do que ficou igual. */
+                  const mudancas = r.antes && r.depois
+                    ? Object.keys(r.depois).filter((k) => String(r.antes![k]) !== String(r.depois![k]))
+                    : [];
+                  return (
+                    <div key={r.id} className="px-5 py-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] px-2 py-0.5 rounded-md font-semibold"
+                              style={{ background: `${info.cor}1f`, color: info.cor }}>
+                          {info.rotulo}
+                        </span>
+                        <span className="text-xs text-agro-text">{r.workspace_nome}</span>
+                        <span className="text-[10px] text-agro-muted-2 ml-auto tabular-nums">
+                          {new Date(r.created_at).toLocaleString("pt-BR")}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-agro-muted mt-1">
+                        por <span className="text-agro-text">{r.ator_email}</span>
+                      </p>
+
+                      {r.acao === "recarga" && (
+                        <p className="text-[11px] text-agro-muted mt-1 tabular-nums">
+                          {String(r.detalhe?.quantidade ?? "")} credito(s) &middot;
+                          saldo {String(r.antes?.saldo ?? "?")} &rarr; <span className="text-agro-text">{String(r.depois?.saldo ?? "?")}</span>
+                        </p>
+                      )}
+
+                      {mudancas.length > 0 && r.acao !== "recarga" && (
+                        <div className="mt-1 space-y-0.5">
+                          {mudancas.map((k) => (
+                            <p key={k} className="text-[11px] text-agro-muted tabular-nums">
+                              {k}: {String(r.antes![k])} &rarr; <span className="text-agro-text">{String(r.depois![k])}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {r.acao === "acesso_negado" && (
+                        <p className="text-[11px] text-red-400/80 mt-1">
+                          Tentou: {String(r.detalhe?.acao_tentada ?? "-")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -324,6 +478,96 @@ export function Credits() {
           )}
         </div>
       </div>
+
+      {/* Modal de configuracao */}
+      <Presence when={config !== null}>
+        {(visivel) => (
+          <Modal
+            open={visivel}
+            onClose={() => setConfig(null)}
+            title={`Configurar ${config?.nome ?? ""}`}
+            subtitle="Custos e cobranca deste workspace"
+            icon={<Settings2 className="w-4 h-4 text-agro-green" />}
+            size="sm"
+          >
+            <div className="px-5 py-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 block mb-1.5">
+                    Custo por mensagem
+                  </label>
+                  <input
+                    type="number" min="0"
+                    value={formCusto.mensagem}
+                    onChange={(e) => setFormCusto((f) => ({ ...f, mensagem: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl text-sm text-agro-text bg-[#0d1710] outline-none focus:border-agro-green transition-colors tabular-nums"
+                    style={{ border: "1px solid #2a3d30" }}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 block mb-1.5">
+                    Custo por IA
+                  </label>
+                  <input
+                    type="number" min="0"
+                    value={formCusto.ia}
+                    onChange={(e) => setFormCusto((f) => ({ ...f, ia: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl text-sm text-agro-text bg-[#0d1710] outline-none focus:border-agro-green transition-colors tabular-nums"
+                    style={{ border: "1px solid #2a3d30" }}
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={() => setFormCusto((f) => ({ ...f, ativa: !f.ativa }))}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors hover:bg-[#1e2e22]"
+                style={{ border: "1px solid #2a3d30" }}
+                role="switch"
+                aria-checked={formCusto.ativa}
+              >
+                <span className="text-left">
+                  <span className="text-xs text-agro-text block">Cobranca ativa</span>
+                  <span className="text-[10px] text-agro-muted-2">
+                    {formCusto.ativa
+                      ? "Envios e IA debitam do saldo"
+                      : "Nada e debitado - use no demo e no seu proprio"}
+                  </span>
+                </span>
+                <span
+                  className="w-9 h-5 rounded-full shrink-0 relative transition-colors"
+                  style={{ background: formCusto.ativa ? "#3fb06c" : "#2a3d30" }}
+                >
+                  <span
+                    className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                    style={{ left: formCusto.ativa ? 18 : 2 }}
+                  />
+                </span>
+              </button>
+
+              <p className="text-[10px] text-agro-muted-2">
+                Toda alteracao fica na trilha de auditoria, com o valor anterior, o novo e quem mudou.
+              </p>
+
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setConfig(null)}
+                  className="px-4 py-2 rounded-xl text-sm text-agro-muted hover:text-agro-text transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={salvarConfig}
+                  disabled={salvando}
+                  className="btn-agro px-4 py-2 text-sm flex items-center gap-2 disabled:opacity-40"
+                >
+                  {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings2 className="w-4 h-4" />}
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </Presence>
 
       {/* ── Modal de recarga ────────────────────────── */}
       <Presence when={alvo !== null}>
