@@ -197,3 +197,29 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Tabela de contatos
+
+   O hover era um `hover:bg-[#111a14]` — quase invisível sobre #0d1710 numa
+   lista de 200+ linhas, então perder a linha ao mover o mouse era comum.
+   Aqui o realce é mais legível e ganha uma faixa na borda esquerda, que
+   funciona mesmo quando o olho está na outra ponta da tabela.
+
+   Está em CSS e não em Tailwind inline porque as células fixas (checkbox e
+   nome) precisam de fundo OPACO — se herdassem o fundo translúcido da linha,
+   o conteúdo das colunas de trás apareceria por baixo durante o scroll
+   horizontal. Com CSS dá para pintar a linha e as células fixas em conjunto,
+   a partir do hover de uma só.
+   ───────────────────────────────────────────────────────────────── */
+.contatos-linha {
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.contatos-linha:hover {
+  background-color: #131f18 !important;
+  box-shadow: inset 3px 0 0 0 rgba(63, 176, 108, 0.55);
+}
+/* As fixas repetem a cor da linha para não descolarem no hover. */
+.contatos-linha:hover .contatos-fixa {
+  background-color: #131f18 !important;
+}

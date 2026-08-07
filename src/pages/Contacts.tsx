@@ -338,16 +338,50 @@ function TagChips({ tags }: { tags: string[] }) {
 
 // ── Avatar ─────────────────────────────────────────────────────────
 
+// Todos os avatares eram do mesmo verde, o que os tornava inúteis: numa lista
+// de 216 linhas eles viravam uma coluna de manchas idênticas. Derivar a cor do
+// nome dá a cada contato uma assinatura visual estável — a mesma empresa tem
+// sempre a mesma cor, e o olho reencontra a linha depois de rolar.
+//
+// A paleta é dessaturada de propósito: sobre fundo escuro, cor saturada
+// compete com o dado (o valor em aberto) em vez de ajudar a achá-lo.
+const AVATAR_PALETTE: Array<[string, string]> = [
+  ["#2f7d54", "#1c5c3b"], ["#2c6e8f", "#1b4f68"], ["#6b5f9e", "#4a4173"],
+  ["#8f6b3d", "#684c29"], ["#8f4a5c", "#68333f"], ["#3d7f7a", "#295a56"],
+  ["#7a7f3d", "#585c29"], ["#5c4a8f", "#413368"],
+];
+
+// Faixas de atraso. Hoje 4 dias e 99 dias tinham exatamente o mesmo vermelho,
+// e são situações de cobrança completamente diferentes. A intensidade cresce
+// com o atraso, mas o ÍCONE e o texto de dias continuam iguais — quem não
+// distingue as tonalidades continua recebendo a informação inteira.
+function severidadeAtraso(dias: number): { cor: string; fundo: string } {
+  if (dias >= 90) return { cor: "#fca5a5", fundo: "rgba(239,68,68,0.16)" };
+  if (dias >= 30) return { cor: "#f87171", fundo: "rgba(239,68,68,0.10)" };
+  return                 { cor: "#fb923c", fundo: "rgba(249,115,22,0.10)" };
+}
+
+function avatarColors(seed: string): [string, string] {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = seed.charCodeAt(i) + ((h << 5) - h);
+  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
+}
+
 function Avatar({ name }: { name: string | null }) {
   if (!name) return <UserCircle2 className="w-8 h-8 text-[#6b7f6e]" />;
   const parts = name.trim().split(/\s+/);
   const ini = parts.length === 1
     ? parts[0].slice(0, 2).toUpperCase()
     : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const [c1, c2] = avatarColors(name);
   return (
     <div
       className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0"
-      style={{ background: "linear-gradient(135deg, #3fb06c, #16A34A)" }}
+      style={{
+        background: `linear-gradient(135deg, ${c1}, ${c2})`,
+        // Aro sutil: separa o avatar do fundo da linha sem virar borda dura.
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
+      }}
     >
       {ini}
     </div>
@@ -939,6 +973,11 @@ export function Contacts() {
   // Saldo e vencimento vêm agregados na própria linha da view — não há mais
   // uma segunda consulta por página. Isso também elimina o intervalo em que a
   // lista já estava desenhada mas a coluna de saldo ainda mostrava "—".
+  // Maior saldo da PÁGINA. A barra é relativa ao que está na tela: escalar
+  // pelo maior da base inteira deixaria quase toda barra invisível, já que um
+  // punhado de devedores grandes achata todo o resto.
+  const maiorSaldo = contacts.reduce((m, c) => Math.max(m, Number(c.saldo_em_aberto ?? 0)), 0);
+
   useEffect(() => {
     const map: Record<string, { total: number; nextDue: string | null }> = {};
     for (const c of contacts) {
@@ -1182,7 +1221,7 @@ export function Contacts() {
                     <tr
                       key={contact.id}
                       onClick={() => setSelected(contact)}
-                      className="cursor-pointer transition-colors hover:bg-[#111a14] group"
+                      className="cursor-pointer group contatos-linha"
                       style={{
                         borderBottom: i < contacts.length - 1 ? "1px solid #1a2a1e" : undefined,
                         background: selectedIds.has(contact.id) ? "rgba(63,176,108,0.05)" : undefined,
@@ -1190,7 +1229,7 @@ export function Contacts() {
                     >
                       {/* Checkbox — fixo na esquerda junto com o nome */}
                       <td
-                        className={`px-3 ${pad} sticky left-0 z-10`}
+                        className={`px-3 ${pad} sticky left-0 z-10 contatos-fixa`}
                         style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
                         onClick={(e) => { e.stopPropagation(); toggleOne(contact.id); }}
                       >
@@ -1207,7 +1246,7 @@ export function Contacts() {
                       {/* Nome — fica visível durante o scroll horizontal, senão você
                           rola até "saldo" e perde de vista de quem é a linha. */}
                       <td
-                        className={`pl-2 pr-4 ${pad} sticky left-10 z-10`}
+                        className={`pl-2 pr-4 ${pad} sticky left-10 z-10 contatos-fixa`}
                         style={{ background: selectedIds.has(contact.id) ? BG_LINHA_SELECIONADA : BG_LINHA }}
                       >
                         <div className="flex items-center gap-3">
@@ -1273,9 +1312,30 @@ export function Contacts() {
                       {/* Saldo em aberto — tabular-nums alinha os dígitos em coluna.
                           Sem isso a fonte é proporcional e "R$ 1.111,11" não fica
                           sob "R$ 9.999,99", que é justamente o que se compara aqui. */}
-                      <td className={`px-4 ${pad} text-xs text-right tabular-nums`}>
+                      {/* A barra precisa ser posicionada pela CÉLULA, não por um
+                          wrapper que se ajusta ao texto: com inline-block, a
+                          largura em % era relativa ao número, e um valor pequeno
+                          virava um filete de 4% colado nele — lia como artefato
+                          de renderização, não como barra. */}
+                      <td className={`px-4 ${pad} text-xs text-right tabular-nums relative`}>
                         {inv && inv.total > 0 ? (
-                          <span className="font-semibold text-amber-400">{formatBRL(inv.total)}</span>
+                          <>
+                            <span
+                              aria-hidden
+                              className="absolute rounded-l pointer-events-none"
+                              style={{
+                                // right = padding da célula (px-4): assim a barra
+                                // termina exatamente onde o número termina, em vez
+                                // de vazar 16px e virar um bloco solto.
+                                top: 4, bottom: 4, right: 16,
+                                width: `${Math.max(6, (inv.total / (maiorSaldo || 1)) * 100)}%`,
+                                background: "linear-gradient(90deg, rgba(245,158,11,0.02) 0%, rgba(245,158,11,0.18) 100%)",
+                              }}
+                            />
+                            <span className="relative font-semibold text-amber-400">
+                              {formatBRL(inv.total)}
+                            </span>
+                          </>
                         ) : (
                           <span className="text-[#3a4d3e]">—</span>
                         )}
@@ -1291,12 +1351,19 @@ export function Contacts() {
                         {inv?.nextDue ? (() => {
                           const atraso = diasDeAtraso(inv.nextDue);
                           const vencido = atraso !== null && atraso > 0;
+                          const sev = vencido ? severidadeAtraso(atraso!) : null;
                           return (
-                            <span className={`flex items-center gap-1.5 ${vencido ? "text-red-400 font-medium" : "text-[#6b7f6e]"}`}>
+                            <span
+                              className="flex items-center gap-1.5 whitespace-nowrap"
+                              style={sev ? { color: sev.cor, fontWeight: 500 } : { color: "#6b7f6e" }}
+                            >
                               {vencido && <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden />}
                               <span>{formatDate(inv.nextDue)}</span>
                               {vencido && (
-                                <span className="text-[10px] text-red-400/70 whitespace-nowrap">
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded-md"
+                                  style={{ background: sev!.fundo }}
+                                >
                                   {atraso === 1 ? "1 dia" : `${atraso} dias`}
                                 </span>
                               )}
