@@ -40,18 +40,20 @@ interface NavItem {
 /* Os 15 destinos numa lista unica exigiam ler todos para achar um. Agrupados
    por TAREFA — o que a pessoa esta fazendo — em vez de por tipo tecnico.
 
-   "Inicio" nao tem cabecalho nem colapso: sao os destinos de entrada, e
-   esconde-los atras de um clique so atrapalha. */
+   Todos colapsam, inclusive o primeiro: um grupo que se comporta diferente
+   dos outros faz a pessoa clicar e nao entender por que nada acontece. O
+   grupo da rota ATIVA continua sempre aberto, entao ninguem consegue esconder
+   a propria pagina. */
 interface NavGroup {
-  id:     string;
-  label:  string | null;   // null = sem cabecalho, sempre aberto
-  itens:  NavItem[];
+  id:    string;
+  label: string;
+  itens: NavItem[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
   {
     id: "inicio",
-    label: null,
+    label: "Visão geral",
     itens: [
       { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
       { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
@@ -180,9 +182,8 @@ export function Sidebar() {
           const visiveis = grupo.itens;
           if (visiveis.length === 0) return null;
 
-          const fechado = grupo.label !== null
-            && fechados.includes(grupo.id)
-            && grupoAtivo !== grupo.id;
+          const fechado = fechados.includes(grupo.id) && grupoAtivo !== grupo.id;
+          const temAtivo = grupoAtivo === grupo.id;
 
           /* Alertas nao lidos deste grupo. Sem isto, fechar "Atendimento"
              esconderia o contador vermelho — e a pessoa deixaria de ver que
@@ -193,37 +194,53 @@ export function Sidebar() {
             ? (blockersLeft > 0 ? blockersLeft : totalCount - doneCount) : 0;
 
           return (
-            <div key={grupo.id} className={grupo.label ? "pt-3 first:pt-0" : ""}>
-              {grupo.label && (
-                <button
-                  onClick={() => alternarGrupo(grupo.id)}
-                  className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors hover:bg-[#16241b] group/cab"
-                  aria-expanded={!fechado}
+            <div key={grupo.id} className="pt-2 first:pt-0">
+              <button
+                onClick={() => alternarGrupo(grupo.id)}
+                className="w-full flex items-center gap-2 pl-2 pr-3 py-2 rounded-lg transition-colors hover:bg-[#131f18]"
+                aria-expanded={!fechado}
+              >
+                <ChevronRight
+                  className="w-3 h-3 shrink-0 transition-transform duration-200"
+                  style={{
+                    color: temAtivo ? "#3fb06c" : "#4a6b50",
+                    transform: fechado ? undefined : "rotate(90deg)",
+                  }}
+                />
+                <span
+                  className="text-[9px] font-bold tracking-[0.14em] uppercase transition-colors"
+                  style={{ color: temAtivo ? "#3fb06c" : "#6b7f6e" }}
                 >
-                  <ChevronRight
-                    className="w-3 h-3 text-agro-muted-2 transition-transform shrink-0"
-                    style={{ transform: fechado ? undefined : "rotate(90deg)" }}
-                  />
-                  <span className="text-[9px] font-semibold tracking-widest text-agro-muted-2 uppercase">
-                    {grupo.label}
+                  {grupo.label}
+                </span>
+
+                {/* Contadores sobem para o cabecalho quando o grupo fecha */}
+                {fechado && alertasNoGrupo > 0 && (
+                  <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                    {alertasNoGrupo > 99 ? "99+" : alertasNoGrupo}
                   </span>
+                )}
+                {fechado && pendenciasNoGrupo > 0 && alertasNoGrupo === 0 && (
+                  <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-agro-green text-black text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                    {pendenciasNoGrupo}
+                  </span>
+                )}
+                {/* Quantos itens estao escondidos ali dentro */}
+                {fechado && alertasNoGrupo === 0 && pendenciasNoGrupo === 0 && (
+                  <span className="ml-auto text-[9px] tabular-nums" style={{ color: "#3a4d3e" }}>
+                    {visiveis.length}
+                  </span>
+                )}
+              </button>
 
-                  {/* Contadores sobem para o cabecalho quando o grupo fecha */}
-                  {fechado && alertasNoGrupo > 0 && (
-                    <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
-                      {alertasNoGrupo > 99 ? "99+" : alertasNoGrupo}
-                    </span>
-                  )}
-                  {fechado && pendenciasNoGrupo > 0 && alertasNoGrupo === 0 && (
-                    <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-agro-green text-black text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
-                      {pendenciasNoGrupo}
-                    </span>
-                  )}
-                </button>
-              )}
-
+              {/* Trilho a esquerda: liga visualmente os itens ao cabecalho e
+                  deixa claro o que pertence a que. Sem ele, grupo aberto e
+                  lista solta de novo. */}
               {!fechado && (
-                <div className="space-y-0.5 mt-0.5">
+                <div
+                  className="space-y-0.5 mt-0.5 ml-[13px] pl-2"
+                  style={{ borderLeft: `1px solid ${temAtivo ? "rgba(63,176,108,0.25)" : "rgba(63,176,108,0.09)"}` }}
+                >
                   {visiveis.map((item) => {
             const allowed = isAllowed(profile, item);
 
