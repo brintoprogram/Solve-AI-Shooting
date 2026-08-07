@@ -1,6 +1,7 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import {
+  ChevronRight,
   Coins,
   Send,
   Settings,
@@ -36,30 +37,67 @@ interface NavItem {
   permission?: PermissionKey | PermissionKey[]; // undefined = accessible by all
 }
 
-const BASE_NAV: NavItem[] = [
-  { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
-  { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
-  { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
-  { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
-  { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
-  { to: "/negotiations",      icon: Handshake,       label: "Negociações",  subtitle: "Renegociação de dívidas", permission: "can_negotiations" },
-  { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
-  { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
-  { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },
-  { to: "/agents",            icon: Bot,             label: "Agentes",      subtitle: "IA por conversa",       permission: "can_settings" },
-  { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
-  { to: "/support",           icon: LifeBuoy,        label: "Suporte",      subtitle: "Tickets e ajuda"        },
-  { to: "/creditos",          icon: Coins,           label: "Créditos",     subtitle: "Saldo e consumo"        },
-  { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações",   permission: "can_settings" },
+/* Os 15 destinos numa lista unica exigiam ler todos para achar um. Agrupados
+   por TAREFA — o que a pessoa esta fazendo — em vez de por tipo tecnico.
+
+   "Inicio" nao tem cabecalho nem colapso: sao os destinos de entrada, e
+   esconde-los atras de um clique so atrapalha. */
+interface NavGroup {
+  id:     string;
+  label:  string | null;   // null = sem cabecalho, sempre aberto
+  itens:  NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: "inicio",
+    label: null,
+    itens: [
+      { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
+      { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
+      { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
+    ],
+  },
+  {
+    id: "atendimento",
+    label: "Atendimento",
+    itens: [
+      { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
+      { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
+      { to: "/negotiations",      icon: Handshake,       label: "Negociações",  subtitle: "Renegociação de dívidas", permission: "can_negotiations" },
+      { to: "/agents",            icon: Bot,             label: "Agentes",      subtitle: "IA por conversa",       permission: "can_settings" },
+    ],
+  },
+  {
+    id: "campanhas",
+    label: "Campanhas",
+    itens: [
+      { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
+      { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },
+      { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
+      { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
+    ],
+  },
+  {
+    id: "conta",
+    label: "Conta",
+    itens: [
+      { to: "/creditos",          icon: Coins,           label: "Créditos",     subtitle: "Saldo e consumo"        },
+      { to: "/team",              icon: UserCog,         label: "Equipe",       subtitle: "Agentes & convites",    permission: "can_manage_team" },
+      { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações",   permission: "can_settings" },
+      { to: "/support",           icon: LifeBuoy,        label: "Suporte",      subtitle: "Tickets e ajuda"        },
+    ],
+  },
 ];
 
-const TEAM_NAV: NavItem = {
-  to:         "/team",
-  icon:       UserCog,
-  label:      "Equipe",
-  subtitle:   "Agentes & convites",
-  permission: "can_manage_team",
-};
+const CHAVE_GRUPOS = "sidebar:grupos-fechados";
+
+function lerFechados(): string[] {
+  try {
+    const cru = localStorage.getItem(CHAVE_GRUPOS);
+    return cru ? (JSON.parse(cru) as string[]) : [];
+  } catch { return []; }   /* localStorage bloqueado nao pode derrubar o menu */
+}
 
 function isAllowed(profile: ReturnType<typeof useAuth>["profile"], item: NavItem): boolean {
   if (!item.permission) return true;
@@ -82,7 +120,22 @@ export function Sidebar() {
     navigate("/login");
   }
 
-  const navItems = [...BASE_NAV, TEAM_NAV];
+  const { pathname } = useLocation();
+  const [fechados, setFechados] = useState<string[]>(lerFechados);
+
+  /* O grupo da rota ATIVA fica sempre aberto: um item selecionado escondido
+     dentro de um grupo fechado faz o menu parecer que perdeu a pagina. */
+  const grupoAtivo = NAV_GROUPS.find((g) =>
+    g.itens.some((i) => i.to === "/" ? pathname === "/" : pathname.startsWith(i.to)),
+  )?.id;
+
+  function alternarGrupo(id: string) {
+    setFechados((atuais) => {
+      const proximos = atuais.includes(id) ? atuais.filter((g) => g !== id) : [...atuais, id];
+      try { localStorage.setItem(CHAVE_GRUPOS, JSON.stringify(proximos)); } catch { /* idem */ }
+      return proximos;
+    });
+  }
 
   const rs           = profile ? ROLE_STYLE[profile.role] : null;
   const roleLabel    = profile ? ROLE_LABELS[profile.role]  : null;
@@ -121,106 +174,157 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-thin relative">
-        <p className="text-[9px] font-semibold tracking-widest text-agro-muted-2 uppercase px-3 mb-3">
-          Menu principal
-        </p>
+        {NAV_GROUPS.map((grupo) => {
+          /* Itens que este usuario pode ver. Grupo que ficaria vazio some
+             inteiro — cabecalho sozinho e ruido. */
+          const visiveis = grupo.itens;
+          if (visiveis.length === 0) return null;
 
-        {navItems.map((item) => {
-          const allowed = isAllowed(profile, item);
+          const fechado = grupo.label !== null
+            && fechados.includes(grupo.id)
+            && grupoAtivo !== grupo.id;
 
-          // ── Locked item (no permission) ───────────────────────────
-          if (!allowed) {
-            return (
-              <div
-                key={item.to}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl relative select-none"
-                style={{ opacity: 0.35, cursor: "not-allowed" }}
-                title={`Você não tem permissão para acessar ${item.label}`}
-              >
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-agro-surface text-agro-muted-2">
-                  <item.icon className="w-3.5 h-3.5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium leading-none text-agro-text-2">{item.label}</p>
-                  <p className="text-[10px] mt-0.5 truncate text-agro-muted-2">{item.subtitle}</p>
-                </div>
-                <Lock className="w-3 h-3 text-agro-muted-2 shrink-0" />
-              </div>
-            );
-          }
+          /* Alertas nao lidos deste grupo. Sem isto, fechar "Atendimento"
+             esconderia o contador vermelho — e a pessoa deixaria de ver que
+             ha resposta de cliente esperando. O aviso tem que sobreviver ao
+             colapso, senao o colapso vira um jeito de perder trabalho. */
+          const alertasNoGrupo = visiveis.some((i) => i.to === "/alerts") ? unreadCount : 0;
+          const pendenciasNoGrupo = visiveis.some((i) => i.to === "/primeiros-passos")
+            ? (blockersLeft > 0 ? blockersLeft : totalCount - doneCount) : 0;
 
-          // ── Normal item ───────────────────────────────────────────
           return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/" || item.to === "/shooting"}
-              className={({ isActive }) =>
-                cn(
-                  "group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative",
-                  isActive ? "text-white" : "text-agro-muted hover:text-agro-text"
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <div
-                      className="absolute inset-0 rounded-xl"
-                      style={{
-                        background: "linear-gradient(135deg, rgba(63,176,108,0.2) 0%, rgba(22,163,74,0.12) 100%)",
-                        border: "1px solid rgba(63,176,108,0.3)",
-                        boxShadow: "0 0 20px rgba(63,176,108,0.1), inset 0 0 20px rgba(63,176,108,0.05)",
-                      }}
-                    />
-                  )}
-                  {!isActive && (
-                    <div
-                      className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                      style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.08)" }}
-                    />
-                  )}
-                  <div
-                    className={cn(
-                      "relative w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200",
-                      isActive
-                        ? "bg-agro-green text-white"
-                        : "bg-agro-surface text-agro-muted-2 group-hover:text-agro-green group-hover:bg-agro-surface-2"
-                    )}
-                  >
-                    <item.icon className="w-3.5 h-3.5" />
-                    {isActive && <div className="absolute inset-0 rounded-lg glow-green-sm opacity-60" />}
-                  </div>
-                  <div className="relative min-w-0">
-                    <p className={cn("text-sm font-medium leading-none transition-colors duration-200", isActive ? "text-agro-text" : "text-agro-text-2 group-hover:text-agro-text")}>
-                      {item.label}
-                    </p>
-                    <p className={cn("text-[10px] mt-0.5 truncate transition-colors duration-200", isActive ? "text-agro-green" : "text-agro-muted-2")}>
-                      {item.subtitle}
-                    </p>
-                  </div>
-                  {isActive && item.to !== "/alerts" && (
-                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
-                  )}
-                  {item.to === "/primeiros-passos" && doneCount < totalCount && (
-                    <span
-                      className="ml-auto min-w-[18px] h-[18px] rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0"
-                      style={{ background: blockersLeft > 0 ? "#ef4444" : "rgba(63,176,108,0.8)" }}
-                      title={blockersLeft > 0
-                        ? `${blockersLeft} item essencial pendente`
-                        : `${totalCount - doneCount} item opcional pendente`}
-                    >
-                      {blockersLeft > 0 ? blockersLeft : totalCount - doneCount}
-                    </span>
-                  )}
-                  {item.to === "/alerts" && unreadCount > 0 && (
+            <div key={grupo.id} className={grupo.label ? "pt-3 first:pt-0" : ""}>
+              {grupo.label && (
+                <button
+                  onClick={() => alternarGrupo(grupo.id)}
+                  className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors hover:bg-[#16241b] group/cab"
+                  aria-expanded={!fechado}
+                >
+                  <ChevronRight
+                    className="w-3 h-3 text-agro-muted-2 transition-transform shrink-0"
+                    style={{ transform: fechado ? undefined : "rotate(90deg)" }}
+                  />
+                  <span className="text-[9px] font-semibold tracking-widest text-agro-muted-2 uppercase">
+                    {grupo.label}
+                  </span>
+
+                  {/* Contadores sobem para o cabecalho quando o grupo fecha */}
+                  {fechado && alertasNoGrupo > 0 && (
                     <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
-                      {unreadCount > 99 ? "99+" : unreadCount}
+                      {alertasNoGrupo > 99 ? "99+" : alertasNoGrupo}
                     </span>
                   )}
-                </>
+                  {fechado && pendenciasNoGrupo > 0 && alertasNoGrupo === 0 && (
+                    <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-agro-green text-black text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                      {pendenciasNoGrupo}
+                    </span>
+                  )}
+                </button>
               )}
-            </NavLink>
+
+              {!fechado && (
+                <div className="space-y-0.5 mt-0.5">
+                  {visiveis.map((item) => {
+            const allowed = isAllowed(profile, item);
+
+            // ── Locked item (no permission) ───────────────────────────
+            if (!allowed) {
+              return (
+                <div
+                  key={item.to}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl relative select-none"
+                  style={{ opacity: 0.35, cursor: "not-allowed" }}
+                  title={`Você não tem permissão para acessar ${item.label}`}
+                >
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-agro-surface text-agro-muted-2">
+                    <item.icon className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium leading-none text-agro-text-2">{item.label}</p>
+                    <p className="text-[10px] mt-0.5 truncate text-agro-muted-2">{item.subtitle}</p>
+                  </div>
+                  <Lock className="w-3 h-3 text-agro-muted-2 shrink-0" />
+                </div>
+              );
+            }
+
+            // ── Normal item ───────────────────────────────────────────
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/" || item.to === "/shooting"}
+                className={({ isActive }) =>
+                  cn(
+                    "group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative",
+                    isActive ? "text-white" : "text-agro-muted hover:text-agro-text"
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <div
+                        className="absolute inset-0 rounded-xl"
+                        style={{
+                          background: "linear-gradient(135deg, rgba(63,176,108,0.2) 0%, rgba(22,163,74,0.12) 100%)",
+                          border: "1px solid rgba(63,176,108,0.3)",
+                          boxShadow: "0 0 20px rgba(63,176,108,0.1), inset 0 0 20px rgba(63,176,108,0.05)",
+                        }}
+                      />
+                    )}
+                    {!isActive && (
+                      <div
+                        className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.08)" }}
+                      />
+                    )}
+                    <div
+                      className={cn(
+                        "relative w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200",
+                        isActive
+                          ? "bg-agro-green text-white"
+                          : "bg-agro-surface text-agro-muted-2 group-hover:text-agro-green group-hover:bg-agro-surface-2"
+                      )}
+                    >
+                      <item.icon className="w-3.5 h-3.5" />
+                      {isActive && <div className="absolute inset-0 rounded-lg glow-green-sm opacity-60" />}
+                    </div>
+                    <div className="relative min-w-0">
+                      <p className={cn("text-sm font-medium leading-none transition-colors duration-200", isActive ? "text-agro-text" : "text-agro-text-2 group-hover:text-agro-text")}>
+                        {item.label}
+                      </p>
+                      <p className={cn("text-[10px] mt-0.5 truncate transition-colors duration-200", isActive ? "text-agro-green" : "text-agro-muted-2")}>
+                        {item.subtitle}
+                      </p>
+                    </div>
+                    {isActive && item.to !== "/alerts" && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-agro-green shrink-0 glow-green-sm" />
+                    )}
+                    {item.to === "/primeiros-passos" && doneCount < totalCount && (
+                      <span
+                        className="ml-auto min-w-[18px] h-[18px] rounded-full text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0"
+                        style={{ background: blockersLeft > 0 ? "#ef4444" : "rgba(63,176,108,0.8)" }}
+                        title={blockersLeft > 0
+                          ? `${blockersLeft} item essencial pendente`
+                          : `${totalCount - doneCount} item opcional pendente`}
+                      >
+                        {blockersLeft > 0 ? blockersLeft : totalCount - doneCount}
+                      </span>
+                    )}
+                    {item.to === "/alerts" && unreadCount > 0 && (
+                      <span className="ml-auto min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center px-1 shrink-0">
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    )}
+                  </>
+                )}
+              </NavLink>
+            );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>
