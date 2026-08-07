@@ -2355,6 +2355,31 @@ export type Database = {
       }
       is_workspace_member: { Args: { ws_id: string }; Returns: boolean }
       purge_observability_logs: { Args: never; Returns: undefined }
+      // Somas de boletos feitas no banco (20260807_invoice_dedup_and_totals.sql).
+      // Antes o app baixava todas as linhas e somava no navegador, o que ficava
+      // silenciosamente errado se a resposta fosse truncada.
+      invoice_status_em_aberto: { Args: never; Returns: string[] }
+      invoice_total_workspace: {
+        Args: { p_workspace_id: string; p_venc_from?: string; p_venc_to?: string }
+        Returns: number
+      }
+      invoice_total_contatos: {
+        Args: {
+          p_workspace_id: string
+          p_contact_ids: string[]
+          p_venc_from?: string
+          p_venc_to?: string
+        }
+        Returns: number
+      }
+      invoice_totais_por_contato: {
+        Args: { p_workspace_id: string; p_contact_ids: string[] }
+        Returns: {
+          contact_id: string
+          total: number
+          proximo_vencimento: string | null
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

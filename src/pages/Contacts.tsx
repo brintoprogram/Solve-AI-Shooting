@@ -774,15 +774,21 @@ export function Contacts() {
     if (!workspaceId) return;
     let cancelled = false;
     setGlobalTotalLoading(true);
+    // Antes isto baixava TODA linha de contact_invoices do workspace para somar
+    // no navegador. Além do tráfego, ficava silenciosamente errado se a
+    // resposta fosse truncada pelo teto de linhas do PostgREST — o total
+    // aparecia menor sem nenhum erro. A RPC soma no Postgres e devolve um
+    // número; de quebra a soma é NUMERIC, sem erro de ponto flutuante.
     supabase
-      .from("contact_invoices")
-      .select("valor")
-      .eq("workspace_id", workspaceId)
-      .in("status", OPEN_INVOICE_STATUSES as unknown as string[])
-      .then(({ data }: { data: { valor: number | null }[] | null }) => {
+      .rpc("invoice_total_workspace", { p_workspace_id: workspaceId })
+      .then(({ data, error }: { data: number | null; error: { message: string } | null }) => {
         if (cancelled) return;
-        const sum = (data ?? []).reduce((s, r) => s + (r.valor ?? 0), 0);
-        setGlobalTotal(sum);
+        if (error) {
+          log.error("Falha ao somar total de boletos do workspace", { err: error.message });
+          setGlobalTotal(null);
+        } else {
+          setGlobalTotal(Number(data ?? 0));
+        }
         setGlobalTotalLoading(false);
       });
     return () => { cancelled = true; };
@@ -793,22 +799,25 @@ export function Contacts() {
     if (contacts.length === 0) { setInvoiceTotals({}); return; }
     const ids = contacts.map((c) => c.id);
     supabase
-      .from("contact_invoices")
-      .select("contact_id, valor, vencimento")
-      .eq("workspace_id", workspaceId)
-      .in("contact_id", ids)
-      // Mesma regra do rodapé e da variável de campanha: um contato não pode
-      // aparecer com um valor na lista e outro na mensagem que recebe.
-      .in("status", OPEN_INVOICE_STATUSES as unknown as string[])
-      .then(({ data }: { data: { contact_id: string; valor: number | null; vencimento: string | null }[] | null }) => {
+      // Agrupa no banco. A mesma regra de "em aberto" das outras somas vive
+      // dentro da função, então a lista não pode divergir do rodapé nem da
+      // variável usada nas mensagens de campanha.
+      .rpc("invoice_totais_por_contato", { p_workspace_id: workspaceId, p_contact_ids: ids })
+      .then(({ data, error }: {
+        data: { contact_id: string; total: number | null; proximo_vencimento: string | null }[] | null;
+        error: { message: string } | null;
+      }) => {
+        if (error) {
+          log.error("Falha ao carregar totais por contato", { err: error.message });
+          setInvoiceTotals({});
+          return;
+        }
         const map: Record<string, { total: number; nextDue: string | null }> = {};
-        for (const inv of (data ?? [])) {
-          if (!map[inv.contact_id]) map[inv.contact_id] = { total: 0, nextDue: null };
-          map[inv.contact_id].total += inv.valor ?? 0;
-          if (inv.vencimento) {
-            const cur = map[inv.contact_id].nextDue;
-            if (!cur || inv.vencimento < cur) map[inv.contact_id].nextDue = inv.vencimento;
-          }
+        for (const row of (data ?? [])) {
+          map[row.contact_id] = {
+            total:   Number(row.total ?? 0),
+            nextDue: row.proximo_vencimento,
+          };
         }
         setInvoiceTotals(map);
       });
