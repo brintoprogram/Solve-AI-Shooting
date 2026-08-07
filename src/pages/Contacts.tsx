@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
+import { OPEN_INVOICE_STATUSES } from "@/lib/invoiceStatus";
 import { safeFilterTerm } from "@/lib/utils";
 import { formatPhone } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
@@ -745,7 +746,10 @@ export function Contacts() {
       let q = supabase
         .from("contact_invoices")
         .select("valor")
-        .eq("workspace_id", workspaceId);
+        .eq("workspace_id", workspaceId)
+        // Sem este filtro a soma incluía `pago` e `cancelado` — o rótulo diz
+        // "em aberto", então tem que ser só o que ainda é devido.
+        .in("status", OPEN_INVOICE_STATUSES as unknown as string[]);
       if (idsToSum !== null) q = q.in("contact_id", idsToSum);
       if (filters.vencFrom)  q = q.gte("vencimento", filters.vencFrom);
       if (filters.vencTo)    q = q.lte("vencimento", filters.vencTo);
@@ -774,6 +778,7 @@ export function Contacts() {
       .from("contact_invoices")
       .select("valor")
       .eq("workspace_id", workspaceId)
+      .in("status", OPEN_INVOICE_STATUSES as unknown as string[])
       .then(({ data }: { data: { valor: number | null }[] | null }) => {
         if (cancelled) return;
         const sum = (data ?? []).reduce((s, r) => s + (r.valor ?? 0), 0);
@@ -792,6 +797,9 @@ export function Contacts() {
       .select("contact_id, valor, vencimento")
       .eq("workspace_id", workspaceId)
       .in("contact_id", ids)
+      // Mesma regra do rodapé e da variável de campanha: um contato não pode
+      // aparecer com um valor na lista e outro na mensagem que recebe.
+      .in("status", OPEN_INVOICE_STATUSES as unknown as string[])
       .then(({ data }: { data: { contact_id: string; valor: number | null; vencimento: string | null }[] | null }) => {
         const map: Record<string, { total: number; nextDue: string | null }> = {};
         for (const inv of (data ?? [])) {

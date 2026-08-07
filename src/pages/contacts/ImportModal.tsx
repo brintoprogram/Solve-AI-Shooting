@@ -227,6 +227,23 @@ function SummaryView({ stats, onClose, onReset }: { stats: ImportStats; onClose:
         <StatCard label="Linhas ignoradas"     value={stats.skipped}          color="gray" />
       </div>
 
+      {/* Sem isto o usuário reimporta a planilha, vê "0 boletos criados" e
+          conclui que a importação falhou — quando na verdade ela protegeu a
+          base de duplicar a dívida. */}
+      {stats.invoicesSkipped > 0 && (
+        <div className="w-full max-w-sm rounded-xl border border-amber-900/40 bg-amber-950/20 p-3">
+          <p className="text-xs text-amber-300/90">
+            <span className="font-semibold">{stats.invoicesSkipped}</span>
+            {stats.invoicesSkipped === 1 ? " boleto já existia" : " boletos já existiam"} e
+            {stats.invoicesSkipped === 1 ? " foi ignorado" : " foram ignorados"}.
+          </p>
+          <p className="text-[11px] text-amber-300/60 mt-1">
+            A identificação usa o código de barras ou o número da NF. Isso evita
+            que reimportar a mesma planilha dobre a dívida dos contatos.
+          </p>
+        </div>
+      )}
+
       {hasErrors && (
         <div className="w-full max-w-sm rounded-xl border border-red-900/40 bg-red-950/20 p-3">
           <p className="text-xs font-medium text-red-400 mb-2">Erros ({stats.errors.length})</p>

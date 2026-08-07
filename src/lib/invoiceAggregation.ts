@@ -1,4 +1,5 @@
 import { formatBRL } from "@/lib/format";
+import { isOpenInvoice } from "@/lib/invoiceStatus";
 
 export interface InvoiceRaw {
   id:            string;
@@ -9,16 +10,12 @@ export interface InvoiceRaw {
   codigo_barras: string | null;
 }
 
-const PENDING_STATUSES = ["pendente", "vencido", "aberto", "em_aberto"];
-
 export function aggregateInvoices(
   contact:     Record<string, unknown> & { contact_invoices?: InvoiceRaw[] },
   filterDate?: string,
   selectedIds?: Set<string>,
 ): Record<string, unknown> {
-  let invoices = (contact.contact_invoices ?? []).filter((inv) =>
-    PENDING_STATUSES.includes((inv.status ?? "").toLowerCase())
-  );
+  let invoices = (contact.contact_invoices ?? []).filter((inv) => isOpenInvoice(inv.status));
 
   if (filterDate) {
     invoices = invoices.filter((inv) => inv.vencimento === filterDate);

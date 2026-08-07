@@ -86,6 +86,8 @@ export interface ImportStats {
   contactsInserted: number;
   contactsUpdated:  number;
   invoicesCreated:  number;
+  /** Boletos ignorados por já existirem (reimportação da mesma planilha). */
+  invoicesSkipped:  number;
   skipped:          number;
   errors:           string[];
 }
@@ -380,6 +382,7 @@ export async function runImport(
     contactsInserted: 0,
     contactsUpdated:  0,
     invoicesCreated:  0,
+    invoicesSkipped:  0,
     skipped:          0,
     errors:           [],
   };
@@ -486,11 +489,67 @@ export async function runImport(
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  const total3 = invoiceRows_.length;
+  // ─── 3b. Não recriar boleto que já existe ─────────────────────────
+  //
+  // Antes daqui a importação fazia INSERT puro. Subir a mesma planilha duas
+  // vezes recriava todos os boletos e a dívida do cliente dobrava — e o
+  // agente de IA passava a negociar em cima de um valor que não existe.
+  //
+  // A identidade de um boleto é o código de barras (a linha digitável é única
+  // no país) ou, na falta dele, o número da nota dentro daquele contato.
+  // Linha sem os dois não tem como ser identificada: passa direto, porque
+  // recusar boleto legítimo é pior que aceitar uma duplicata eventual.
+  //
+  // Isto é a rede de baixo. A garantia dura são os índices únicos em
+  // 20260807_invoice_dedup_and_totals.sql: esta checagem tem janela de corrida
+  // (duas importações simultâneas leem "não existe" antes de qualquer uma
+  // gravar), o índice não tem.
+
+  const chaveBarras = (cb: string) => `b:${cb.trim()}`;
+  const chaveNf     = (cid: string, nf: string) => `n:${cid}:${nf.trim()}`;
+
+  const jaExiste = new Set<string>();
+
+  const contactIds = [...new Set(invoiceRows_.map((r) => r.contact_id))];
+  for (let i = 0; i < contactIds.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from("contact_invoices")
+      .select("contact_id, numero_nf, codigo_barras")
+      .eq("workspace_id", workspaceId)
+      .in("contact_id", contactIds.slice(i, i + CHUNK));
+
+    if (error) {
+      // Sem a lista do que já existe não dá para decidir com segurança.
+      // Abortar aqui é melhor que gravar duplicata silenciosamente.
+      stats.errors.push(`Verificação de boletos existentes: ${error.message}`);
+      return stats;
+    }
+    for (const inv of (data ?? []) as Array<{ contact_id: string; numero_nf: string | null; codigo_barras: string | null }>) {
+      if (inv.codigo_barras?.trim()) jaExiste.add(chaveBarras(inv.codigo_barras));
+      if (inv.numero_nf?.trim())     jaExiste.add(chaveNf(inv.contact_id, inv.numero_nf));
+    }
+  }
+
+  const novos: typeof invoiceRows_ = [];
+  for (const row of invoiceRows_) {
+    const kb = row.codigo_barras?.trim() ? chaveBarras(row.codigo_barras) : null;
+    const kn = row.numero_nf?.trim()     ? chaveNf(row.contact_id, row.numero_nf) : null;
+
+    if ((kb && jaExiste.has(kb)) || (kn && jaExiste.has(kn))) {
+      stats.invoicesSkipped++;
+      continue;
+    }
+    // Marca já: pega também a planilha que repete a mesma nota em duas linhas.
+    if (kb) jaExiste.add(kb);
+    if (kn) jaExiste.add(kn);
+    novos.push(row);
+  }
+
+  const total3 = novos.length;
   onProgress("Importando boletos…", 0, total3);
 
-  for (let i = 0; i < invoiceRows_.length; i += CHUNK) {
-    const chunk = invoiceRows_.slice(i, i + CHUNK);
+  for (let i = 0; i < novos.length; i += CHUNK) {
+    const chunk = novos.slice(i, i + CHUNK);
     const { error } = await supabase.from("contact_invoices").insert(chunk);
     if (error) {
       stats.errors.push(`Boletos chunk ${i}: ${error.message}`);
