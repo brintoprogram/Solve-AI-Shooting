@@ -23,6 +23,7 @@ import { Support }     from "@/pages/Support";
 import { Agents }      from "@/pages/Agents";
 import { AgentRoutingDemo } from "@/pages/agents/AgentRoutingDemo";
 import { AgentSandbox } from "@/pages/agents/AgentSandbox";
+import { Credits } from "@/pages/Credits";
 import { Automations } from "@/pages/Automations";
 import { AutomationWizard } from "@/pages/automations/AutomationWizard";
 import { AutomationDetail } from "@/pages/automations/AutomationDetail";
@@ -172,6 +173,9 @@ function AppRoutes() {
         <Route path="/agents"                 element={<PR permission="can_settings" feature="Agentes de IA"><Agents /></PR>} />
         <Route path="/agents/demo"            element={<PR permission="can_settings" feature="Demo Roteamento"><AgentRoutingDemo /></PR>} />
         <Route path="/agents/testar"          element={<PR permission="can_settings" feature="Ambiente de teste"><AgentSandbox /></PR>} />
+        {/* Sem gate de permissao: qualquer membro precisa poder ver por que o
+            envio parou. Recarregar e outra coisa — quem decide e o servidor. */}
+        <Route path="/creditos"               element={<Credits />} />
         <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}

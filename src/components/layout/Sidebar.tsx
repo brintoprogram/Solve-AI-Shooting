@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
+  Coins,
   Send,
   Settings,
   LayoutDashboard,
@@ -48,6 +49,7 @@ const BASE_NAV: NavItem[] = [
   { to: "/agents",            icon: Bot,             label: "Agentes",      subtitle: "IA por conversa",       permission: "can_settings" },
   { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
   { to: "/support",           icon: LifeBuoy,        label: "Suporte",      subtitle: "Tickets e ajuda"        },
+  { to: "/creditos",          icon: Coins,           label: "Créditos",     subtitle: "Saldo e consumo"        },
   { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações",   permission: "can_settings" },
 ];
 

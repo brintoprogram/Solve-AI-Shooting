@@ -578,6 +578,61 @@ export type Database = {
         }
         Relationships: []
       }
+      workspace_credits: {
+        Row: {
+          workspace_id: string
+          saldo: number
+          custo_mensagem: number
+          custo_ia: number
+          cobranca_ativa: boolean
+          updated_at: string
+        }
+        Insert: {
+          workspace_id: string
+          saldo?: number
+          custo_mensagem?: number
+          custo_ia?: number
+          cobranca_ativa?: boolean
+          updated_at?: string
+        }
+        Update: {
+          workspace_id?: string
+          saldo?: number
+          custo_mensagem?: number
+          custo_ia?: number
+          cobranca_ativa?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      credit_ledger: {
+        Row: {
+          id: string
+          workspace_id: string
+          delta: number
+          saldo_apos: number
+          tipo: string
+          canal: string | null
+          contact_id: string | null
+          detalhe: Json
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          delta: number
+          saldo_apos: number
+          tipo: string
+          canal?: string | null
+          contact_id?: string | null
+          detalhe?: Json
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: Record<string, never>
+        Relationships: []
+      }
       cleanup_sessions: {
         Row: {
           id: string

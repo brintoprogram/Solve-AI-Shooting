@@ -54,3 +54,6 @@ verify_jwt = false
 
 [functions.agent-sandbox]
 verify_jwt = false
+
+[functions.credits-admin]
+verify_jwt = false
