@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { X, Loader2, Check, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +8,8 @@ import { tagColor } from "./ContactPanel";
 
 
 interface Props {
+  /** Controlado pelo pai via <Presence>, para a saída poder animar. */
+  open?: boolean;
   contact?: Contact | null;
   onClose:  () => void;
   onSaved:  (c: Contact) => void;
@@ -31,7 +34,7 @@ const inputCls = [
 ].join(" ");
 
 // ── Component ──────────────────────────────────────────
-export function ContactFormModal({ contact, onClose, onSaved }: Props) {
+export function ContactFormModal({ open = true, contact, onClose, onSaved }: Props) {
   const workspaceId = useAuth().workspaceId ?? "";
   const isNew = !contact;
 
@@ -113,14 +116,15 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      zIndex={60}
+      className="max-h-[90vh] flex flex-col"
+      overlayStyle={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}
+      panelStyle={{ background: "#0d1710", border: "1px solid #2a3d30", boxShadow: "0 32px 100px rgba(0,0,0,0.7)" }}
     >
-      <div
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl overflow-hidden"
-        style={{ background: "#0d1710", border: "1px solid #2a3d30", boxShadow: "0 32px 100px rgba(0,0,0,0.7)" }}
-      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: "1px solid #1e2e22" }}>
           <h2 className="text-base font-bold text-white">
@@ -338,7 +342,6 @@ export function ContactFormModal({ contact, onClose, onSaved }: Props) {
             {saving ? "Salvando..." : (isNew ? "Criar contato" : "Salvar alterações")}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

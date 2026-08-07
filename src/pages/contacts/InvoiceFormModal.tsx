@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Modal } from "@/components/ui/Modal";
 import { X, Loader2, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
@@ -51,6 +52,8 @@ const inputCls = [
 ].join(" ");
 
 interface Props {
+  /** Controlado pelo pai via <Presence>, para a saída poder animar. */
+  open?: boolean;
   invoice?:   Invoice | null;
   contactId:  string;
   onClose:    () => void;
@@ -58,7 +61,7 @@ interface Props {
   onDeleted?: () => void;
 }
 
-export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDeleted }: Props) {
+export function InvoiceFormModal({ open = true, invoice, contactId, onClose, onSaved, onDeleted }: Props) {
   const isNew = !invoice;
   const workspaceId = useAuth().workspaceId ?? "";
 
@@ -121,14 +124,15 @@ export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDelet
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      zIndex={70}
+      className="flex flex-col"
+      overlayStyle={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+      panelStyle={{ background: "#0d1710", border: "1px solid #2a3d30", boxShadow: "0 24px 80px rgba(0,0,0,0.7)" }}
     >
-      <div
-        className="w-full max-w-md flex flex-col rounded-2xl overflow-hidden"
-        style={{ background: "#0d1710", border: "1px solid #2a3d30", boxShadow: "0 24px 80px rgba(0,0,0,0.7)" }}
-      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 shrink-0"
           style={{ borderBottom: "1px solid #1e2e22" }}>
@@ -263,7 +267,6 @@ export function InvoiceFormModal({ invoice, contactId, onClose, onSaved, onDelet
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

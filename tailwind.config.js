@@ -93,7 +93,7 @@ export default {
           "50%":       { boxShadow: "0 0 16px rgba(63,176,108,0.5), 0 0 40px rgba(63,176,108,0.2)" },
         },
         "fade-up": {
-          from: { opacity: "0", transform: "translateY(16px)" },
+          from: { opacity: "0", transform: "translateY(10px)" },
           to:   { opacity: "1", transform: "translateY(0)" },
         },
         "fade-in": {
@@ -117,13 +117,18 @@ export default {
         "accordion-down":  "accordion-down 0.2s ease-out",
         "accordion-up":    "accordion-up 0.2s ease-out",
         "glow-pulse":      "glow-pulse 2.5s ease-in-out infinite",
-        "fade-up":         "fade-up 0.4s ease-out both",
-        "fade-up-delay-1": "fade-up 0.4s 0.1s ease-out both",
-        "fade-up-delay-2": "fade-up 0.4s 0.2s ease-out both",
-        "fade-up-delay-3": "fade-up 0.4s 0.3s ease-out both",
-        "fade-up-delay-4": "fade-up 0.4s 0.4s ease-out both",
-        "fade-in":         "fade-in 0.3s ease-out both",
-        "scale-in":        "scale-in 0.3s ease-out both",
+        /* Antes: 0.4s de duracao com atrasos de ate 0.4s — o ultimo bloco da
+           tela so terminava de aparecer em 800ms, e a pagina inteira dava a
+           impressao de estar carregando devagar. Agora o pior caso e ~440ms.
+           A curva (0.16,1,0.3,1) desacelera forte no fim: o elemento chega
+           rapido e assenta, em vez de deslizar num ritmo constante. */
+        "fade-up":         "fade-up 0.28s cubic-bezier(0.16,1,0.3,1) both",
+        "fade-up-delay-1": "fade-up 0.28s 0.05s cubic-bezier(0.16,1,0.3,1) both",
+        "fade-up-delay-2": "fade-up 0.28s 0.10s cubic-bezier(0.16,1,0.3,1) both",
+        "fade-up-delay-3": "fade-up 0.28s 0.15s cubic-bezier(0.16,1,0.3,1) both",
+        "fade-up-delay-4": "fade-up 0.28s 0.20s cubic-bezier(0.16,1,0.3,1) both",
+        "fade-in":         "fade-in 0.2s ease-out both",
+        "scale-in":        "scale-in 0.2s cubic-bezier(0.16,1,0.3,1) both",
       },
       backgroundImage: {
         "green-gradient":  "linear-gradient(135deg, #3fb06c 0%, #16A34A 100%)",

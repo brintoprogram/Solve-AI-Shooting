@@ -171,3 +171,29 @@
     to   { width: 100% }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Movimento reduzido
+
+   Parte dos usuários tem o sistema configurado para reduzir animação —
+   para quem tem enxaqueca vestibular ou sensibilidade a movimento, uma
+   interface que desliza e escala provoca sintoma real, não incômodo.
+
+   O app não respeitava essa preferência em lugar nenhum. Aqui as
+   animações são neutralizadas de uma vez, sem precisar tocar em cada
+   componente.
+
+   Note que não é `animation: none`: zerar a duração preserva o estado
+   FINAL do keyframe. Com `none`, tudo que usa `fade-up` (que começa em
+   opacity 0) ficaria invisível para sempre.
+   ───────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

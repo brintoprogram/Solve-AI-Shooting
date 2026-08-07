@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { ImportModal } from "./contacts/ImportModal";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
+import { Presence } from "@/components/ui/Presence";
 import { ContactFormModal } from "./contacts/ContactFormModal";
 import { BaseCleanup } from "./contacts/BaseCleanup";
 import { log } from "@/lib/logger";
@@ -1163,12 +1164,15 @@ export function Contacts() {
         />
       )}
 
-      {showNewContact && (
-        <ContactFormModal
-          onClose={() => setShowNewContact(false)}
-          onSaved={(c) => { setShowNewContact(false); refresh(); setSelected(c); }}
-        />
-      )}
+      <Presence when={showNewContact}>
+        {(visivel) => (
+          <ContactFormModal
+            open={visivel}
+            onClose={() => setShowNewContact(false)}
+            onSaved={(c) => { setShowNewContact(false); refresh(); setSelected(c); }}
+          />
+        )}
+      </Presence>
 
       {/* ── Bulk action bar ──────────────────────────── */}
       <BulkActionBar

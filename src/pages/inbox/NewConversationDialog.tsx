@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { X, Send, Phone, MessageSquare } from "lucide-react";
+import { Send, Phone, MessageSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/context/AuthContext";
 import type { ConnectionInfo } from "@/types/inbox";
 
@@ -29,8 +30,6 @@ export function NewConversationDialog({ open, onClose, zapiConnections, workspac
   const [message,      setMessage]      = useState("");
   const [sending,      setSending]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
-
-  if (!open) return null;
 
   const normalizePhone = (raw: string) => raw.replace(/\D/g, "");
 
@@ -76,44 +75,14 @@ export function NewConversationDialog({ open, onClose, zapiConnections, workspac
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title="Nova conversa"
+      subtitle="Via Z-API"
+      icon={<MessageSquare className="w-4 h-4 text-agro-green" />}
     >
-      <div
-        className="w-full max-w-md rounded-2xl overflow-hidden"
-        style={{
-          background: "#0d1a11",
-          border: "1px solid rgba(63,176,108,0.2)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
-        }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-4"
-          style={{ borderBottom: "1px solid rgba(63,176,108,0.1)" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: "rgba(63,176,108,0.1)", border: "1px solid rgba(63,176,108,0.2)" }}
-            >
-              <MessageSquare className="w-4 h-4 text-agro-green" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-agro-text">Nova conversa</p>
-              <p className="text-[11px] text-agro-muted-2">Via Z-API</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-agro-muted-2 hover:text-agro-text transition-colors"
-            style={{ background: "rgba(255,255,255,0.04)" }}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
         {/* Body */}
         <div className="px-5 py-4 space-y-4">
@@ -213,7 +182,6 @@ export function NewConversationDialog({ open, onClose, zapiConnections, workspac
             {sending ? "Enviando..." : "Enviar"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -9,6 +9,7 @@ import jsPDF from "jspdf";
 import { drawPdfHeader, drawSection, drawKVRows, drawTable, drawFooter } from "@/lib/exportPdf";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { Presence } from "@/components/ui/Presence";
 import { ContactFormModal } from "./ContactFormModal";
 import { InvoiceFormModal } from "./InvoiceFormModal";
 import { ContactHistory } from "./ContactHistory";
@@ -749,24 +750,30 @@ export function ContactPanel({ contact: initialContact, onClose, onUpdated }: Co
       </div>
 
       {/* ── Contact edit modal ─────────────────────────── */}
-      {showEdit && (
-        <ContactFormModal
-          contact={contact}
-          onClose={() => setShowEdit(false)}
-          onSaved={handleContactSaved}
-        />
-      )}
+      <Presence when={showEdit}>
+        {(visivel) => (
+          <ContactFormModal
+            open={visivel}
+            contact={contact}
+            onClose={() => setShowEdit(false)}
+            onSaved={handleContactSaved}
+          />
+        )}
+      </Presence>
 
       {/* ── Invoice add / edit modal ───────────────────── */}
-      {isInvoiceModalOpen && (
-        <InvoiceFormModal
-          invoice={editingInvoice ?? undefined}
-          contactId={contact.id}
-          onClose={() => setEditingInvoice(undefined)}
-          onSaved={loadInvoices}
-          onDeleted={loadInvoices}
-        />
-      )}
+      <Presence when={isInvoiceModalOpen}>
+        {(visivel) => (
+          <InvoiceFormModal
+            open={visivel}
+            invoice={editingInvoice ?? undefined}
+            contactId={contact.id}
+            onClose={() => setEditingInvoice(undefined)}
+            onSaved={loadInvoices}
+            onDeleted={loadInvoices}
+          />
+        )}
+      </Presence>
 
       {/* ── LGPD confirmation modal ────────────────────── */}
       {lgpdConfirm && (
