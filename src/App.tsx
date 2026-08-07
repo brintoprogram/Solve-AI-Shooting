@@ -24,6 +24,7 @@ import { Agents }      from "@/pages/Agents";
 import { AgentRoutingDemo } from "@/pages/agents/AgentRoutingDemo";
 import { AgentSandbox } from "@/pages/agents/AgentSandbox";
 import { Credits } from "@/pages/Credits";
+import { CreditsAdmin } from "@/pages/admin/CreditsAdmin";
 import { Automations } from "@/pages/Automations";
 import { AutomationWizard } from "@/pages/automations/AutomationWizard";
 import { AutomationDetail } from "@/pages/automations/AutomationDetail";
@@ -176,6 +177,10 @@ function AppRoutes() {
         {/* Sem gate de permissao: qualquer membro precisa poder ver por que o
             envio parou. Recarregar e outra coisa — quem decide e o servidor. */}
         <Route path="/creditos"               element={<Credits />} />
+        {/* Administracao da plataforma. Fora do menu de proposito: quem tem
+            acesso sabe o endereco, e quem nao tem recebe "area restrita" — a
+            decisao vem do servidor, nao de um `if` no render. */}
+        <Route path="/admin/creditos"         element={<CreditsAdmin />} />
         <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}
