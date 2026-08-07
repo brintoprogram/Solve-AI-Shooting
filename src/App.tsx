@@ -22,6 +22,7 @@ import { Reports }     from "@/pages/Reports";
 import { Support }     from "@/pages/Support";
 import { Agents }      from "@/pages/Agents";
 import { AgentRoutingDemo } from "@/pages/agents/AgentRoutingDemo";
+import { AgentSandbox } from "@/pages/agents/AgentSandbox";
 import { Automations } from "@/pages/Automations";
 import { AutomationWizard } from "@/pages/automations/AutomationWizard";
 import { AutomationDetail } from "@/pages/automations/AutomationDetail";
@@ -170,6 +171,7 @@ function AppRoutes() {
         <Route path="/support"                element={<Support />} />
         <Route path="/agents"                 element={<PR permission="can_settings" feature="Agentes de IA"><Agents /></PR>} />
         <Route path="/agents/demo"            element={<PR permission="can_settings" feature="Demo Roteamento"><AgentRoutingDemo /></PR>} />
+        <Route path="/agents/testar"          element={<PR permission="can_settings" feature="Ambiente de teste"><AgentSandbox /></PR>} />
         <Route path="*"                       element={<Navigate to="/" replace />} />
       </Route>
       {/* Full-screen flow — no sidebar */}

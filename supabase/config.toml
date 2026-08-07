@@ -51,3 +51,6 @@ verify_jwt = false
 
 [functions.negotiation-portal]
 verify_jwt = false
+
+[functions.agent-sandbox]
+verify_jwt = false

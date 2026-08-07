@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Sparkles } from "lucide-react";
+import { Sparkles, FlaskConical, ChevronRight } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/context/AuthContext";
 import { SettingsAIAgents } from "@/pages/settings/SettingsAIAgents";
@@ -11,6 +11,31 @@ export function Agents() {
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
       <Topbar breadcrumbs={[{ label: "Agentes de IA" }]} />
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+
+        {/* Ambiente de teste — antes da demo roteirizada, porque é o que
+            serve a quem está configurando os agentes de verdade. */}
+        <button
+          onClick={() => navigate("/agents/testar")}
+          className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-left transition-all hover:brightness-110 group"
+          style={{
+            background: "rgba(13,26,17,0.7)",
+            border:     "1px solid rgba(63,176,108,0.25)",
+          }}
+        >
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+            style={{ background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.3)" }}
+          >
+            <FlaskConical className="w-5 h-5 text-agro-green" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-agro-text">Ambiente de teste</p>
+            <p className="text-xs text-agro-muted mt-0.5">
+              Converse com seus agentes sem WhatsApp e veja por que cada roteamento aconteceu
+            </p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-agro-muted group-hover:text-agro-green transition-colors shrink-0" />
+        </button>
 
         {/* Demo CTA */}
         <button

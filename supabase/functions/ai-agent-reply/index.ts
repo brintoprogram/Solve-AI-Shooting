@@ -24,6 +24,31 @@ const AI_REPLY_COOLDOWN_SECONDS = Number(Deno.env.get("AI_REPLY_COOLDOWN_SECONDS
 // Teto por conversa por hora: rede de seguranca contra loop ou flood.
 const AI_REPLY_MAX_PER_HOUR     = Number(Deno.env.get("AI_REPLY_MAX_PER_HOUR") ?? "30");
 
+// ── Rastro das decisoes ──────────────────────────────────────────────
+// As decisoes de roteamento existiam so em console.log, que ninguem fora do
+// painel do Supabase enxerga. Os dois casos de falha mais comuns (setor
+// inexistente, setor sem agente ativo) eram silenciosos: o agente
+// simplesmente nao roteava, sem dizer por que.
+//
+// So grava para conversa de simulacao. Em conversa real seria uma escrita por
+// mensagem recebida, sem ninguem para ler.
+async function rastro(
+  conv: { workspace_id: string; is_simulation?: boolean | null },
+  conversationId: string,
+  step: string,
+  detail: Record<string, unknown> = {},
+): Promise<void> {
+  if (!conv.is_simulation) return;
+  const { error } = await supabase.from("agent_trace_events").insert({
+    workspace_id:    conv.workspace_id,
+    conversation_id: conversationId,
+    step,
+    detail,
+  });
+  // Falha de rastro nao pode derrubar o atendimento: e diagnostico, nao fluxo.
+  if (error) console.error(JSON.stringify({ level: "error", event: "trace_insert_failed", err: error.message }));
+}
+
 const TYPE_LABELS: Record<string, string> = {
   image: "[Imagem]", audio: "[Áudio]", video: "[Vídeo]",
   document: "[Documento]", sticker: "[Sticker]",
@@ -38,6 +63,7 @@ interface RawMessage {
 }
 
 interface ConvRow {
+  is_simulation:       boolean | null;
   ai_agent_id:         string | null;
   workspace_id:        string;
   contact_id:          string;
@@ -160,13 +186,23 @@ async function handleTriage(
 
   if (!triageAgent) {
     console.log("[triage] nenhum agente de triagem ativo — ignorando");
+    await rastro(conv, conversationId, "triagem_sem_agente", {
+      dica: "Nenhum agente com 'is_triage' e 'is_active' neste workspace. Crie um em Agentes e marque como triagem.",
+    });
     return;
   }
 
   console.log(`[triage] agente "${triageAgent.name}" processando conversa ${conversationId}`);
 
   const apiKey = await getApiKey(conv.workspace_id, triageAgent.model as string);
-  if (!apiKey) { console.error("[triage] API key não configurada"); return; }
+  if (!apiKey) {
+    console.error("[triage] API key não configurada");
+    await rastro(conv, conversationId, "sem_chave_de_ia", {
+      modelo: triageAgent.model,
+      dica: "Configure a chave do provedor em Configurações → IA.",
+    });
+    return;
+  }
 
   const transcript  = await fetchTranscript(conversationId, messageBody);
   const systemPrompt = (triageAgent.system_prompt as string) + ROUTING_INSTRUCTION;
@@ -176,6 +212,12 @@ async function handleTriage(
   console.log(`[triage] resposta recebida (${rawResponse.length} chars)`);
 
   // Parse ROUTE: from the LAST occurrence (in case the prompt itself contains the word)
+  await rastro(conv, conversationId, "triagem_respondeu", {
+    agente: triageAgent.name,
+    modelo: triageAgent.model,
+    resposta_bruta: rawResponse,
+  });
+
   const routeIdx = rawResponse.lastIndexOf("ROUTE:");
   let replyText  = rawResponse.trim();
   let routeValue = "NONE";
@@ -198,6 +240,11 @@ async function handleTriage(
   // Route to department if decided
   if (!routeValue || routeValue === "NONE") {
     console.log("[triage] ROUTE:NONE — aguardando mais informações do cliente");
+    await rastro(conv, conversationId, "sem_roteamento", {
+      motivo: routeIdx === -1
+        ? "O modelo não incluiu a linha ROUTE:. Reforce a instrução no prompt do agente."
+        : "ROUTE:NONE — a triagem quer mais informação antes de decidir o setor.",
+    });
     return;
   }
 
@@ -213,6 +260,13 @@ async function handleTriage(
 
   if (!dept) {
     console.warn(`[triage] setor "${routeValue}" não encontrado — sem roteamento`);
+    const { data: existentes } = await supabase
+      .from("departments").select("name").eq("workspace_id", conv.workspace_id);
+    await rastro(conv, conversationId, "setor_nao_encontrado", {
+      setor_pedido: routeValue,
+      setores_existentes: (existentes ?? []).map((d) => d.name),
+      dica: "O prompt da triagem cita um setor que não existe. Crie o setor ou corrija o nome no prompt.",
+    });
     return;
   }
 
@@ -229,6 +283,10 @@ async function handleTriage(
 
   if (!deptAgent) {
     console.warn(`[triage] nenhum agente ativo para o setor "${dept.name}" — sem roteamento`);
+    await rastro(conv, conversationId, "setor_sem_agente", {
+      setor: dept.name,
+      dica: "O setor existe mas não tem agente ativo. Crie um agente para ele e marque como ativo.",
+    });
     return;
   }
 
@@ -238,6 +296,7 @@ async function handleTriage(
     .eq("id", conversationId);
 
   console.log(`[triage] ✓ conversa ${conversationId} → agente "${deptAgent.name}" (setor ${dept.name})`);
+  await rastro(conv, conversationId, "roteado", { setor: dept.name, agente: deptAgent.name });
 }
 
 // ── Department agent handler ─────────────────────────────────
@@ -300,7 +359,7 @@ Deno.serve(async (req: Request) => {
   try {
     const { data: conv, error: convErr } = await supabase
       .from("inbox_conversations")
-      .select("ai_agent_id, workspace_id, contact_id, z_api_connection_id, meta_connection_id")
+      .select("ai_agent_id, workspace_id, contact_id, z_api_connection_id, meta_connection_id, is_simulation")
       .eq("id", conversation_id)
       .single();
 

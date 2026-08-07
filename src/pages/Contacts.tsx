@@ -77,6 +77,9 @@ function useContacts(
       .from("inbox_contacts_com_saldo")
       .select("*", { count: "exact" })
       .eq("workspace_id", workspaceId)
+      // O contato do ambiente de teste nao e cliente: nao entra na base, nem
+      // na contagem, nem — o que importa mais — em disparo de campanha.
+      .eq("is_simulation", false)
       .order(ord.coluna, { ascending: ord.asc, nullsFirst: ord.nullsFirst })
       // Desempate estavel: sem isto, contatos com o mesmo saldo (zero, por
       // exemplo) trocam de lugar entre paginas e alguns nunca aparecem.
@@ -127,6 +130,7 @@ async function exportXlsx(workspaceId: string) {
     .from("inbox_contacts")
     .select("*")
     .eq("workspace_id", workspaceId)
+    .eq("is_simulation", false)
     .order("name", { ascending: true });
 
   const contacts: Contact[] = allContacts ?? [];

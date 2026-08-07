@@ -26,6 +26,8 @@ export interface ConnectionInfo {
 }
 
 export interface InboxConversation {
+  /** Conversa/contato do ambiente de teste de agentes — fora das telas reais. */
+  is_simulation?: boolean | null;
   id: string;
   workspace_id: string;
   meta_connection_id: string | null;

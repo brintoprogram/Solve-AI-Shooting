@@ -16,6 +16,9 @@ export function useInboxConversations(workspaceId?: string) {
       .from("inbox_conversations")
       .select("*, inbox_contacts(*), departments(*)")
       .eq("workspace_id", workspaceId)
+      // Conversa do ambiente de teste de agentes nao e atendimento real: fora
+      // da caixa de entrada, senao o time responde a um cliente que nao existe.
+      .eq("is_simulation", false)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     if (error) console.error("[useInbox] erro ao carregar conversas:", error.message);
     setConversations(data ?? []);

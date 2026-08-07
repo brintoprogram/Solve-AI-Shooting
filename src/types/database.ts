@@ -551,6 +551,33 @@ export type Database = {
           },
         ]
       }
+      agent_trace_events: {
+        Row: {
+          id: string
+          workspace_id: string
+          conversation_id: string
+          step: string
+          detail: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          conversation_id: string
+          step: string
+          detail?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          conversation_id?: string
+          step?: string
+          detail?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
       cleanup_sessions: {
         Row: {
           id: string
@@ -1085,6 +1112,7 @@ export type Database = {
       }
       inbox_contacts: {
         Row: {
+          is_simulation: boolean
           bairro: string | null
           cep: string | null
           cidade: string | null
@@ -1114,6 +1142,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          is_simulation?: boolean
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
@@ -1143,6 +1172,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          is_simulation?: boolean
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
@@ -1175,6 +1205,7 @@ export type Database = {
       }
       inbox_conversations: {
         Row: {
+          is_simulation: boolean
           ai_agent_id: string | null
           archived: boolean | null
           assigned_to: string | null
@@ -1195,6 +1226,7 @@ export type Database = {
           z_api_connection_id: string | null
         }
         Insert: {
+          is_simulation?: boolean
           ai_agent_id?: string | null
           archived?: boolean | null
           assigned_to?: string | null
@@ -1215,6 +1247,7 @@ export type Database = {
           z_api_connection_id?: string | null
         }
         Update: {
+          is_simulation?: boolean
           ai_agent_id?: string | null
           archived?: boolean | null
           assigned_to?: string | null

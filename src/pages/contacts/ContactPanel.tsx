@@ -19,6 +19,8 @@ import { initials, formatBRL, formatDate } from "@/lib/format";
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface Contact {
+  /** Conversa/contato do ambiente de teste de agentes — fora das telas reais. */
+  is_simulation?: boolean | null;
   /** Agregados que vêm da view inbox_contacts_com_saldo. Opcionais porque o
    *  contato também chega da tabela crua em outros fluxos (edição, seleção). */
   saldo_em_aberto?:    number | null;
