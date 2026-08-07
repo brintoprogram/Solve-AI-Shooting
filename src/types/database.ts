@@ -551,6 +551,87 @@ export type Database = {
           },
         ]
       }
+      cleanup_sessions: {
+        Row: {
+          id: string
+          workspace_id: string
+          filename: string
+          total: number
+          valid: number
+          invalid_phone: number
+          no_phone: number
+          landline: number
+          wa_valid: number
+          wa_invalid: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          filename: string
+          total?: number
+          valid?: number
+          invalid_phone?: number
+          no_phone?: number
+          landline?: number
+          wa_valid?: number
+          wa_invalid?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          filename?: string
+          total?: number
+          valid?: number
+          invalid_phone?: number
+          no_phone?: number
+          landline?: number
+          wa_valid?: number
+          wa_invalid?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
+      cleanup_session_rows: {
+        Row: {
+          id: string
+          session_id: string
+          row_index: number | null
+          row_data: Json
+          name: string | null
+          phone: string | null
+          phone_norm: string | null
+          phone_problem: string | null
+          wa_status: string | null
+          wa_checked_at: string | null
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          row_index?: number | null
+          row_data: Json
+          name?: string | null
+          phone?: string | null
+          phone_norm?: string | null
+          phone_problem?: string | null
+          wa_status?: string | null
+          wa_checked_at?: string | null
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          row_index?: number | null
+          row_data?: Json
+          name?: string | null
+          phone?: string | null
+          phone_norm?: string | null
+          phone_problem?: string | null
+          wa_status?: string | null
+          wa_checked_at?: string | null
+        }
+        Relationships: []
+      }
       contact_invoices: {
         Row: {
           arquivo_pdf: string | null
