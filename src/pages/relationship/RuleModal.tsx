@@ -32,7 +32,27 @@ export interface FormRegra {
   z_api_connection_id: string | null;
   meta_template_id: string | null;
   message_body: string;
+  /** Origem de cada {{n}}, por posição. [0] alimenta {{1}}. */
+  variaveis: VarOrigem[];
 }
+
+export type VarOrigem =
+  | { origem: "primeiro_nome" }
+  | { origem: "nome_completo" }
+  | { origem: "detalhe" }
+  | { origem: "empresa" }
+  | { origem: "fixo"; valor: string };
+
+/** As origens oferecidas. Deliberadamente curta: cada campo do contato viraria
+ *  uma opção, e uma lista longa transforma uma escolha simples em formulário.
+ *  "Texto fixo" cobre o resto — vencimento, valor, mês da campanha. */
+export const ORIGENS: { id: VarOrigem["origem"]; rotulo: string; exemplo: string }[] = [
+  { id: "primeiro_nome", rotulo: "Primeiro nome",  exemplo: "Maria" },
+  { id: "nome_completo", rotulo: "Nome completo",  exemplo: "Maria Aparecida Santos" },
+  { id: "detalhe",       rotulo: "Detalhe da data", exemplo: "32 anos" },
+  { id: "empresa",       rotulo: "Empresa",        exemplo: "Fazenda São João" },
+  { id: "fixo",          rotulo: "Texto fixo",     exemplo: "digite abaixo" },
+];
 
 interface Template {
   id: string; template_name: string; category: string;
@@ -52,13 +72,17 @@ export function contarVariaveis(texto: string): number {
   return new Set(achados.map((m) => m.replace(/\D/g, ""))).size;
 }
 
-/** O que cada posição recebe no envio. Espelha o ticker: nome, depois detalhe. */
-const PREENCHIMENTO = ["primeiro nome do contato", "detalhe (idade, profissão, tempo de casa)"];
-const EXEMPLO       = ["Maria", "32 anos"];
+/** Como a variável aparece na prévia, dado o que foi escolhido para ela. */
+function exemploDe(v: VarOrigem | undefined): string {
+  if (!v) return "—";
+  if (v.origem === "fixo") return v.valor || "(vazio)";
+  return ORIGENS.find((o) => o.id === v.origem)?.exemplo ?? "—";
+}
 
-/** Renderiza *negrito* do WhatsApp e troca as variáveis pelo exemplo. */
-function Previa({ texto }: { texto: string }) {
-  const comVars = texto.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => EXEMPLO[Number(n) - 1] ?? `{{${n}}}`);
+/** Renderiza *negrito* do WhatsApp e troca as variáveis pelo que foi mapeado. */
+function Previa({ texto, variaveis }: { texto: string; variaveis: VarOrigem[] }) {
+  const comVars = texto.replace(/\{\{\s*(\d+)\s*\}\}/g,
+    (_, n) => exemploDe(variaveis[Number(n) - 1]));
   const partes  = comVars.split(/(\*[^*]+\*)/g);
   return (
     <p className="text-[13px] leading-relaxed text-agro-text whitespace-pre-wrap">
@@ -147,6 +171,21 @@ export function RuleModal({
   const corpoSel    = corpoDoTemplate(selecionado?.components);
   const varsSel     = contarVariaveis(corpoSel);
 
+  // A Meta recusa a mensagem inteira quando a contagem de parametros nao bate
+  // com o template. Entao "completo" e: uma origem por variavel, e texto fixo
+  // preenchido — fixo vazio manda string vazia e a mensagem sai truncada.
+  const mapeamentoCompleto =
+    form.variaveis.length === varsSel &&
+    form.variaveis.every((v) => v.origem !== "fixo" || v.valor.trim().length > 0);
+
+  function definirVar(i: number, v: VarOrigem) {
+    setForm((f) => {
+      const lista = [...f.variaveis];
+      lista[i] = v;
+      return { ...f, variaveis: lista };
+    });
+  }
+
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return templates;
@@ -159,11 +198,11 @@ export function RuleModal({
     form.name.trim().length >= 2 &&
     canaisDisponiveis.length > 0 &&
     (form.canal === "meta"
-      ? Boolean(form.meta_template_id) && varsSel <= 2
+      ? Boolean(form.meta_template_id) && mapeamentoCompleto
       : form.message_body.trim().length >= 5);
 
   return (
-    <Modal open={aberto} onClose={onFechar} title={titulo} subtitle={subtitulo} icon={icone} size="lg">
+    <Modal open={aberto} onClose={onFechar} title={titulo} subtitle={subtitulo} icon={icone} size="xl">
       {carregando ? (
         <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-agro-green" /></div>
       ) : (
@@ -275,16 +314,25 @@ export function RuleModal({
                     </div>
                   )}
 
-                  <div className="space-y-1.5 max-h-[210px] overflow-y-auto scrollbar-thin pr-1">
+                  <div className="space-y-1.5 max-h-[380px] overflow-y-auto scrollbar-thin pr-1">
                     {filtrados.map((t) => {
                       const corpo = corpoDoTemplate(t.components);
                       const vars  = contarVariaveis(corpo);
                       const ativo = form.meta_template_id === t.id;
-                      const demais = vars > 2;
                       return (
-                        <button key={t.id} type="button" disabled={demais}
-                          onClick={() => setForm((f) => ({ ...f, meta_template_id: t.id }))}
-                          className="w-full text-left p-3 rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        <button key={t.id} type="button"
+                          onClick={() => setForm((f) => ({
+                            ...f,
+                            meta_template_id: t.id,
+                            // Palpite: a primeira variavel quase sempre e o nome;
+                            // as demais o usuario decide. Comecar tudo vazio faria
+                            // todo template de 3 variaveis exigir 3 cliques antes
+                            // de a previa dizer qualquer coisa.
+                            variaveis: Array.from({ length: vars }, (_, i) =>
+                              i === 0 ? { origem: "primeiro_nome" as const }
+                                      : { origem: "fixo" as const, valor: "" }),
+                          }))}
+                          className="w-full text-left p-3 rounded-xl transition-all"
                           style={ativo
                             ? { background: "rgba(63,176,108,0.12)", border: "1px solid rgba(63,176,108,0.4)" }
                             : { background: "rgba(0,0,0,0.2)", border: "1px solid rgba(63,176,108,0.1)" }}>
@@ -306,12 +354,6 @@ export function RuleModal({
                           <p className="text-[11px] text-agro-muted mt-1.5 line-clamp-2 leading-snug">
                             {corpo || "(sem corpo)"}
                           </p>
-                          {demais && (
-                            <p className="text-[10px] mt-1.5" style={{ color: "#f87171" }}>
-                              Usa {vars} variáveis. O envio automático preenche no máximo 2 —
-                              este template mandaria dado errado.
-                            </p>
-                          )}
                         </button>
                       );
                     })}
@@ -329,17 +371,50 @@ export function RuleModal({
                   <div className="max-w-[85%] rounded-2xl px-3.5 py-2.5"
                        style={{ background: "linear-gradient(135deg, rgba(63,176,108,0.22), rgba(22,163,74,0.12))",
                                 border: "1px solid rgba(63,176,108,0.3)", borderBottomRightRadius: 6 }}>
-                    <Previa texto={corpoSel} />
+                    <Previa texto={corpoSel} variaveis={form.variaveis} />
                   </div>
 
                   {varsSel > 0 && (
-                    <div className="space-y-1 pt-1">
-                      {Array.from({ length: Math.min(varsSel, 2) }, (_, i) => (
-                        <p key={i} className="text-[10px] text-agro-muted-2 flex gap-2">
-                          <span className="font-mono shrink-0" style={{ color: "#3fb06c" }}>{`{{${i + 1}}}`}</span>
-                          <span>recebe o {PREENCHIMENTO[i]}</span>
+                    <div className="space-y-2 pt-2.5" style={{ borderTop: "1px solid rgba(63,176,108,0.1)" }}>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2">
+                        O que entra em cada variável
+                      </p>
+                      {Array.from({ length: varsSel }, (_, i) => {
+                        const atual = form.variaveis[i];
+                        return (
+                          <div key={i} className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[11px] font-bold shrink-0 w-9"
+                                  style={{ color: "#3fb06c" }}>{`{{${i + 1}}}`}</span>
+                            <select
+                              value={atual?.origem ?? ""}
+                              onChange={(e) => {
+                                const o = e.target.value as VarOrigem["origem"];
+                                definirVar(i, o === "fixo" ? { origem: "fixo", valor: "" } : { origem: o });
+                              }}
+                              className="input-agro text-xs py-1.5 flex-1 min-w-[150px]"
+                            >
+                              <option value="" disabled>escolha a origem…</option>
+                              {ORIGENS.map((o) => (
+                                <option key={o.id} value={o.id}>{o.rotulo}</option>
+                              ))}
+                            </select>
+                            {atual?.origem === "fixo" && (
+                              <input
+                                value={atual.valor}
+                                onChange={(e) => definirVar(i, { origem: "fixo", valor: e.target.value })}
+                                placeholder="texto que vai nesta posição"
+                                className="input-agro text-xs py-1.5 flex-1 min-w-[150px]"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                      {!mapeamentoCompleto && (
+                        <p className="text-[10px] leading-relaxed" style={{ color: "#fbbf24" }}>
+                          Preencha todas as variáveis. A Meta recusa a mensagem inteira quando a
+                          contagem de parâmetros não bate com o template.
                         </p>
-                      ))}
+                      )}
                     </div>
                   )}
 

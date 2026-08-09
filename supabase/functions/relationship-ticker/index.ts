@@ -31,12 +31,20 @@ interface Regra {
   id: string; workspace_id: string; name: string; tipo: string;
   send_hour: number; canal: string;
   meta_connection_id: string | null; z_api_connection_id: string | null;
-  meta_template_id: string | null; message_body: string | null;
+  meta_template_id: string | null; message_body: string | null; variaveis: VarOrigem[] | null;
 }
 interface Alvo {
   contact_id: string; nome: string | null; telefone: string;
-  motivo: string; detalhe: string | null;
+  motivo: string; detalhe: string | null; empresa: string | null;
 }
+
+/** Origem de cada {{n}}, escolhida na tela. Posicional: [0] alimenta {{1}}. */
+type VarOrigem =
+  | { origem: "primeiro_nome" }
+  | { origem: "nome_completo" }
+  | { origem: "detalhe" }
+  | { origem: "empresa" }
+  | { origem: "fixo"; valor: string };
 
 /** Primeiro nome — "Maria das Dores Silva" vira "Maria". Mensagem de
  *  relacionamento com nome completo soa como cobrança. */
@@ -90,16 +98,36 @@ async function enviarMeta(
   } catch (err) { return { error: String(err) }; }
 }
 
-/** Parâmetros do corpo, na ordem que a tela promete ao configurar a regra:
- *  {{1}} = primeiro nome, {{2}} = detalhe (idade, profissão, tempo de casa).
+/** Resolve uma variável para o texto que vai na mensagem. */
+function valorDaVar(v: VarOrigem | undefined, alvo: Alvo): string {
+  switch (v?.origem) {
+    case "primeiro_nome": return primeiroNome(alvo.nome);
+    case "nome_completo": return (alvo.nome ?? "").trim() || primeiroNome(alvo.nome);
+    case "detalhe":       return alvo.detalhe ?? "";
+    case "empresa":       return alvo.empresa ?? "";
+    case "fixo":          return v.valor ?? "";
+    default:              return "";
+  }
+}
+
+/** Parâmetros do corpo, na ordem do mapeamento salvo na regra.
  *
- *  A quantidade tem que bater com o template. Mandar menos parâmetro do que o
- *  template pede faz a Meta recusar a mensagem inteira — por isso a tela impede
- *  escolher template com mais de duas variáveis. */
-function componentesMeta(alvo: Alvo, vars: number): unknown[] {
+ *  A contagem tem que bater com o template: parâmetro a mais ou a menos faz a
+ *  Meta recusar a mensagem inteira. Por isso o laço é sobre `vars` (o que o
+ *  template pede) e não sobre o mapeamento (o que foi configurado) — regra
+ *  antiga, salva antes deste campo existir, ainda produz a contagem certa.
+ *
+ *  Sem mapeamento nenhum, cai no comportamento anterior: nome e depois detalhe. */
+function componentesMeta(alvo: Alvo, vars: number, mapa: VarOrigem[]): unknown[] {
   if (vars === 0) return [];
-  const valores = [primeiroNome(alvo.nome), alvo.detalhe ?? ""].slice(0, vars);
-  return [{ type: "body", parameters: valores.map((v) => ({ type: "text", text: v })) }];
+  const padrao: VarOrigem[] = [{ origem: "primeiro_nome" }, { origem: "detalhe" }];
+  const usar = mapa.length > 0 ? mapa : padrao;
+  const parameters = Array.from({ length: vars }, (_, i) => ({
+    type: "text",
+    // Meta recusa parâmetro vazio; um espaço mantém a contagem sem quebrar.
+    text: valorDaVar(usar[i], alvo) || " ",
+  }));
+  return [{ type: "body", parameters }];
 }
 
 /** Quantas variáveis o corpo do template usa. */
@@ -190,7 +218,7 @@ async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof 
                          preencher(regra.message_body ?? "Parabéns, {{nome}}!", alvo))
       : meta
         ? await enviarMeta(meta.phoneNumberId, meta.accessToken, alvo.telefone,
-                           meta.nome, meta.idioma, componentesMeta(alvo, meta.vars))
+                           meta.nome, meta.idioma, componentesMeta(alvo, meta.vars, regra.variaveis ?? []))
         : { error: "canal não resolvido" };
 
     if (r.id) {
@@ -227,7 +255,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const { data: regras, error } = await db
     .from("relationship_rules")
-    .select("id, workspace_id, name, tipo, send_hour, canal, meta_connection_id, z_api_connection_id, meta_template_id, message_body")
+    .select("id, workspace_id, name, tipo, send_hour, canal, meta_connection_id, z_api_connection_id, meta_template_id, message_body, variaveis")
     .eq("status", "active")
     .eq("send_hour", hora);
 

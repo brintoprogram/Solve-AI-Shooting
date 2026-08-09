@@ -36,7 +36,7 @@ type Tipo = "aniversario" | "profissao" | "cliente_desde";
 interface Regra {
   id: string; name: string; tipo: Tipo; status: string;
   send_hour: number; canal: string; message_body: string | null;
-  profissao_chave: string | null; enviados: number; meta_template_id: string | null;
+  profissao_chave: string | null; enviados: number; meta_template_id: string | null; variaveis: unknown[] | null;
 }
 interface Saude {
   contatos: number; com_nascimento: number; com_profissao: number;
@@ -83,7 +83,7 @@ export function Relationship() {
   const [form,     setForm]     = useState<FormRegra>({
     name: "", send_hour: 9, canal: "meta",
     meta_connection_id: null, z_api_connection_id: null,
-    meta_template_id: null, message_body: "",
+    meta_template_id: null, message_body: "", variaveis: [],
   });
 
   const carregar = useCallback(async () => {
@@ -134,6 +134,7 @@ export function Relationship() {
         meta_connection_id:  form.canal === "meta"  ? form.meta_connection_id  : null,
         z_api_connection_id: form.canal === "z_api" ? form.z_api_connection_id : null,
         meta_template_id: form.canal === "meta" ? form.meta_template_id : null,
+        variaveis:        form.canal === "meta" ? form.variaveis : [],
         message_body:     form.canal === "z_api" ? (form.message_body.trim() || null) : null,
         status: "draft",
       });
@@ -157,6 +158,7 @@ export function Relationship() {
           meta_connection_id:  form.canal === "meta"  ? form.meta_connection_id  : null,
           z_api_connection_id: form.canal === "z_api" ? form.z_api_connection_id : null,
           meta_template_id: form.canal === "meta" ? form.meta_template_id : null,
+          variaveis:        form.canal === "meta" ? form.variaveis : [],
           message_body:     form.canal === "z_api" ? (form.message_body.trim() || null) : null,
           updated_at: new Date().toISOString(),
         })
@@ -278,7 +280,7 @@ export function Relationship() {
                       <div className="flex items-center gap-2 shrink-0">
                         {regra ? (
                           <>
-                            <button onClick={() => { setForm({ name: regra.name, send_hour: regra.send_hour, canal: (regra.canal as "meta"|"z_api") ?? "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: regra.meta_template_id ?? null, message_body: regra.message_body ?? "" }); setEditando(regra); }}
+                            <button onClick={() => { setForm({ name: regra.name, send_hour: regra.send_hour, canal: (regra.canal as "meta"|"z_api") ?? "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: regra.meta_template_id ?? null, message_body: regra.message_body ?? "", variaveis: (regra.variaveis ?? []) as never[] }); setEditando(regra); }}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-agro-text"
                               style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(63,176,108,0.2)" }}>
                               <Pencil className="w-3.5 h-3.5" /> Editar
@@ -291,7 +293,7 @@ export function Relationship() {
                             </button>
                           </>
                         ) : (
-                          <button onClick={() => { setForm({ name: cfg.rotulo, send_hour: 9, canal: "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: null, message_body: "" }); setNovo(tipo); }}
+                          <button onClick={() => { setForm({ name: cfg.rotulo, send_hour: 9, canal: "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: null, message_body: "", variaveis: [] }); setNovo(tipo); }}
                             className="btn-agro flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white">
                             <Plus className="w-3.5 h-3.5" /> Criar regra
                           </button>
