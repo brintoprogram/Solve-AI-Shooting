@@ -24,6 +24,7 @@ import {
   Handshake,
   BookOpen,
   Cake,
+  Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -59,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
     itens: [
       { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
       { to: "/tutoriais",         icon: BookOpen,        label: "Tutoriais",    subtitle: "Como configurar cada parte" },
+      { to: "/demos",             icon: Presentation,    label: "Demonstrações", subtitle: "Para mostrar em reunião" },
       { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
       { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
     ],
