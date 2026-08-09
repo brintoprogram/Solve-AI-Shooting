@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Cake, Loader2, Plus, Briefcase, HeartHandshake, CalendarDays, AlertTriangle,
-  Play, Pause, Pencil, Users, TrendingUp, Coins, Info, Check, Clock,
+  Play, Pause, Pencil, Users, TrendingUp, Coins, Info, Clock,
 } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -20,8 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useCredits } from "@/hooks/useCredits";
 import { useToast } from "@/hooks/use-toast";
 import { Topbar } from "@/components/layout/Topbar";
-import { Modal } from "@/components/ui/Modal";
-import { Presence } from "@/components/ui/Presence";
+import { RuleModal, type FormRegra } from "@/pages/relationship/RuleModal";
 import { log } from "@/lib/logger";
 
 /* As tabelas e funcoes de relacionamento sao novas e ainda nao estao em
@@ -37,7 +36,7 @@ type Tipo = "aniversario" | "profissao" | "cliente_desde";
 interface Regra {
   id: string; name: string; tipo: Tipo; status: string;
   send_hour: number; canal: string; message_body: string | null;
-  profissao_chave: string | null; enviados: number;
+  profissao_chave: string | null; enviados: number; meta_template_id: string | null;
 }
 interface Saude {
   contatos: number; com_nascimento: number; com_profissao: number;
@@ -81,7 +80,11 @@ export function Relationship() {
 
   const [editando, setEditando] = useState<Regra | null>(null);
   const [novo,     setNovo]     = useState<Tipo | null>(null);
-  const [form,     setForm]     = useState({ name: "", send_hour: 9, message_body: "" });
+  const [form,     setForm]     = useState<FormRegra>({
+    name: "", send_hour: 9, canal: "meta",
+    meta_connection_id: null, z_api_connection_id: null,
+    meta_template_id: null, message_body: "",
+  });
 
   const carregar = useCallback(async () => {
     if (!workspaceId) return;
@@ -127,7 +130,11 @@ export function Relationship() {
         workspace_id: workspaceId,
         name: form.name.trim() || TIPOS[tipo].rotulo,
         tipo, send_hour: form.send_hour,
-        message_body: form.message_body.trim() || null,
+        canal: form.canal,
+        meta_connection_id:  form.canal === "meta"  ? form.meta_connection_id  : null,
+        z_api_connection_id: form.canal === "z_api" ? form.z_api_connection_id : null,
+        meta_template_id: form.canal === "meta" ? form.meta_template_id : null,
+        message_body:     form.canal === "z_api" ? (form.message_body.trim() || null) : null,
         status: "draft",
       });
       if (error) throw error;
@@ -146,7 +153,12 @@ export function Relationship() {
       const { error } = await db.from("relationship_rules")
         .update({
           name: form.name.trim(), send_hour: form.send_hour,
-          message_body: form.message_body.trim() || null, updated_at: new Date().toISOString(),
+          canal: form.canal,
+          meta_connection_id:  form.canal === "meta"  ? form.meta_connection_id  : null,
+          z_api_connection_id: form.canal === "z_api" ? form.z_api_connection_id : null,
+          meta_template_id: form.canal === "meta" ? form.meta_template_id : null,
+          message_body:     form.canal === "z_api" ? (form.message_body.trim() || null) : null,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", editando.id);
       if (error) throw error;
@@ -266,7 +278,7 @@ export function Relationship() {
                       <div className="flex items-center gap-2 shrink-0">
                         {regra ? (
                           <>
-                            <button onClick={() => { setForm({ name: regra.name, send_hour: regra.send_hour, message_body: regra.message_body ?? "" }); setEditando(regra); }}
+                            <button onClick={() => { setForm({ name: regra.name, send_hour: regra.send_hour, canal: (regra.canal as "meta"|"z_api") ?? "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: regra.meta_template_id ?? null, message_body: regra.message_body ?? "" }); setEditando(regra); }}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-agro-text"
                               style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(63,176,108,0.2)" }}>
                               <Pencil className="w-3.5 h-3.5" /> Editar
@@ -279,7 +291,7 @@ export function Relationship() {
                             </button>
                           </>
                         ) : (
-                          <button onClick={() => { setForm({ name: cfg.rotulo, send_hour: 9, message_body: "" }); setNovo(tipo); }}
+                          <button onClick={() => { setForm({ name: cfg.rotulo, send_hour: 9, canal: "meta", meta_connection_id: null, z_api_connection_id: null, meta_template_id: null, message_body: "" }); setNovo(tipo); }}
                             className="btn-agro flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white">
                             <Plus className="w-3.5 h-3.5" /> Criar regra
                           </button>
@@ -392,63 +404,20 @@ export function Relationship() {
         )}
       </div>
 
-      {/* ── Modal criar / editar ────────────────── */}
-      <Presence when={novo !== null || editando !== null}>
-        {(v) => {
-          const tipo = novo ?? editando?.tipo ?? "aniversario";
-          const cfg  = TIPOS[tipo];
-          return (
-            <Modal open={v} onClose={() => { setNovo(null); setEditando(null); }}
-                   title={editando ? "Editar regra" : `Nova regra — ${cfg.rotulo}`}
-                   subtitle={cfg.explica} icon={<cfg.icone className="w-5 h-5" />} size="md">
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="field-label">Nome da regra</label>
-                  <input value={form.name} autoFocus
-                         onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                         className="input-agro w-full" />
-                </div>
+      <RuleModal
+        aberto={novo !== null || editando !== null}
+        titulo={editando ? "Editar regra" : `Nova regra — ${TIPOS[novo ?? "aniversario"].rotulo}`}
+        subtitulo={TIPOS[novo ?? editando?.tipo ?? "aniversario"].explica}
+        icone={(() => { const I = TIPOS[novo ?? editando?.tipo ?? "aniversario"].icone; return <I className="w-5 h-5" />; })()}
+        workspaceId={workspaceId ?? ""}
+        form={form}
+        setForm={setForm}
+        salvando={salvando}
+        edicao={editando !== null}
+        onSalvar={() => (editando ? salvarEdicao() : criar(novo ?? "aniversario"))}
+        onFechar={() => { setNovo(null); setEditando(null); }}
+      />
 
-                <div className="space-y-1.5">
-                  <label className="field-label">Hora do envio</label>
-                  <select value={form.send_hour}
-                          onChange={(e) => setForm((f) => ({ ...f, send_hour: Number(e.target.value) }))}
-                          className="input-agro w-full">
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-agro-muted-2">
-                    Horário de Brasília. Entre 9h e 11h costuma ser o melhor — cedo demais incomoda.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="field-label">Mensagem</label>
-                  <textarea value={form.message_body} rows={3}
-                            onChange={(e) => setForm((f) => ({ ...f, message_body: e.target.value }))}
-                            placeholder="Parabéns, {{nome}}! Que seu dia seja ótimo. — Equipe"
-                            className="input-agro w-full resize-none" />
-                  <p className="text-[11px] text-agro-muted-2">
-                    Use <code className="text-agro-green">{"{{nome}}"}</code> para o primeiro nome do contato.
-                  </p>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button onClick={() => { setNovo(null); setEditando(null); }}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-agro-muted hover:text-agro-text transition-colors"
-                    style={{ border: "1px solid rgba(63,176,108,0.15)" }}>Cancelar</button>
-                  <button onClick={() => (editando ? salvarEdicao() : criar(tipo))} disabled={salvando}
-                    className="btn-agro flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50">
-                    {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    {editando ? "Salvar" : "Criar"}
-                  </button>
-                </div>
-              </div>
-            </Modal>
-          );
-        }}
-      </Presence>
     </div>
   );
 }

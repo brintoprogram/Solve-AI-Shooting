@@ -90,10 +90,24 @@ async function enviarMeta(
   } catch (err) { return { error: String(err) }; }
 }
 
-/** Só o corpo, com uma variável: o primeiro nome. Template de felicitação com
- *  muitos parâmetros vira template recusado. */
-function componentesMeta(alvo: Alvo): unknown[] {
-  return [{ type: "body", parameters: [{ type: "text", text: primeiroNome(alvo.nome) }] }];
+/** Parâmetros do corpo, na ordem que a tela promete ao configurar a regra:
+ *  {{1}} = primeiro nome, {{2}} = detalhe (idade, profissão, tempo de casa).
+ *
+ *  A quantidade tem que bater com o template. Mandar menos parâmetro do que o
+ *  template pede faz a Meta recusar a mensagem inteira — por isso a tela impede
+ *  escolher template com mais de duas variáveis. */
+function componentesMeta(alvo: Alvo, vars: number): unknown[] {
+  if (vars === 0) return [];
+  const valores = [primeiroNome(alvo.nome), alvo.detalhe ?? ""].slice(0, vars);
+  return [{ type: "body", parameters: valores.map((v) => ({ type: "text", text: v })) }];
+}
+
+/** Quantas variáveis o corpo do template usa. */
+function variaveisDoCorpo(components: unknown): number {
+  const comps = (components ?? []) as { type?: string; text?: string }[];
+  const corpo = comps.find((c) => c.type === "BODY")?.text ?? "";
+  const achados = corpo.match(/\{\{\s*\d+\s*\}\}/g) ?? [];
+  return new Set(achados.map((m) => m.replace(/\D/g, ""))).size;
 }
 
 async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof createLogger>) {
@@ -108,7 +122,7 @@ async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof 
   // Conexão e template resolvidos UMA vez por regra, não por contato: decrypt
   // por destinatário multiplicaria trabalho de CPU por nada.
   let zapi: { instanceId: string; token: string; clientToken: string } | null = null;
-  let meta: { phoneNumberId: string; accessToken: string; nome: string; idioma: string } | null = null;
+  let meta: { phoneNumberId: string; accessToken: string; nome: string; idioma: string; vars: number } | null = null;
 
   if (regra.canal === "z_api") {
     if (!regra.z_api_connection_id) { log.warn("sem_conexao_zapi", { rule_id: regra.id }); return; }
@@ -129,7 +143,7 @@ async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof 
     }
     const [{ data: conn }, { data: tpl }] = await Promise.all([
       db.from("meta_connections").select("phone_number_id, access_token").eq("id", regra.meta_connection_id).single(),
-      db.from("meta_templates").select("template_name, language").eq("id", regra.meta_template_id).single(),
+      db.from("meta_templates").select("template_name, language, components").eq("id", regra.meta_template_id).single(),
     ]);
     if (!conn || !tpl) { log.warn("meta_conexao_ou_template_sumiu", { rule_id: regra.id }); return; }
     meta = {
@@ -137,6 +151,7 @@ async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof 
       accessToken:   await decrypt(conn.access_token as string),
       nome:          tpl.template_name as string,
       idioma:        (tpl.language as string) ?? "pt_BR",
+      vars:          variaveisDoCorpo(tpl.components),
     };
   }
 
@@ -175,7 +190,7 @@ async function processarRegra(regra: Regra, ano: number, log: ReturnType<typeof 
                          preencher(regra.message_body ?? "Parabéns, {{nome}}!", alvo))
       : meta
         ? await enviarMeta(meta.phoneNumberId, meta.accessToken, alvo.telefone,
-                           meta.nome, meta.idioma, componentesMeta(alvo))
+                           meta.nome, meta.idioma, componentesMeta(alvo, meta.vars))
         : { error: "canal não resolvido" };
 
     if (r.id) {
