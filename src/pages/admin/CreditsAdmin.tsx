@@ -350,7 +350,7 @@ export function CreditsAdmin() {
             icon={<Settings2 className="w-4 h-4 text-agro-green" />}
             size="sm"
           >
-            <div className="px-5 py-4 space-y-4">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 block mb-1.5">
@@ -440,7 +440,7 @@ export function CreditsAdmin() {
             icon={<Coins className="w-4 h-4 text-agro-green" />}
             size="sm"
           >
-            <div className="px-5 py-4 space-y-4">
+            <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 block mb-1.5">
                   Quantidade

@@ -85,7 +85,7 @@ export function NewConversationDialog({ open, onClose, zapiConnections, workspac
     >
 
         {/* Body */}
-        <div className="px-5 py-4 space-y-4">
+        <div className="space-y-4">
           {/* Connection selector — only when multiple Z-API and none pre-selected from header */}
           {zapiConnections.length > 1 && !initialConnId && (
             <div>

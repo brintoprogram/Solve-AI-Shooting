@@ -56,7 +56,15 @@ interface ModalProps {
   panelStyle?: React.CSSProperties;
   /** Sobrescreve o fundo do overlay (opacidade e blur variam por tela). */
   overlayStyle?: React.CSSProperties;
+  /** Classes do corpo. Só se aplica quando o Modal desenha o cabeçalho —
+   *  ver a regra em `temCabecalho` abaixo. */
+  bodyClassName?: string;
 }
+
+/** Respiro do corpo. Casa com o px-5 do cabeçalho: alinhamento vertical entre
+ *  o título e o primeiro campo é o que faz o modal parecer montado, e não
+ *  empilhado. */
+const CORPO_PADRAO = "px-5 py-5 overflow-y-auto scrollbar-thin";
 
 export function Modal({
   open, onClose, children,
@@ -68,6 +76,7 @@ export function Modal({
   className = "",
   panelStyle,
   overlayStyle,
+  bodyClassName,
 }: ModalProps) {
   const [phase, setPhase] = useState<"closed" | "enter" | "open" | "exit">("closed");
   const panelRef = useRef<HTMLDivElement>(null);
@@ -128,6 +137,7 @@ export function Modal({
   if (phase === "closed") return null;
 
   const visivel = phase === "open";
+  const temCabecalho = Boolean(title);
 
   return (
     <div
@@ -152,7 +162,9 @@ export function Modal({
     >
       <div
         ref={panelRef}
-        className={`w-full ${SIZES[size]} rounded-2xl overflow-hidden ${className}`}
+        className={`w-full ${SIZES[size]} rounded-2xl overflow-hidden ${
+          temCabecalho ? "flex flex-col max-h-[90vh]" : ""
+        } ${className}`}
         style={{
           background: "#0d1a11",
           border:     "1px solid rgba(63,176,108,0.2)",
@@ -169,7 +181,7 @@ export function Modal({
       >
         {title && (
           <div
-            className="flex items-center justify-between px-5 py-4"
+            className="flex items-center justify-between px-5 py-4 shrink-0"
             style={{ borderBottom: "1px solid rgba(63,176,108,0.1)" }}
           >
             <div className="flex items-center gap-2.5 min-w-0">
@@ -197,7 +209,14 @@ export function Modal({
             )}
           </div>
         )}
-        {children}
+        {/* Quem passa `title` delega a moldura inteira ao Modal — e o corpo
+            colado na borda era exatamente o sintoma disso ficar pela metade.
+            Quem monta o próprio cabeçalho (ContactFormModal, InvoiceFormModal)
+            já pagina por dentro e recebe os filhos crus: envolvê-los numa div
+            quebraria o flex que eles montam. */}
+        {temCabecalho
+          ? <div className={bodyClassName ?? CORPO_PADRAO}>{children}</div>
+          : children}
       </div>
     </div>
   );
