@@ -50,7 +50,7 @@ export const ORIGENS: { id: VarOrigem["origem"]; rotulo: string; exemplo: string
   { id: "primeiro_nome", rotulo: "Primeiro nome",  exemplo: "Maria" },
   { id: "nome_completo", rotulo: "Nome completo",  exemplo: "Maria Aparecida Santos" },
   { id: "detalhe",       rotulo: "Detalhe da data", exemplo: "32 anos" },
-  { id: "empresa",       rotulo: "Empresa",        exemplo: "Fazenda São João" },
+  { id: "empresa",       rotulo: "Empresa",        exemplo: "nome da empresa do contato" },
   { id: "fixo",          rotulo: "Texto fixo",     exemplo: "digite abaixo" },
 ];
 

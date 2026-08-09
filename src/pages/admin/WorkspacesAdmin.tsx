@@ -48,8 +48,9 @@ interface Panorama {
 const FORMATO = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
 
 /** Sugere o código a partir do nome — tira acento, fica só com letra e número.
- *  É sugestão: o campo continua editável, porque "NITRO" é melhor que
- *  "NITROQUIMICA" e só quem conhece o cliente sabe disso. */
+ *  É sugestão, e o campo continua editável: a sigla curta que a empresa
+ *  realmente usa costuma ser melhor que o nome inteiro espremido, e só quem
+ *  conhece o cliente sabe qual é. */
 function sugerirCodigo(nome: string): string {
   return nome
     .normalize("NFD").replace(/\p{Diacritic}/gu, "")
@@ -379,7 +380,7 @@ export function WorkspacesAdmin() {
                     const name = e.target.value;
                     setForm((f) => ({ ...f, name, codigo: codigoTocado ? f.codigo : sugerirCodigo(name) }));
                   }}
-                  placeholder="NITRO Química"
+                  placeholder="Nome da empresa cliente"
                   className="input-agro w-full"
                 />
               </div>
@@ -389,7 +390,7 @@ export function WorkspacesAdmin() {
                 <input
                   value={form.codigo}
                   onChange={(e) => { setCodigoTocado(true); setForm((f) => ({ ...f, codigo: e.target.value.toUpperCase() })); }}
-                  placeholder="NITRO"
+                  placeholder="3 a 6 letras"
                   className="input-agro w-full font-mono tracking-wider"
                 />
                 <p className="text-[11px] leading-relaxed"

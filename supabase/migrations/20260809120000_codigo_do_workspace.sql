@@ -4,10 +4,10 @@
 -- é péssimo para gente: conferir cobrança, achar o cliente no suporte ou citar
 -- num e-mail exige colar 36 caracteres que ninguém lê nem confere de olho.
 --
--- O código é o nome curto do cliente — NITRO, COHAB, SOLVE. Maiúsculo por
--- definição, não por convenção: "Nitro" e "NITRO" como registros diferentes
--- seria exatamente o tipo de ambiguidade que um identificador existe para
--- eliminar.
+-- O código é a sigla curta do cliente, em maiúsculas. Maiúsculo por
+-- definição, não por convenção: uma sigla em caixa mista e a mesma em caixa alta
+-- como registros diferentes seria o tipo de ambiguidade que um identificador
+-- existe para eliminar.
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS codigo text;
 
@@ -63,7 +63,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS workspaces_codigo_unico ON workspaces (codigo)
 ALTER TABLE workspaces ALTER COLUMN codigo SET NOT NULL;
 
 COMMENT ON COLUMN workspaces.codigo IS
-  'Identificador curto e legível do cliente (NITRO, COHAB). Único, maiúsculo.';
+  'Identificador curto e legível do cliente, 2 a 12 caracteres maiúsculos. Único.';
 
 -- ── Verificação ──────────────────────────────────────────────────────
 DO $$

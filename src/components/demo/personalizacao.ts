@@ -1,7 +1,7 @@
 // Personalização das demonstrações para a reunião.
 //
-// "2.847 pessoas" é um número de brochura. "os 8.400 clientes da Fazenda Bom
-// Retiro" é o negócio da pessoa que está do outro lado da mesa. A demo passa de
+// "2.847 pessoas" é um número de brochura. O nome e o volume reais do prospect
+// são o negócio da pessoa que está do outro lado da mesa. A demo passa de
 // apresentação a simulação, e é a diferença entre "entendi o produto" e "isso
 // é pra mim".
 //
