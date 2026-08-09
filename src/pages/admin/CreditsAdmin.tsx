@@ -49,6 +49,11 @@ const ACAO_INFO: Record<string, { rotulo: string; cor: string }> = {
   ajuste_custo:    { rotulo: "Custo alterado",    cor: "#fbbf24" },
   ajuste_cobranca: { rotulo: "Cobrança alterada", cor: "#fb923c" },
   acesso_negado:   { rotulo: "Acesso negado",     cor: "#f87171" },
+  // A trilha desta tela e a mesma da administracao de workspaces: uma so
+  // historia, um so lugar para ler. Sem estes rotulos, as acoes novas
+  // apareceriam com o nome cru do banco.
+  workspace_criado:   { rotulo: "Workspace criado",   cor: "#60a5fa" },
+  workspace_alterado: { rotulo: "Workspace alterado", cor: "#c084fc" },
 };
 
 export function CreditsAdmin() {

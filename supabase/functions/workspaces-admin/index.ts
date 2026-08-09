@@ -134,8 +134,21 @@ Deno.serve(async (req: Request) => {
         }, 500);
       }
 
+      // Trilha antes de responder: se a gravação falhar, o dono fica sabendo
+      // agora, e não meses depois quando alguém procurar quem abriu o cliente.
+      const { error: errTrilha } = await supabase.rpc("log_admin_workspace", {
+        p_workspace_id: ws.id,
+        p_acao:         "workspace_criado",
+        p_ator_id:      user.id,
+        p_ator_email:   email,
+        p_antes:        null,
+        p_depois:       { name: ws.name, codigo: ws.codigo },
+        p_detalhe:      { origem: "console" },
+      });
+      if (errTrilha) alog.error("trilha_nao_gravou", { workspace_id: ws.id, err: errTrilha.message });
+
       alog.info("workspace_criado", { workspace_id: ws.id, codigo });
-      return json({ ok: true, workspace: ws });
+      return json({ ok: true, workspace: ws, trilha: !errTrilha });
     }
 
     // ── atualizar ───────────────────────────────────────────────────
@@ -170,6 +183,14 @@ Deno.serve(async (req: Request) => {
         return json({ error: "Nada para atualizar." }, 400);
       }
 
+      // Estado anterior lido ANTES do update. Uma trilha que só guarda o depois
+      // responde "como está", não "o que mudou" — e o que mudou é a pergunta.
+      const { data: antes } = await supabase
+        .from("workspaces")
+        .select("name, codigo, support_email, api_enabled")
+        .eq("id", id)
+        .maybeSingle();
+
       const { data, error } = await supabase
         .from("workspaces")
         .update(patch)
@@ -184,8 +205,19 @@ Deno.serve(async (req: Request) => {
         throw error;
       }
 
+      const { error: errTrilha } = await supabase.rpc("log_admin_workspace", {
+        p_workspace_id: id,
+        p_acao:         "workspace_alterado",
+        p_ator_id:      user.id,
+        p_ator_email:   email,
+        p_antes:        antes ?? null,
+        p_depois:       data,
+        p_detalhe:      { campos: Object.keys(patch) },
+      });
+      if (errTrilha) alog.error("trilha_nao_gravou", { workspace_id: id, err: errTrilha.message });
+
       alog.info("workspace_atualizado", { workspace_id: id, campos: Object.keys(patch) });
-      return json({ ok: true, workspace: data });
+      return json({ ok: true, workspace: data, trilha: !errTrilha });
     }
 
     return json({ error: `Ação desconhecida: ${acao}` }, 400);
