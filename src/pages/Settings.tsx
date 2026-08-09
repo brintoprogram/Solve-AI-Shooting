@@ -466,6 +466,10 @@ function ZApiWebhookUrlBox({ supabaseRef }: { supabaseRef: string }) {
 
 // ── Settings page ─────────────────────────────────────────────────
 
+/** Abas endereçáveis por ?tab=. Os tutoriais linkam direto para cada uma. */
+const TABS_VALIDAS = ["perfil", "whatsapp", "email", "setores", "ia", "disparo", "demo", "api"] as const;
+type TabConfig = (typeof TABS_VALIDAS)[number];
+
 export function Settings() {
   const navigate                           = useNavigate();
   const { profile, workspaceId, updateProfile } = useAuth();
@@ -474,7 +478,13 @@ export function Settings() {
   const [reconnectTarget, setReconnectTarget] = useState<MetaConnection | null>(null);
   const { toast }                          = useToast();
 
-  const [settingsTab, setSettingsTab] = useState<"perfil"|"whatsapp"|"email"|"ia"|"disparo"|"demo"|"api"|"setores">("perfil");
+  // A aba inicial pode vir da URL (?tab=whatsapp). É o que faz um link dos
+  // tutoriais cair na aba certa em vez de sempre em "Perfil" — sem isso o
+  // "Abrir Configurações → WhatsApp" mente sobre para onde leva.
+  const [settingsTab, setSettingsTab] = useState<TabConfig>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return (TABS_VALIDAS as readonly string[]).includes(t ?? "") ? (t as TabConfig) : "perfil";
+  });
   const { visibleFields, saveVisibleFields } = useContactFields(WORKSPACE_ID);
   const [localFields, setLocalFields]        = useState<string[]>([]);
   const [savingFields, setSavingFields]      = useState(false);

@@ -22,6 +22,7 @@ import {
   Check,
   Sparkles,
   Handshake,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -56,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Visão geral",
     itens: [
       { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
+      { to: "/tutoriais",         icon: BookOpen,        label: "Tutoriais",    subtitle: "Como configurar cada parte" },
       { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
       { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
     ],
