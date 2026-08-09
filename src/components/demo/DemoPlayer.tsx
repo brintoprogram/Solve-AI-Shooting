@@ -12,6 +12,7 @@
 //                  está longe do monitor, e o menu lateral só atrapalha.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Play, Pause, RotateCcw, ChevronRight, ChevronLeft, Zap, Maximize2, Minimize2,
   GitBranch, Clock, Handshake, ExternalLink, Cake, Send, Bot, ShieldCheck,
@@ -437,7 +438,15 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
 
   if (!cheia) return corpo;
 
-  return (
+  // Portal para o <body>, e não uma div aqui dentro.
+  //
+  // `position: fixed` se ancora no viewport — EXCETO quando algum ancestral tem
+  // transform, filter ou backdrop-filter: aí ele passa a se ancorar naquele
+  // elemento. A página envolve a demo em `animate-fade-up-delay-2`, cuja
+  // animação aplica transform e o mantém no estado final (fill: both). Sem o
+  // portal, "tela cheia" virava "tela cheia dentro daquele cartão" — que foi
+  // exatamente o sintoma: a demo sumia em vez de expandir.
+  return createPortal(
     <div className="fixed inset-0 z-[80] overflow-y-auto" style={{ background: "#0a110e" }}>
       <div className="max-w-6xl mx-auto px-8 py-8">
         <div className="flex items-center gap-3 mb-6">
@@ -455,6 +464,7 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
         </div>
         {corpo}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -20,6 +20,7 @@
 // compositor e não competem com o JavaScript da página.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /** Deve bater com a duração das transições abaixo, senão o nó some antes da hora. */
@@ -139,7 +140,13 @@ export function Modal({
   const visivel = phase === "open";
   const temCabecalho = Boolean(title);
 
-  return (
+  // Portal para o <body>: `position: fixed` deixa de se ancorar no viewport
+  // quando algum ancestral tem transform, filter ou backdrop-filter — e as
+  // classes animate-fade-up do app aplicam transform com fill: both, ou seja,
+  // ele fica lá depois da animação. Um modal aberto de dentro de uma seção
+  // animada apareceria preso naquele cartão. Aconteceu com a tela cheia das
+  // demonstrações; aqui é a mesma armadilha, prevenida.
+  return createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center p-4"
       style={{
@@ -218,6 +225,7 @@ export function Modal({
           ? <div className={bodyClassName ?? CORPO_PADRAO}>{children}</div>
           : children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
