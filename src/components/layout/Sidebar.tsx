@@ -60,7 +60,6 @@ const NAV_GROUPS: NavGroup[] = [
     itens: [
       { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
       { to: "/tutoriais",         icon: BookOpen,        label: "Tutoriais",    subtitle: "Como configurar cada parte" },
-      { to: "/demos",             icon: Presentation,    label: "Demonstrações", subtitle: "Para mostrar em reunião" },
       { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
       { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
     ],
@@ -97,6 +96,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+/* Fora do NAV_GROUPS porque é condicional — ver o uso abaixo. */
+const DEMO_ITEM: NavItem = {
+  to: "/demos", icon: Presentation, label: "Demonstrações", subtitle: "Para mostrar em reunião",
+};
 
 const CHAVE_GRUPOS = "sidebar:grupos-fechados";
 
@@ -183,9 +187,15 @@ export function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto scrollbar-thin relative">
         {NAV_GROUPS.map((grupo) => {
+          /* Demonstrações só existem no workspace de demo: no workspace de um
+             cliente elas seriam material de venda do fornecedor aparecendo
+             dentro do produto que ele já comprou. */
+          const itensDoGrupo = grupo.id === "inicio" && isDemo
+            ? [...grupo.itens.slice(0, 2), DEMO_ITEM, ...grupo.itens.slice(2)]
+            : grupo.itens;
           /* Itens que este usuario pode ver. Grupo que ficaria vazio some
              inteiro — cabecalho sozinho e ruido. */
-          const visiveis = grupo.itens;
+          const visiveis = itensDoGrupo;
           if (visiveis.length === 0) return null;
 
           const fechado = fechados.includes(grupo.id) && grupoAtivo !== grupo.id;

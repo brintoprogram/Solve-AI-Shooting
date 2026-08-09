@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Topbar } from "@/components/layout/Topbar";
+import { useAuth } from "@/context/AuthContext";
 import { DemoPlayer } from "@/components/demo/DemoPlayer";
 import { DEMOS, type Demo } from "@/types/demos";
 
@@ -26,7 +27,33 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function Demos() {
   const navigate = useNavigate();
+  const { workspaces, workspaceId } = useAuth();
   const [aberta, setAberta] = useState<Demo | null>(null);
+
+  // Esconder o item do menu não basta: a rota continua alcançável digitando o
+  // endereço, e um cliente encontraria material de venda dentro do produto que
+  // já comprou. Quem decide é o workspace atual, não o menu.
+  const atual  = workspaces.find((w) => w.id === workspaceId);
+  const isDemo = atual?.name.toLowerCase().includes("demo") ?? false;
+
+  if (!isDemo) {
+    return (
+      <div className="min-h-screen" style={{ background: "#0a110e" }}>
+        <Topbar breadcrumbs={[{ label: "Demonstrações" }]} />
+        <div className="max-w-md mx-auto px-6 py-20 text-center">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+               style={{ background: "rgba(96,165,250,0.1)", border: "1px solid rgba(96,165,250,0.25)" }}>
+            <Presentation className="w-6 h-6" style={{ color: "#60a5fa" }} />
+          </div>
+          <h1 className="text-lg font-bold text-agro-text">Disponível no ambiente de demonstração</h1>
+          <p className="text-sm text-agro-muted mt-2 leading-relaxed">
+            As demonstrações vivem no workspace de demo. Troque de workspace no topo da tela
+            para acessá-las.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (aberta) {
     const Icone = ICONS[aberta.icone] ?? Play;
