@@ -223,12 +223,40 @@ export function DemoSeeder({ workspaceId }: { workspaceId: string }) {
   const [clearing,   setClearing]   = useState(false);
   const [confirmClr, setConfirmClr] = useState(false);
   const [lastAdded,  setLastAdded]  = useState<string | null>(null);
+  const [rejuv,      setRejuv]      = useState(false);
+  const [resumo,     setResumo]     = useState<{ item: string; resultado: string }[] | null>(null);
+
+
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setStats(await loadStats(workspaceId));
     setLoading(false);
   }, [workspaceId]);
+
+  /* Rejuvenesce o demo: desloca as datas para o dia de hoje, garante agentes de
+     IA ativos e reconstrói o extrato de crédito. Dado semeado com data fixa
+     envelhece sozinho — uma campanha de maio numa reunião de agosto lê como
+     produto abandonado. Rodar isto antes da reunião custa um clique. */
+  const rejuvenescer = useCallback(async () => {
+    setRejuv(true);
+    setResumo(null);
+    try {
+      const { data, error } = await (supabase as unknown as {
+        rpc: (n: string) => Promise<{ data: { item: string; resultado: string }[] | null; error: { message: string } | null }>;
+      }).rpc("demo_atualizar");
+      if (error) throw new Error(error.message);
+      const linhas = data ?? [];
+      const erro = linhas.find((l) => l.item === "erro");
+      if (erro) throw new Error(erro.resultado);
+      setResumo(linhas);
+      toast({ title: "Demo atualizado", description: "Datas, agentes e extrato prontos para a reunião.", variant: "success" });
+      await refresh();
+    } catch (e) {
+      toast({ title: "Não foi possível atualizar",
+              description: e instanceof Error ? e.message : "Erro", variant: "destructive" });
+    } finally { setRejuv(false); }
+  }, [toast, refresh]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -309,6 +337,34 @@ export function DemoSeeder({ workspaceId }: { workspaceId: string }) {
           style={{ background: "rgba(63,176,108,0.08)", border: "1px solid rgba(63,176,108,0.2)" }}>
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: "#3fb06c" }} />
           <p className="text-[11px] text-agro-green"><strong>{lastAdded}</strong> adicionado — aparece em Contatos, Inbox e Alertas.</p>
+        </div>
+      )}
+
+      {/* Antes da reuniao */}
+      <button
+        onClick={rejuvenescer}
+        disabled={rejuv || !isDemo}
+        title="Traz as datas para hoje, ativa os agentes de IA e reconstrói o extrato"
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-40"
+        style={{
+          background: "linear-gradient(135deg, rgba(96,165,250,0.18), rgba(59,130,246,0.08))",
+          border:     "1px solid rgba(96,165,250,0.4)",
+          color:      "#60a5fa",
+        }}
+      >
+        {rejuv ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+        {rejuv ? "Atualizando..." : "Preparar para reunião"}
+      </button>
+
+      {resumo && (
+        <div className="rounded-xl p-3 space-y-1 animate-fade-in"
+             style={{ background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.2)" }}>
+          {resumo.map((l) => (
+            <p key={l.item} className="text-[11px] flex gap-2" style={{ color: "#93c5fd" }}>
+              <span className="font-semibold min-w-[110px]">{l.item}</span>
+              <span className="text-agro-muted">{l.resultado}</span>
+            </p>
+          ))}
         </div>
       )}
 
