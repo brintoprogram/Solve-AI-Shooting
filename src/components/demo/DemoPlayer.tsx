@@ -44,6 +44,7 @@ function duracao(p: Passo): number {
     case "pausa":     return 1800;
     case "status":    return 500;
     case "tela":      return 2400;
+    case "conversa":  return 900;
     default:          return 1200;
   }
 }
@@ -54,7 +55,8 @@ function duracao(p: Passo): number {
 function acumular(passos: Passo[], ate: number) {
   // Tipos estreitos nas listas: `Passo[]` obrigaria narrowing em todo lugar que
   // lê .texto ou .cor, e o TypeScript não estreita dentro de .map().
-  const chat: Extract<Passo, { t: "msg" } | { t: "digitando" }>[] = [];
+  let chat: Extract<Passo, { t: "msg" } | { t: "digitando" }>[] = [];
+  let com: { nome: string; sub?: string } | null = null;
   const lateral: Extract<Passo, { t: "sistema" } | { t: "metrica" }>[] = [];
   let lista: { nome: string; sub?: string; estado: EstadoEnvio }[] = [];
   let tela: Extract<Passo, { t: "tela" }> | null = null;
@@ -68,6 +70,9 @@ function acumular(passos: Passo[], ate: number) {
   for (let i = 0; i < vistos.length; i++) {
     const p = vistos[i];
     switch (p.t) {
+      // Trocar de pessoa limpa o fio. Sem isso, Maria e João apareciam no mesmo
+      // WhatsApp e a demo dava a entender que era um diálogo entre os dois.
+      case "conversa":  com = { nome: p.com, sub: p.sub }; chat = []; break;
       case "msg":       chat.push(p); break;
       case "digitando": if (i === vistos.length - 1) chat.push(p); break;
       case "sistema":
@@ -87,7 +92,7 @@ function acumular(passos: Passo[], ate: number) {
   const ultimo = ate > 0 ? passos[ate - 1] : null;
   if (!ultimo || ultimo.t !== "pausa") pausa = null;
 
-  return { chat, lateral, lista, tela, agenda, nota, pausa };
+  return { chat, com, lateral, lista, tela, agenda, nota, pausa };
 }
 
 function Balao({ p, grande }: { p: Extract<Passo, { t: "msg" }>; grande: boolean }) {
@@ -286,9 +291,28 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
         {temChat && (
           <div className={`rounded-2xl flex flex-col ${g ? "p-5 min-h-[380px]" : "p-4 min-h-[320px]"}`}
                style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(63,176,108,0.12)" }}>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 mb-3">
-              WhatsApp do cliente
-            </p>
+            {est.com ? (
+              <div className="flex items-center gap-2.5 mb-3 pb-3"
+                   style={{ borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
+                <span className={`rounded-full flex items-center justify-center shrink-0 font-bold ${
+                        g ? "w-10 h-10 text-sm" : "w-8 h-8 text-[11px]"}`}
+                      style={{ background: "rgba(63,176,108,0.15)", color: "#3fb06c" }}>
+                  {est.com.nome.split(" ").slice(0, 2).map((x) => x[0]).join("")}
+                </span>
+                <div className="min-w-0">
+                  <p className={`font-semibold text-agro-text truncate ${g ? "text-base" : "text-xs"}`}>
+                    {est.com.nome}
+                  </p>
+                  {est.com.sub && (
+                    <p className={`text-agro-muted-2 truncate ${g ? "text-xs" : "text-[10px]"}`}>{est.com.sub}</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-[10px] font-bold uppercase tracking-widest text-agro-muted-2 mb-3">
+                WhatsApp do cliente
+              </p>
+            )}
             <div className={`flex-1 ${g ? "space-y-3.5" : "space-y-2.5"}`}>
               {est.chat.length === 0 && (
                 <p className={`text-agro-muted-2 text-center py-14 ${g ? "text-base" : "text-xs"}`}>
@@ -430,7 +454,7 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
 
       {est.pausa && (
         <p className={`text-center font-semibold ${g ? "text-lg" : "text-xs"}`} style={{ color: demo.cor }}>
-          — {est.pausa} —
+          {est.pausa}
         </p>
       )}
     </div>

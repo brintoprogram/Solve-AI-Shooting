@@ -1,8 +1,8 @@
 // Roteiros das demonstrações.
 //
-// Escritos para quem NUNCA ouviu falar de WhatsApp Business. A regra de
-// linguagem: primeiro o efeito prático, depois o nome do produto. "Depois de um
-// dia sem resposta, a Meta só deixa enviar uma mensagem pré-aprovada — é o que
+// Escritos para quem nunca ouviu falar de WhatsApp Business. A regra de
+// linguagem: primeiro o efeito prático, depois o nome do produto. "Passado um
+// dia sem resposta, a Meta só deixa enviar uma mensagem pré-aprovada, o que
 // chamamos de template." A pessoa entende, e só então aprende o termo que vai
 // ver na tela.
 //
@@ -19,13 +19,15 @@ export type EstadoEnvio = "fila" | "enviada" | "entregue" | "lida" | "respondeu"
 
 export type Passo =
   // ── Conversa ───────────────────────────────────────────────────
+  /** Troca de interlocutor: limpa o chat e passa a identificar quem fala.
+   *  Sem isto, duas pessoas diferentes apareciam no mesmo fio e a demo dava a
+   *  entender que era um diálogo só. */
+  | { t: "conversa"; com: string; sub?: string }
   | { t: "msg"; de: Lado; texto: string; hora?: string }
   | { t: "digitando"; de: Lado; ms?: number }
 
   // ── Lista de envio ─────────────────────────────────────────────
-  /** Popula a grade com pessoas. */
   | { t: "lista"; itens: { nome: string; sub?: string }[] }
-  /** Muda o estado de uma pessoa na grade. */
   | { t: "status"; nome: string; estado: EstadoEnvio }
 
   // ── Página do cliente ──────────────────────────────────────────
@@ -78,8 +80,9 @@ export const DEMOS: Demo[] = [
     pergunta: "Vocês cobram por mensagem enviada?",
     palco: ["chat"],
     passos: [
-      { t: "nota", texto: "A conta não é por mensagem. É por conversa. Olha o saldo na direita e acompanhe quando ele muda — e quando não muda." },
+      { t: "nota", texto: "A conta não é por mensagem. É por conversa. Olha o saldo na direita e acompanhe quando ele muda, e quando não muda." },
       { t: "metrica", rotulo: "Saldo", valor: "2.000", cor: "#3fb06c" },
+      { t: "conversa", com: "Maria Aparecida", sub: "cliente desde 2023" },
 
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Oi, recebi um boleto aqui e não reconheço essa cobrança", hora: "09:12" },
@@ -99,13 +102,13 @@ export const DEMOS: Demo[] = [
       { t: "pausa", rotulo: "Cinco mensagens, um crédito" },
 
       { t: "sistema", icone: "DoorClosed", texto: "Passou um dia sem o cliente responder", detalhe: "a conversa se encerrou", cor: "#f87171" },
-      { t: "nota", texto: "Aqui está a única regra chata, e ela é do WhatsApp, não nossa: passado um dia sem resposta, a empresa não pode mais escrever o que quiser. Só pode mandar uma mensagem que a Meta aprovou antes — no sistema, isso se chama template." },
+      { t: "nota", texto: "Aqui está a única regra chata, e ela é do WhatsApp, não nossa: passado um dia sem resposta, a empresa não pode mais escrever o que quiser. Só pode mandar uma mensagem que a Meta aprovou antes. No sistema, isso se chama template." },
       { t: "msg", de: "empresa", texto: "Olá Maria, sua fatura de julho continua em aberto. Podemos ajudar?", hora: "09:20" },
       { t: "sistema", icone: "FileText", texto: "Mensagem pré-aprovada", detalhe: "escrita uma vez, usada sempre", cor: "#60a5fa" },
       { t: "metrica", rotulo: "Saldo", valor: "1.998", delta: "−1", cor: "#fbbf24" },
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Ah sim, esqueci. Consigo pagar semana que vem?", hora: "09:41" },
-      { t: "sistema", icone: "DoorOpen", texto: "Ele respondeu — conversa aberta de novo", detalhe: "mais 24 horas livres", cor: "#3fb06c" },
+      { t: "sistema", icone: "DoorOpen", texto: "Ele respondeu, conversa aberta de novo", detalhe: "mais 24 horas livres", cor: "#3fb06c" },
       { t: "nota", texto: "Resumindo: você paga para começar uma conversa. Responder dentro dela é de graça." },
     ],
   },
@@ -119,7 +122,7 @@ export const DEMOS: Demo[] = [
     pergunta: "Dá para avisar minha base inteira de uma vez?",
     palco: ["grade"],
     passos: [
-      { t: "nota", texto: "Vamos avisar 2.847 pessoas que têm boleto em aberto. Acompanhe a lista: ela é de verdade, o envio acontece pessoa por pessoa." },
+      { t: "nota", texto: "Vamos avisar 2.847 pessoas que têm boleto em aberto. Acompanhe a lista: o envio acontece pessoa por pessoa." },
       { t: "sistema", icone: "Users", texto: "2.847 pessoas selecionadas", detalhe: "todas com fatura em aberto", cor: "#60a5fa" },
       { t: "lista", itens: [
         { nome: "Maria Aparecida Santos", sub: "vence em 3 dias" },
@@ -129,7 +132,7 @@ export const DEMOS: Demo[] = [
         { nome: "Fernanda Souza",         sub: "vence em 8 dias" },
         { nome: "Roberto Almeida",        sub: "venceu há 31 dias" },
       ]},
-      { t: "sistema", icone: "Coins", texto: "Custo calculado antes de começar", detalhe: "2.847 créditos — saldo suficiente", cor: "#fbbf24" },
+      { t: "sistema", icone: "Coins", texto: "Custo calculado antes de começar", detalhe: "2.847 créditos, saldo suficiente", cor: "#fbbf24" },
       { t: "nota", texto: "O custo aparece antes, não na fatura do mês seguinte. Sem saldo, o envio nem começa." },
 
       { t: "status", nome: "Maria Aparecida Santos", estado: "enviada" },
@@ -137,7 +140,7 @@ export const DEMOS: Demo[] = [
       { t: "status", nome: "Maria Aparecida Santos", estado: "entregue" },
       { t: "status", nome: "Ana Paula Rodrigues",    estado: "enviada" },
       { t: "metrica", rotulo: "Enviadas", valor: "412", cor: "#60a5fa" },
-      { t: "nota", texto: "Repare que sai aos poucos, e não tudo de uma vez. Disparar 2.847 mensagens no mesmo segundo é o comportamento que o WhatsApp entende como spam — e derruba o número da empresa." },
+      { t: "nota", texto: "Repare que sai aos poucos, e não tudo de uma vez. Disparar 2.847 mensagens no mesmo segundo é o comportamento que o WhatsApp entende como spam, e derruba o número da empresa." },
 
       { t: "status", nome: "João Carlos Oliveira",   estado: "entregue" },
       { t: "status", nome: "Carlos Eduardo Lima",    estado: "enviada" },
@@ -168,28 +171,29 @@ export const DEMOS: Demo[] = [
     passos: [
       { t: "nota", texto: "Antes de ligar, a empresa define até onde pode ir. Aqui: no máximo 20% de desconto, no máximo 6 vezes, e cada parcela não pode ser menor que R$ 50." },
       { t: "sistema", icone: "ShieldCheck", texto: "Limites definidos pela empresa", detalhe: "20% de desconto · 6 parcelas · mínimo R$ 50", cor: "#3fb06c" },
+      { t: "conversa", com: "Carlos Eduardo", sub: "dívida de R$ 1.200, vencida há 47 dias" },
 
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Tô com uma dívida de R$ 1.200 aí. Consigo parcelar?", hora: "14:03" },
-      { t: "sistema", icone: "Bot", texto: "Robô assumiu a conversa", detalhe: "dívida de R$ 1.200, vencida há 47 dias", cor: "#c084fc" },
+      { t: "sistema", icone: "Bot", texto: "Robô assumiu a conversa", cor: "#c084fc" },
 
       { t: "digitando", de: "empresa" },
       { t: "msg", de: "empresa", texto: "Consigo sim! Posso fazer em 6x de R$ 200,00, sem entrada. Fecha assim?", hora: "14:03" },
-      { t: "sistema", icone: "Check", texto: "Proposta conferida antes de sair", detalhe: "6 parcelas de R$ 200 — dentro do combinado", cor: "#3fb06c" },
+      { t: "sistema", icone: "Check", texto: "Proposta conferida antes de sair", detalhe: "6 parcelas de R$ 200, dentro do combinado", cor: "#3fb06c" },
       { t: "nota", texto: "Aqui está o ponto importante: quem faz a conta não é o robô. Ele sugere, o sistema recalcula e confere contra os limites. Só então a mensagem sai." },
 
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Tá caro ainda. Faz por 600 à vista que eu pago hoje", hora: "14:05" },
-      { t: "sistema", icone: "Ban", texto: "Recusado antes de virar mensagem", detalhe: "seria 50% de desconto — o limite é 20%", cor: "#f87171" },
+      { t: "sistema", icone: "Ban", texto: "Recusado antes de virar mensagem", detalhe: "seria 50% de desconto, e o limite é 20%", cor: "#f87171" },
       { t: "nota", texto: "O cliente pediu metade do valor. O robô nem chega a oferecer isso: o limite é conferido no sistema, então não adianta o cliente insistir nem o robô se confundir." },
 
-      { t: "msg", de: "empresa", texto: "Não consigo chegar nesse valor. O melhor que posso fazer é R$ 960 à vista — 20% de desconto.", hora: "14:05" },
+      { t: "msg", de: "empresa", texto: "Não consigo chegar nesse valor. O melhor que posso fazer é R$ 960 à vista, com 20% de desconto.", hora: "14:05" },
       { t: "metrica", rotulo: "Tentativas", valor: "2 de 3", cor: "#fbbf24" },
 
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Vou falar com meu advogado sobre isso", hora: "14:07" },
       { t: "sistema", icone: "UserCog", texto: "Chamou uma pessoa da equipe", detalhe: "cliente falou em advogado", cor: "#fbbf24" },
-      { t: "nota", texto: "Palavras como advogado, Procon ou processo param o robô na hora. Ele fica em silêncio nessa conversa a partir daí — para não desfazer o que a pessoa da equipe combinar." },
+      { t: "nota", texto: "Palavras como advogado, Procon ou processo param o robô na hora. Ele fica em silêncio nessa conversa a partir daí, para não desfazer o que a pessoa da equipe combinar." },
       { t: "pausa", rotulo: "Do automático para o humano, sem o cliente perceber a troca" },
     ],
   },
@@ -203,7 +207,8 @@ export const DEMOS: Demo[] = [
     pergunta: "E se ele fechar acordo e depois disser que não fechou?",
     palco: ["chat", "portal"],
     passos: [
-      { t: "nota", texto: "Acordo combinado por mensagem é frágil — some no meio da conversa. Por isso o cliente recebe um link com o resumo, e confirma lá." },
+      { t: "nota", texto: "Acordo combinado por mensagem é frágil, some no meio da conversa. Por isso o cliente recebe um link com o resumo, e confirma lá." },
+      { t: "conversa", com: "Carlos Eduardo", sub: "acordo de R$ 960 combinado" },
       { t: "msg", de: "empresa", texto: "Fechado! Preparei um resumo para você confirmar: solveai.link/n/a9f3", hora: "15:20" },
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Abrindo aqui", hora: "15:22" },
@@ -222,14 +227,14 @@ export const DEMOS: Demo[] = [
           { rotulo: "Vencimento",     valor: "em 3 dias" },
         ],
         acao: "Aceitar proposta" },
-      { t: "nota", texto: "Tudo escrito, sem letra miúda. Ele pode aceitar ou fazer outra proposta — que volta para o robô responder." },
+      { t: "nota", texto: "Tudo escrito, sem letra miúda. Ele pode aceitar ou fazer outra proposta, que volta para o robô responder." },
 
       { t: "sistema", icone: "Check", texto: "Cliente aceitou", detalhe: "guardado com data, hora e origem do acesso", cor: "#3fb06c" },
       { t: "tela", titulo: "Acordo confirmado",
         linhas: [{ rotulo: "Confirmado em", valor: "hoje, 15:24" }],
         aviso: "O boleto novo chega no seu WhatsApp" },
       { t: "msg", de: "empresa", texto: "Acordo confirmado! O financeiro vai gerar o boleto e te enviar.", hora: "15:24" },
-      { t: "nota", texto: "Se um dia ele disser que não fechou, existe registro de quando, de onde e com qual documento. O sistema guarda o acordo — quem emite o boleto continua sendo o financeiro." },
+      { t: "nota", texto: "Se um dia ele disser que não fechou, existe registro de quando, de onde e com qual documento. O sistema guarda o acordo, e quem emite o boleto continua sendo o financeiro." },
     ],
   },
 
@@ -248,6 +253,7 @@ export const DEMOS: Demo[] = [
         { rotulo: "no dia",       sub: "vence hoje", cor: "#fbbf24" },
         { rotulo: "5 dias depois", sub: "atrasou",  cor: "#f87171" },
       ]},
+      { t: "conversa", com: "Maria Aparecida", sub: "acompanhando uma pessoa da lista" },
 
       { t: "agenda", dias: [
         { rotulo: "3 dias antes", sub: "412 pessoas", ativo: true, cor: "#60a5fa" },
@@ -263,7 +269,7 @@ export const DEMOS: Demo[] = [
         { rotulo: "5 dias depois", sub: "aguardando", cor: "#f87171" },
       ]},
       { t: "msg", de: "empresa", texto: "Maria, sua fatura vence hoje. Ainda dá tempo de pagar sem juros.", hora: "09:00" },
-      { t: "nota", texto: "As 412 do primeiro aviso viraram 97 — as outras já pagaram. O sistema só cobra quem ainda deve." },
+      { t: "nota", texto: "As 412 do primeiro aviso viraram 97, porque as outras já pagaram. O sistema só cobra quem ainda deve." },
 
       { t: "agenda", dias: [
         { rotulo: "3 dias antes", sub: "feito",      cor: "#60a5fa" },
@@ -291,20 +297,24 @@ export const DEMOS: Demo[] = [
       { t: "agenda", dias: [
         { rotulo: "Hoje",     sub: "3 aniversários", ativo: true, cor: "#f472b6" },
         { rotulo: "Amanhã",   sub: "1 aniversário",  cor: "#f472b6" },
-        { rotulo: "9 de set", sub: "Dia do Administrador · 14 pessoas", cor: "#60a5fa" },
+        { rotulo: "9 de set", sub: "Dia do Administrador, 14 pessoas", cor: "#60a5fa" },
       ]},
       { t: "sistema", icone: "Cake", texto: "9 da manhã, sem ninguém apertar nada", detalhe: "3 clientes fazem aniversário hoje", cor: "#f472b6" },
+
+      { t: "conversa", com: "Maria Aparecida", sub: "faz aniversário hoje" },
       { t: "msg", de: "empresa", texto: "Parabéns, Maria! Todo o time deseja um ótimo dia. 🎉", hora: "09:00" },
       { t: "digitando", de: "cliente" },
       { t: "msg", de: "cliente", texto: "Nossa, que atenção! Muito obrigada 😊", hora: "09:34" },
-      { t: "sistema", icone: "DoorOpen", texto: "Ela respondeu — conversa aberta", detalhe: "24 horas livres para falar de qualquer assunto", cor: "#3fb06c" },
-      { t: "nota", texto: "Repare no efeito colateral: a resposta dela abriu a conversa. Uma cobrança que sairia como mensagem pré-aprovada agora pode sair como papo normal — e é bem recebida, porque o último contato foi um parabéns." },
+      { t: "sistema", icone: "DoorOpen", texto: "Ela respondeu, conversa aberta", detalhe: "24 horas livres para falar de qualquer assunto", cor: "#3fb06c" },
+      { t: "nota", texto: "Repare no efeito colateral: a resposta dela abriu a conversa. Uma cobrança que sairia como mensagem pré-aprovada agora pode sair como papo normal, e é bem recebida, porque o último contato foi um parabéns." },
 
       { t: "agenda", dias: [
         { rotulo: "Hoje",     sub: "feito", cor: "#f472b6" },
         { rotulo: "Amanhã",   sub: "1 aniversário", cor: "#f472b6" },
-        { rotulo: "9 de set", sub: "Dia do Administrador · 14 pessoas", ativo: true, cor: "#60a5fa" },
+        { rotulo: "9 de set", sub: "Dia do Administrador, 14 pessoas", ativo: true, cor: "#60a5fa" },
       ]},
+      { t: "nota", texto: "Um mês depois, outra data e outra pessoa." },
+      { t: "conversa", com: "João Carlos", sub: "administrador" },
       { t: "msg", de: "empresa", texto: "João, hoje é o Dia do Administrador. Parabéns pela profissão! 👏", hora: "09:00" },
       { t: "metrica", rotulo: "Lembranças no mês", valor: "137", cor: "#f472b6" },
       { t: "nota", texto: "Ninguém da equipe precisa lembrar de nenhuma dessas datas." },
