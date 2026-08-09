@@ -23,6 +23,7 @@ import {
   Sparkles,
   Handshake,
   BookOpen,
+  Cake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
@@ -79,6 +80,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
       { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },
       { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
+      { to: "/relacionamento",    icon: Cake,            label: "Relacionamento", subtitle: "Aniversário e datas"  },
       { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
     ],
   },
