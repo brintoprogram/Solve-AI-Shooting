@@ -11,7 +11,7 @@
 //   Apresentando → tela cheia, texto grande, setas do teclado. Quem assiste
 //                  está longe do monitor, e o menu lateral só atrapalha.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Play, Pause, RotateCcw, ChevronRight, ChevronLeft, Zap, Maximize2, Minimize2,
@@ -20,6 +20,7 @@ import {
   MessageSquare, Bell, DoorOpen, DoorClosed,
 } from "lucide-react";
 import type { Demo, Passo, EstadoEnvio } from "@/types/demos";
+import { aplicar, aplicarEm, type Contexto } from "./personalizacao";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
   GitBranch, Clock, Handshake, ExternalLink, Cake, Send, Bot, ShieldCheck,
@@ -128,8 +129,14 @@ function Digitando({ de }: { de: "cliente" | "empresa" }) {
   );
 }
 
-export function DemoPlayer({ demo }: { demo: Demo }) {
-  const passos = demo.passos ?? [];
+export function DemoPlayer({ demo, ctx }: { demo: Demo; ctx: Contexto }) {
+  // Substitui os marcadores uma vez, e não a cada render: o roteiro não muda
+  // durante a apresentação, e refazer isso a cada passo recriaria os objetos e
+  // faria as animações de entrada dispararem de novo.
+  const passos = useMemo(
+    () => (demo.passos ?? []).map((p) => aplicarEm(p, ctx)),
+    [demo.passos, ctx],
+  );
   const [ate,  setAte]  = useState(0);
   const [auto, setAuto] = useState(false);
   const [cheia, setCheia] = useState(false);
@@ -281,7 +288,7 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
                   );
                 })}
                 <p className={`text-agro-muted-2 pt-1.5 ${g ? "text-sm" : "text-[10px]"}`}>
-                  …e mais 2.841 pessoas
+                  {aplicar("…e mais {pct:99.8} pessoas", ctx)}
                 </p>
               </div>
             )}
@@ -479,8 +486,8 @@ export function DemoPlayer({ demo }: { demo: Demo }) {
             {(() => { const I = ICONS[demo.icone] ?? Play; return <I className="w-5 h-5" />; })()}
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-2xl font-bold text-agro-text">{demo.titulo}</h1>
-            <p className="text-sm text-agro-muted">{demo.resumo}</p>
+            <h1 className="font-display text-2xl font-bold text-agro-text">{aplicar(demo.titulo, ctx)}</h1>
+            <p className="text-sm text-agro-muted">{aplicar(demo.resumo, ctx)}</p>
           </div>
           <span className="ml-auto text-[11px] text-agro-muted-2 hidden sm:block">
             setas ← → para navegar · Esc para sair
