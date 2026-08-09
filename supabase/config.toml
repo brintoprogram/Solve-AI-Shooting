@@ -57,3 +57,8 @@ verify_jwt = false
 
 [functions.credits-admin]
 verify_jwt = false
+
+# Confere o token por dentro, contra PLATFORM_ADMIN_EMAILS — o verify_jwt da
+# plataforma só provaria que existe sessão, não que é o dono da plataforma.
+[functions.workspaces-admin]
+verify_jwt = false
