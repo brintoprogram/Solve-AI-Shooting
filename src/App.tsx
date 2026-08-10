@@ -40,6 +40,7 @@ import { NegotiationRulesPage } from "@/pages/negotiations/NegotiationRulesPage"
 import { SetupGuide } from "@/pages/SetupGuide";
 import { Tutorials } from "@/pages/Tutorials";
 import { Relationship } from "@/pages/Relationship";
+import { Activity } from "@/pages/Activity";
 import { Demos } from "@/pages/Demos";
 
 // ── Error boundary — shows error message instead of blank screen ──
@@ -174,6 +175,7 @@ function AppRoutes() {
         <Route path="/automations/:id/edit"   element={<AutomationWizard />} />
         <Route path="/automations/:id"        element={<AutomationDetail />} />
         <Route path="/team"                   element={<PR permission="can_manage_team" feature="Equipe"><Team /></PR>} />
+        <Route path="/atividade"              element={<PR permission="can_settings" feature="Atividade"><Activity /></PR>} />
         <Route path="/templates"              element={<Templates />} />
         <Route path="/alerts"                 element={<Alerts />} />
         <Route path="/reports"                element={<Reports />} />
