@@ -38,6 +38,8 @@ c = json.load(sys.stdin)
 print('  senha vazada bloqueada :', c.get('password_hibp_enabled'))
 print('  expiracao do link (s)  :', c.get('mailer_otp_exp'))
 print('  tamanho minimo de senha:', c.get('password_min_length'))
+print('  prazo maximo da sessao :', c.get('sessions_timebox') or '(sem prazo: sessao eterna)')
+print('  morte por inatividade  :', c.get('sessions_inactivity_timeout') or '(nunca)')
 print('  smtp                   :', c.get('smtp_host') or '(remetente padrao do Supabase)')
 "
 }
@@ -50,7 +52,19 @@ mostrar
 # mailer_otp_exp: 3600s. Link de convite e de recuperação dá acesso à conta;
 #   acima de 1h a janela de uso indevido fica longa demais.
 # password_min_length: o padrão do Supabase é 6, que hoje é fraco demais.
-PAYLOAD='{"password_hibp_enabled": true, "mailer_otp_exp": 3600, "password_min_length": 10}'
+#
+# sessions_timebox / sessions_inactivity_timeout: sem eles a sessão não vence
+#   nunca — o refresh token se renova sozinho enquanto o navegador continuar
+#   abrindo. Antes deste ajuste havia sessão de 29/04 ainda válida em agosto, e
+#   uma de 93 dias renovada no mesmo dia. Um notebook perdido em maio ainda
+#   estaria dentro do sistema.
+#
+#   A migration 20260810140000 já faz isso pelo banco, de hora em hora, e é o
+#   que está valendo hoje. Estes dois campos fazem o próprio Auth cuidar disso:
+#   a sessão passa a ser recusada na renovação em vez de apagada depois. Quando
+#   este script rodar, o job do banco vira apenas rede de segurança.
+PAYLOAD='{"password_hibp_enabled": true, "mailer_otp_exp": 3600, "password_min_length": 10,
+          "sessions_timebox": "168h", "sessions_inactivity_timeout": "72h"}'
 
 # ── Remetente próprio (opcional) ─────────────────────────────────────
 # Sem SMTP próprio o convite sai pelo serviço embutido do Supabase, limitado a
