@@ -2,107 +2,17 @@ import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import {
   ChevronRight,
-  Coins,
-  Send,
-  Settings,
-  LayoutDashboard,
-  Users,
-  MessageSquare,
-  Zap,
-  UserCog,
   LogOut,
-  LayoutTemplate,
-  Bell,
-  BarChart2,
   Lock,
-  LifeBuoy,
-  History,
-  Bot,
   ChevronsUpDown,
-  Rocket,
   Check,
   Sparkles,
-  Handshake,
-  BookOpen,
-  Cake,
-  Presentation,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuth, hasPermission, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
-import type { PermissionKey } from "@/context/AuthContext";
+import { NAV_GROUPS, DEMO_ITEM, isAllowed } from "./navegacao";
+import { useAuth, ROLE_LABELS, ROLE_STYLE, initials } from "@/context/AuthContext";
 import { useCampaignAlerts } from "@/hooks/useCampaignAlerts";
 import { useSetupChecklist } from "@/hooks/useSetupChecklist";
-
-interface NavItem {
-  to: string;
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  subtitle: string;
-  permission?: PermissionKey | PermissionKey[]; // undefined = accessible by all
-}
-
-/* Os 15 destinos numa lista unica exigiam ler todos para achar um. Agrupados
-   por TAREFA — o que a pessoa esta fazendo — em vez de por tipo tecnico.
-
-   Todos colapsam, inclusive o primeiro: um grupo que se comporta diferente
-   dos outros faz a pessoa clicar e nao entender por que nada acontece. O
-   grupo da rota ATIVA continua sempre aberto, entao ninguem consegue esconder
-   a propria pagina. */
-interface NavGroup {
-  id:    string;
-  label: string;
-  itens: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    id: "inicio",
-    label: "Visão geral",
-    itens: [
-      { to: "/primeiros-passos",  icon: Rocket,          label: "Primeiros passos", subtitle: "Configuração do workspace" },
-      { to: "/tutoriais",         icon: BookOpen,        label: "Tutoriais",    subtitle: "Como configurar cada parte" },
-      { to: "/",                  icon: LayoutDashboard, label: "Dashboard",    subtitle: "Visão geral"            },
-      { to: "/contacts",          icon: Users,           label: "Contatos",     subtitle: "Base de clientes",      permission: "can_manage_contacts" },
-    ],
-  },
-  {
-    id: "atendimento",
-    label: "Atendimento",
-    itens: [
-      { to: "/inbox",             icon: MessageSquare,   label: "Inbox",        subtitle: "Conversas ativas",      permission: "can_inbox" },
-      { to: "/alerts",            icon: Bell,            label: "Alertas",      subtitle: "Respostas dos clientes" },
-      { to: "/negotiations",      icon: Handshake,       label: "Negociações",  subtitle: "Renegociação de dívidas", permission: "can_negotiations" },
-      { to: "/agents",            icon: Bot,             label: "Agentes",      subtitle: "IA por conversa",       permission: "can_settings" },
-    ],
-  },
-  {
-    id: "campanhas",
-    label: "Campanhas",
-    itens: [
-      { to: "/shooting",          icon: Send,            label: "Shooting",     subtitle: "Disparos WhatsApp",     permission: ["can_shoot", "can_manage_campaigns"] },
-      { to: "/templates",         icon: LayoutTemplate,  label: "Templates",    subtitle: "Templates WhatsApp"     },
-      { to: "/automations",       icon: Zap,             label: "Automações",   subtitle: "Fluxos inteligentes"    },
-      { to: "/relacionamento",    icon: Cake,            label: "Relacionamento", subtitle: "Aniversário e datas"  },
-      { to: "/reports",           icon: BarChart2,       label: "Relatórios",   subtitle: "Campanhas & auditoria"  },
-    ],
-  },
-  {
-    id: "conta",
-    label: "Conta",
-    itens: [
-      { to: "/creditos",          icon: Coins,           label: "Créditos",     subtitle: "Saldo e consumo"        },
-      { to: "/team",              icon: UserCog,         label: "Equipe",       subtitle: "Agentes & convites",    permission: "can_manage_team" },
-      { to: "/settings",          icon: Settings,        label: "Configurações",subtitle: "Conta e integrações",   permission: "can_settings" },
-      { to: "/atividade",         icon: History,         label: "Atividade",    subtitle: "Quem mudou o quê",      permission: "can_settings" },
-      { to: "/support",           icon: LifeBuoy,        label: "Suporte",      subtitle: "Tickets e ajuda"        },
-    ],
-  },
-];
-
-/* Fora do NAV_GROUPS porque é condicional — ver o uso abaixo. */
-const DEMO_ITEM: NavItem = {
-  to: "/demos", icon: Presentation, label: "Demonstrações", subtitle: "Para mostrar em reunião",
-};
 
 const CHAVE_GRUPOS = "sidebar:grupos-fechados";
 
@@ -111,12 +21,6 @@ function lerFechados(): string[] {
     const cru = localStorage.getItem(CHAVE_GRUPOS);
     return cru ? (JSON.parse(cru) as string[]) : [];
   } catch { return []; }   /* localStorage bloqueado nao pode derrubar o menu */
-}
-
-function isAllowed(profile: ReturnType<typeof useAuth>["profile"], item: NavItem): boolean {
-  if (!item.permission) return true;
-  const perms = Array.isArray(item.permission) ? item.permission : [item.permission];
-  return perms.some((p) => hasPermission(profile, p));
 }
 
 export function Sidebar() {

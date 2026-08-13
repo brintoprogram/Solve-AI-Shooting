@@ -124,7 +124,7 @@ function PermissionsModal({ member, onClose, onSaved }: PermissionsModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
       style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(5px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
@@ -296,12 +296,12 @@ function InviteModal({ onClose, onSuccess, workspaceId, invitedBy }: InviteModal
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
       style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-md rounded-2xl p-6 relative"
+        className="w-full max-w-md max-h-[85dvh] overflow-y-auto scrollbar-thin rounded-2xl p-6 relative"
         style={{ background: "#0d1a11", border: "1px solid rgba(63,176,108,0.2)", boxShadow: "0 32px 80px rgba(0,0,0,0.6)" }}
       >
         <div className="flex items-center justify-between mb-6">
@@ -557,9 +557,9 @@ export function Team() {
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
       <Topbar breadcrumbs={[{ label: "Equipe" }]} />
 
-      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {/* ── Header ─────────────────────────── */}
-        <div className="flex items-start justify-between animate-fade-up">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between animate-fade-up">
           <div>
             <h1 className="font-display text-2xl font-bold text-agro-text flex items-center gap-3">
               <UserCog className="w-6 h-6 text-agro-green" />
@@ -571,7 +571,7 @@ export function Team() {
           </div>
 
           {isAdmin && (
-            <button onClick={() => setShowInvite(true)} className="btn-agro flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white">
+            <button onClick={() => setShowInvite(true)} className="btn-agro flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold text-white">
               <UserPlus className="w-4 h-4" />
               Convidar Membro
             </button>
@@ -585,8 +585,8 @@ export function Team() {
         >
           {/* Table header */}
           <div
-            className="grid items-center gap-4 px-5 py-3 text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2"
-            style={{ gridTemplateColumns: "36px 1fr 110px 150px 120px 36px", borderBottom: "1px solid rgba(63,176,108,0.08)" }}
+            className="hidden sm:grid items-center gap-4 px-5 py-3 text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2 sm:grid-cols-[36px_1fr_110px_150px_120px_36px]"
+            style={{ borderBottom: "1px solid rgba(63,176,108,0.08)" }}
           >
             <span />
             <span>Membro</span>
@@ -613,9 +613,8 @@ export function Team() {
               return (
                 <div
                   key={member.id}
-                  className="grid items-center gap-4 px-5 py-4 transition-colors hover:bg-white/[0.02]"
+                  className="grid items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4 transition-colors hover:bg-white/[0.02] grid-cols-[36px_1fr] sm:grid-cols-[36px_1fr_110px_150px_120px_36px]"
                   style={{
-                    gridTemplateColumns: "36px 1fr 110px 150px 120px 36px",
                     borderBottom: i < members.length - 1 ? "1px solid rgba(63,176,108,0.05)" : "none",
                   }}
                 >
@@ -670,6 +669,10 @@ export function Team() {
                     )}
                   </div>
 
+                  {/* No celular, tudo daqui para baixo vira uma faixa que quebra
+                      linha embaixo do nome. `sm:contents` dissolve este div no
+                      desktop e devolve os filhos ao grid de 6 colunas. */}
+                  <div className="col-span-2 flex flex-wrap items-center gap-2 sm:contents">
                   {/* Role badge */}
                   <span
                     className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 w-fit"
@@ -724,6 +727,7 @@ export function Team() {
                       <UserMinus className="w-3.5 h-3.5" />
                     </button>
                   ) : <div />}
+                  </div>
                 </div>
               );
             })
@@ -745,7 +749,7 @@ export function Team() {
             {pendingInvites.map((inv) => (
               <div
                 key={inv.id}
-                className="flex items-center justify-between px-5 py-3 hover:bg-white/[0.02] transition-colors"
+                className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-3 hover:bg-white/[0.02] transition-colors"
                 style={{ borderBottom: "1px solid rgba(63,176,108,0.05)" }}
               >
                 <div className="flex items-center gap-3">
@@ -788,7 +792,7 @@ export function Team() {
             style={{ background: "rgba(13,26,17,0.5)", border: "1px solid rgba(63,176,108,0.08)" }}
           >
             <p className="text-[10px] font-semibold uppercase tracking-widest text-agro-muted-2 mb-3">Permissões padrão por cargo</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {(["admin", "manager", "agent"] as RoleOption[]).map((role) => (
                 <div key={role} className="space-y-1.5">
                   <p className="text-xs font-semibold" style={{ color: ROLE_STYLE[role].color }}>{ROLE_LABELS[role]}</p>
@@ -861,12 +865,12 @@ export function Team() {
       {/* ── Remove member confirm ────────────────────── */}
       {confirmRemove && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
           onClick={(e) => { if (e.target === e.currentTarget && !removing) setConfirmRemove(null); }}
         >
           <div
-            className="w-full max-w-sm rounded-2xl p-6"
+            className="w-full max-w-sm max-h-[85dvh] overflow-y-auto scrollbar-thin rounded-2xl p-6"
             style={{ background: "#0d1a11", border: "1px solid rgba(239,68,68,0.25)", boxShadow: "0 32px 80px rgba(0,0,0,0.6)" }}
           >
             <div className="flex items-center gap-3 mb-4">
