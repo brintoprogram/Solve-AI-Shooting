@@ -203,6 +203,22 @@ export function parseValor(raw: unknown): number | null {
       // Milhares: 1,250  → remove vírgula
       s = s.replace(/,/g, "");
     }
+  } else if (hasDot) {
+    // Só ponto, e aqui morava o pior erro do importador: "1.250" caía direto
+    // no parseFloat e virava 1,25 — mil vezes menor. "1.234.567" virava 1,23.
+    // Valor SEM centavos é o formato mais comum de planilha de cobrança, então
+    // não era um caso de canto.
+    //
+    // Desempate pelo tamanho do último grupo: em pt-BR o separador de milhar
+    // sempre agrupa de três em três. "1.250" é mil duzentos e cinquenta;
+    // "1.25" é um e vinte e cinco.
+    const grupos = s.split(".");
+    const ultimo = grupos[grupos.length - 1];
+    const parteInteira = grupos[0];
+    // "0.500" é meio, não quinhentos: ninguém escreve zero milhar.
+    if (parteInteira !== "0" && (grupos.length > 2 || ultimo.length === 3)) {
+      s = s.replace(/\./g, "");
+    }
   }
 
   const num = parseFloat(s);
@@ -212,11 +228,34 @@ export function parseValor(raw: unknown): number | null {
   return Math.round(num * 100) / 100;
 }
 
+/** Ordem dos dois primeiros números numa data escrita com barras.
+ *  "dmy" = 03/04 é 3 de abril (Brasil). "mdy" = 03/04 é 4 de março (EUA). */
+export type OrdemData = "dmy" | "mdy";
+
+/** Monta a data só se ela existir de verdade. 31/02 e mês 25 param aqui.
+ *  Antes, "12/25/2026" produzia a string "2026-25-12" — um mês 25 que seguia
+ *  adiante no sistema em vez de ser recusado na entrada. */
+function montarData(dia: number, mes: number, ano: number): string | null {
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31 || ano < 1900 || ano > 2200) return null;
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  if (d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+}
+
 /**
  * Converte vários formatos de data para "YYYY-MM-DD".
- * Lida com serial do Excel, DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY.
+ *
+ * O parâmetro `ordem` existe porque 03/04/2026 é genuinamente ambíguo: não há
+ * como olhar para esse valor sozinho e saber se é 3 de abril ou 4 de março.
+ * Antes o sistema assumia DD/MM em silêncio — numa planilha em inglês isso
+ * errava o mês em TODA linha cujo dia fosse menor ou igual a 12, e acertava no
+ * resto. Metade certa é o pior resultado possível: a conferência por
+ * amostragem passa e o erro só aparece na cobrança.
+ *
+ * Quando os próprios dados provam a ordem (um 25 na primeira posição, ou um 13
+ * na segunda), a prova ganha do parâmetro.
  */
-export function parseDate(raw: unknown): string | null {
+export function parseDate(raw: unknown, ordem: OrdemData = "dmy"): string | null {
   if (raw === null || raw === undefined || raw === "") return null;
 
   // Serial do Excel (número inteiro)
@@ -229,28 +268,92 @@ export function parseDate(raw: unknown): string | null {
 
   const s = String(raw).trim();
 
-  // DD/MM/YYYY ou D/M/YYYY
-  const brSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (brSlash) {
-    const [, d, m, y] = brSlash;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  // a/b/yyyy ou a-b-yyyy — o formato ambíguo.
+  const dois = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dois) {
+    const a = Number(dois[1]), b = Number(dois[2]), ano = Number(dois[3]);
+    // Um valor acima de 12 só pode ser dia: os dados decidem sozinhos.
+    if (a > 12 && b <= 12) return montarData(a, b, ano);
+    if (b > 12 && a <= 12) return montarData(b, a, ano);
+    // Ambíguo de verdade: vale o que foi escolhido.
+    return ordem === "dmy" ? montarData(a, b, ano) : montarData(b, a, ano);
   }
 
-  // DD-MM-YYYY
-  const brDash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-  if (brDash) {
-    const [, d, m, y] = brDash;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
+  // YYYY-MM-DD (ISO, não ambíguo)
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return montarData(Number(iso[3]), Number(iso[2]), Number(iso[1]));
 
-  // YYYY-MM-DD (já correto)
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // Fallback nativo (inglês)
+  // Texto por extenso em inglês ("Apr 3, 2026"): aqui não há ambiguidade,
+  // o mês vem escrito.
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
 
   return null;
+}
+
+// ── Leitura transparente de uma coluna ────────────────────────────
+// O importador não pode se limitar a acertar: ele precisa CONSEGUIR MOSTRAR
+// como leu. Estas funções produzem o laudo que a tela exibe antes de importar.
+
+export interface LaudoDeData {
+  /** Ordem que será usada de fato. */
+  ordem: OrdemData;
+  /** A coluna tem algum valor cujo significado muda conforme a ordem. */
+  ambigua: boolean;
+  /** O valor que provou a ordem, quando os dados a provam sozinhos. */
+  prova: string | null;
+  /** Quantos valores não são data nenhuma. */
+  invalidos: number;
+  /** Quantos mudariam de significado se a ordem fosse a outra. */
+  afetados: number;
+}
+
+/**
+ * Descobre como uma coluna de datas deve ser lida e o quanto isso é incerto.
+ *
+ * A prova é o que torna isto confiável: basta UM valor com dia acima de 12 na
+ * primeira posição para a coluna inteira estar decidida, sem depender de
+ * palpite. Só quando nenhuma linha prova nada é que a escolha vira pergunta
+ * para o usuário — e aí a tela precisa avisar, porque é o caso em que o
+ * sistema pode estar errando tudo sem nenhum sinal.
+ */
+export function analisarColunaDeData(valores: unknown[], ordemEscolhida?: OrdemData): LaudoDeData {
+  let provaDmy: string | null = null;
+  let provaMdy: string | null = null;
+  let afetados = 0;
+  let invalidos = 0;
+  let comData = 0;
+
+  for (const v of valores) {
+    if (v === null || v === undefined || v === "") continue;
+    comData++;
+    if (typeof v === "number") continue;   // serial do Excel não é ambíguo
+    const m = String(v).trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    if (!m) {
+      if (parseDate(v) === null) invalidos++;
+      continue;
+    }
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a > 12 && b <= 12) provaDmy ??= String(v);
+    else if (b > 12 && a <= 12) provaMdy ??= String(v);
+    else if (a <= 12 && b <= 12 && a !== b) afetados++;
+    else if (a > 12 && b > 12) invalidos++;
+  }
+
+  // Prova contraditória: a coluna mistura os dois formatos e nenhuma escolha
+  // salva todas as linhas. Vale mais avisar do que fingir que decidiu.
+  const contraditoria = Boolean(provaDmy && provaMdy);
+  const ordem: OrdemData = contraditoria
+    ? (ordemEscolhida ?? "dmy")
+    : provaDmy ? "dmy" : provaMdy ? "mdy" : (ordemEscolhida ?? "dmy");
+
+  return {
+    ordem,
+    ambigua: contraditoria || (!provaDmy && !provaMdy && afetados > 0),
+    prova: contraditoria ? null : (provaDmy ?? provaMdy),
+    invalidos,
+    afetados: comData === 0 ? 0 : afetados,
+  };
 }
 
 const VALID_STATUSES = new Set(["pendente", "pago", "vencido", "cancelado"]);
