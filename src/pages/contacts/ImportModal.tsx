@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from "react";
+import { LeituraDaPlanilha } from "./LeituraDaPlanilha";
 import {
-  X, Upload, FileSpreadsheet, ChevronDown, Loader2,
-  CheckCircle2, AlertCircle, ArrowRight, RotateCcw,
+  X, Upload, FileSpreadsheet, Loader2,
+  CheckCircle2, AlertCircle, RotateCcw,
 } from "lucide-react";
 import {
-  MAPPABLE_FIELDS, FieldKey, Mapping, ParsedFile,
+  Mapping, ParsedFile, OrdemData,
   parseFile, autoDetect, applyMapping, runImport, ImportStats,
 } from "@/lib/importUtils";
 import { useAuth } from "@/context/AuthContext";
@@ -16,9 +17,6 @@ type Step = "idle" | "mapping" | "importing" | "done";
 interface Progress { phase: string; done: number; total: number }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-const CONTACT_FIELDS = MAPPABLE_FIELDS.filter((f) => f.category === "contact");
-const INVOICE_FIELDS  = MAPPABLE_FIELDS.filter((f) => f.category === "invoice");
 
 function pct(done: number, total: number) {
   if (!total) return 0;
@@ -74,102 +72,6 @@ function DropZone({ onFile, loading }: { onFile: (f: File) => void; loading: boo
           ou clique para selecionar · CSV, XLSX, XLS
         </p>
       </div>
-    </div>
-  );
-}
-
-function MappingTable({
-  parsed,
-  mapping,
-  setMapping,
-}: {
-  parsed:     ParsedFile;
-  mapping:    Mapping;
-  setMapping: (m: Mapping) => void;
-}) {
-  const preview = parsed.rows.slice(0, 3);
-
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-xs text-[#6b7f6e]">
-        {parsed.headers.length} colunas detectadas · {parsed.rows.length} linhas · Ajuste o mapeamento abaixo
-      </p>
-
-      <div className="rounded-xl border border-[#2a3d30] overflow-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-[#2a3d30] bg-[#111a14]">
-              <th className="px-3 py-2 text-left text-[#6b7f6e] font-medium w-[200px]">Coluna da planilha</th>
-              <th className="px-3 py-2 text-center text-[#6b7f6e] font-medium w-8"></th>
-              <th className="px-3 py-2 text-left text-[#6b7f6e] font-medium w-[200px]">Campo Solve AI</th>
-              <th className="px-3 py-2 text-left text-[#6b7f6e] font-medium">Prévia (3 linhas)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {parsed.headers.map((header) => (
-              <tr key={header} className="border-b border-[#1e2e22] last:border-0 hover:bg-[#111a14]/50">
-                <td className="px-3 py-2 font-mono text-white/80">{header}</td>
-                <td className="px-3 py-2 text-center">
-                  <ArrowRight className="w-3 h-3 text-[#3fb06c] mx-auto" />
-                </td>
-                <td className="px-3 py-2">
-                  <FieldSelect
-                    value={mapping[header] ?? ""}
-                    onChange={(v) => setMapping({ ...mapping, [header]: v })}
-                    usedKeys={Object.values(mapping).filter((k) => k && k !== mapping[header]) as FieldKey[]}
-                  />
-                </td>
-                <td className="px-3 py-2 text-[#6b7f6e] font-mono">
-                  {preview.map((row, i) => {
-                    const idx = parsed.headers.indexOf(header);
-                    const val = row[idx];
-                    return val !== null && val !== undefined && val !== ""
-                      ? <span key={i} className="mr-2 text-white/50">{String(val).slice(0, 24)}</span>
-                      : null;
-                  })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function FieldSelect({
-  value,
-  onChange,
-  usedKeys,
-}: {
-  value:    FieldKey | "";
-  onChange: (v: FieldKey | "") => void;
-  usedKeys: FieldKey[];
-}) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as FieldKey | "")}
-        className="w-full appearance-none bg-[#0d1710] border border-[#2a3d30] rounded-lg px-2 py-1.5 pr-6 text-xs text-white focus:outline-none focus:border-[#3fb06c] cursor-pointer"
-      >
-        <option value="">— Ignorar —</option>
-        <optgroup label="Contato">
-          {CONTACT_FIELDS.map((f) => (
-            <option key={f.key} value={f.key} disabled={usedKeys.includes(f.key as FieldKey)}>
-              {f.label}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label="Boleto / NF">
-          {INVOICE_FIELDS.map((f) => (
-            <option key={f.key} value={f.key} disabled={usedKeys.includes(f.key as FieldKey)}>
-              {f.label}
-            </option>
-          ))}
-        </optgroup>
-      </select>
-      <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#6b7f6e] pointer-events-none" />
     </div>
   );
 }
@@ -284,6 +186,9 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const [parsing,  setParsing]  = useState(false);
   const [parsed,   setParsed]   = useState<ParsedFile | null>(null);
   const [mapping,  setMapping]  = useState<Mapping>({});
+  /* Vive aqui e nao dentro da tela de leitura porque precisa sobreviver ate
+     a importacao: e a mesma ordem que a previa mostrou. */
+  const [ordemData, setOrdemData] = useState<OrdemData>("dmy");
   const [progress, setProgress] = useState<Progress>({ phase: "", done: 0, total: 0 });
   const [stats,    setStats]    = useState<ImportStats | null>(null);
   const [error,    setError]    = useState<string | null>(null);
@@ -307,7 +212,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
   async function handleImport() {
     if (!parsed) return;
-    const mappedRows = applyMapping(parsed.headers, parsed.rows, mapping);
+    const mappedRows = applyMapping(parsed.headers, parsed.rows, mapping, ordemData);
     const workspaceId = workspaceIdAuth ?? "";
 
     setStep("importing");
@@ -397,7 +302,13 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
           {step === "idle" && <DropZone onFile={handleFile} loading={parsing} />}
           {step === "mapping" && parsed && (
-            <MappingTable parsed={parsed} mapping={mapping} setMapping={setMapping} />
+            <LeituraDaPlanilha
+                parsed={parsed}
+                mapping={mapping}
+                setMapping={setMapping}
+                ordem={ordemData}
+                setOrdem={setOrdemData}
+              />
           )}
           {step === "importing" && <ProgressView progress={progress} />}
           {step === "done" && stats && (

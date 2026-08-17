@@ -434,6 +434,78 @@ export function analisarColunaDeData(valores: unknown[], ordemEscolhida?: OrdemD
   };
 }
 
+// ── Como o sistema leu cada célula ────────────────────────────────
+// A prévia mostrava o valor BRUTO, que é o que a pessoa já sabe. O que ela
+// precisa ver é a interpretação: "1.250" virou quanto? "03/04/2026" virou que
+// dia? É aí que um erro de leitura aparece antes de virar cobrança errada.
+
+export type TipoDeLeitura = "texto" | "dinheiro" | "data" | "telefone" | "documento" | "lista";
+
+export function tipoDoCampo(campo: FieldKey): TipoDeLeitura {
+  if (campo === "inv_valor") return "dinheiro";
+  if (campo === "inv_vencimento") return "data";
+  if (campo === "phone") return "telefone";
+  if (campo === "cpf_cnpj") return "documento";
+  if (campo === "tags") return "lista";
+  return "texto";
+}
+
+export interface Interpretacao {
+  /** Como o sistema entendeu o valor, pronto para exibir. */
+  lido: string;
+  /** false quando o valor existe mas o sistema não conseguiu entender. */
+  ok: boolean;
+}
+
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+               "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/**
+ * Traduz uma célula para o que o sistema entendeu dela.
+ *
+ * A data sai por extenso de propósito. "2026-04-03" e "03/04/2026" são as duas
+ * formas que a pessoa já não sabe distinguir — é exatamente a confusão que
+ * estamos tentando resolver. "3 de abril de 2026" não tem como ser lido errado.
+ */
+export function interpretar(campo: FieldKey, bruto: unknown, ordem: OrdemData = "dmy"): Interpretacao {
+  const vazio = bruto === null || bruto === undefined || String(bruto).trim() === "";
+  if (vazio) return { lido: "—", ok: true };
+
+  switch (tipoDoCampo(campo)) {
+    case "dinheiro": {
+      const n = parseValor(bruto);
+      return n === null
+        ? { lido: "não reconheci como valor", ok: false }
+        : { lido: n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), ok: true };
+    }
+    case "data": {
+      const iso = parseDate(bruto, ordem);
+      if (!iso) return { lido: "não reconheci como data", ok: false };
+      const [a, m, d] = iso.split("-");
+      return { lido: `${Number(d)} de ${MESES[Number(m) - 1]} de ${a}`, ok: true };
+    }
+    case "telefone": {
+      const t = cleanPhone(bruto);
+      // Telefone curto demais não é erro de formato, é linha que não vai
+      // receber nada. Melhor dizer agora do que na hora do disparo.
+      if (t.replace(/\D/g, "").length < 12) return { lido: `${t || String(bruto)} — curto demais`, ok: false };
+      return { lido: t, ok: true };
+    }
+    case "documento": {
+      const d = cleanDocument(bruto);
+      if (d.length === 11) return { lido: `CPF ${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`, ok: true };
+      if (d.length === 14) return { lido: `CNPJ ${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`, ok: true };
+      return { lido: `${d || String(bruto)} — não é CPF nem CNPJ`, ok: false };
+    }
+    case "lista": {
+      const itens = String(bruto).split(";").map((s) => s.trim()).filter(Boolean);
+      return { lido: itens.length ? itens.join(" · ") : "—", ok: true };
+    }
+    default:
+      return { lido: String(bruto).trim(), ok: true };
+  }
+}
+
 const VALID_STATUSES = new Set(["pendente", "pago", "vencido", "cancelado"]);
 
 function parseStatus(raw: unknown): string {
@@ -498,6 +570,10 @@ export function applyMapping(
   headers: string[],
   rows:    RawRow[],
   mapping: Mapping,
+  /* A ordem escolhida na tela de leitura precisa chegar ATE AQUI. Sem isso a
+     tela mostraria "3 de abril" e o banco receberia 4 de marco — uma prévia
+     que mente é pior do que prévia nenhuma, porque autoriza o erro. */
+  ordemData: OrdemData = "dmy",
 ): MappedRow[] {
   const colIndex = Object.fromEntries(headers.map((h, i) => [h, i]));
 
@@ -534,7 +610,7 @@ export function applyMapping(
     const valor = parseValor(get("inv_valor"));
     if (valor !== null) mapped.inv_valor = valor;
 
-    const venc = parseDate(get("inv_vencimento"));
+    const venc = parseDate(get("inv_vencimento"), ordemData);
     if (venc) mapped.inv_vencimento = venc;
 
     const nf = String(get("inv_numero_nf") ?? "").trim();
