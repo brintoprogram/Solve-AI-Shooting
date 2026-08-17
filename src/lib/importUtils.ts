@@ -95,52 +95,130 @@ export interface ImportStats {
 
 // ── Palavras-chave para auto-detecção ─────────────────────────────
 
+// Cada campo lista os termos em português E em inglês. Planilha de cliente vem
+// do sistema que ele usa, e sistema financeiro costuma vir em inglês — "Due
+// Date", "Amount", "Outstanding Balance". Sem esses termos o mapeamento vinha
+// vazio e a pessoa preenchia 25 combos à mão, que é onde ela desiste.
 const DETECT: Partial<Record<FieldKey, string[]>> = {
-  name:                ["nome", "devedor", "cliente", "razão social", "razao social", "sacado", "favorecido", "name", "beneficiario"],
-  phone:               ["telefone", "fone", "celular", "cel", "whatsapp", "zap", "phone", "tel", "mobile"],
-  cpf_cnpj:            ["cpf", "cnpj", "cpf_cnpj", "documento", "doc", "cadastro", "inscricao"],
-  empresa:             ["empresa", "fantasia", "nome fantasia", "company", "razão"],
-  email:               ["email", "e-mail", "correio"],
-  email2:              ["email2", "e-mail 2", "segundo email"],
-  nome_representante:  ["representante", "responsável", "responsavel", "contato"],
-  email_representante: ["email representante", "e-mail representante", "email_representante"],
-  gerente1_nome:       ["gerente1 nome", "nome gerente 1", "gerente1_nome", "gerente 1"],
-  gerente1_email:      ["gerente1 email", "email gerente 1", "gerente1_email", "e-mail gerente 1"],
-  gerente2_nome:       ["gerente2 nome", "nome gerente 2", "gerente2_nome", "gerente 2"],
-  gerente2_email:      ["gerente2 email", "email gerente 2", "gerente2_email", "e-mail gerente 2"],
-  cep:                 ["cep", "zip", "postal"],
-  logradouro:          ["logradouro", "endereço", "endereco", "rua", "avenida", "address"],
-  numero:              ["número", "numero", "nº", "n°", "num"],
-  complemento:         ["complemento", "comp", "apto", "apartamento"],
-  bairro:              ["bairro", "district"],
-  cidade:              ["cidade", "city", "municipio", "município"],
-  estado:              ["estado", "uf", "state"],
-  tags:                ["tags", "tag", "categoria", "grupo", "classificação"],
-  inv_valor:           ["valor", "value", "quantia", "montante", "dívida", "divida", "saldo", "valor boleto", "vlr"],
-  inv_vencimento:      ["vencimento", "venc", "data vencimento", "data de vencimento", "prazo", "due"],
-  inv_numero_nf:       ["nf", "nota fiscal", "número boleto", "num boleto", "ref", "referência", "referencia", "boleto"],
-  inv_codigo_barras:   ["código de barras", "codigo barras", "linha digitável", "barcode"],
-  inv_status:          ["status", "situação", "situacao", "status boleto"],
+  name:                ["nome", "nome completo", "devedor", "cliente", "razão social", "razao social", "sacado", "favorecido", "beneficiario",
+                        "name", "full name", "customer", "customer name", "client", "client name", "debtor", "payer", "contact name"],
+  phone:               ["telefone", "fone", "celular", "cel", "whatsapp", "zap", "tel",
+                        "phone", "phone number", "mobile", "mobile number", "cell", "cellphone"],
+  cpf_cnpj:            ["cpf", "cnpj", "cpf_cnpj", "documento", "doc", "cadastro", "inscricao",
+                        "document", "tax id", "taxid", "tax number", "national id", "vat"],
+  empresa:             ["empresa", "fantasia", "nome fantasia", "razão",
+                        "company", "company name", "organization", "organisation", "business", "account name"],
+  email:               ["email", "e-mail", "correio", "email address", "e-mail address", "mail"],
+  email2:              ["email2", "e-mail 2", "segundo email", "email 2", "secondary email", "alternate email"],
+  nome_representante:  ["representante", "responsável", "responsavel", "contato",
+                        "representative", "contact person", "attention"],
+  email_representante: ["email representante", "e-mail representante", "email_representante", "representative email"],
+  gerente1_nome:       ["gerente1 nome", "nome gerente 1", "gerente1_nome", "gerente 1", "manager 1", "manager name"],
+  gerente1_email:      ["gerente1 email", "email gerente 1", "gerente1_email", "e-mail gerente 1", "manager 1 email"],
+  gerente2_nome:       ["gerente2 nome", "nome gerente 2", "gerente2_nome", "gerente 2", "manager 2"],
+  gerente2_email:      ["gerente2 email", "email gerente 2", "gerente2_email", "e-mail gerente 2", "manager 2 email"],
+  cep:                 ["cep", "zip", "zip code", "zipcode", "postal", "postal code", "postcode"],
+  logradouro:          ["logradouro", "endereço", "endereco", "rua", "avenida",
+                        "address", "street", "street address", "address line 1", "address1"],
+  numero:              ["número", "numero", "nº", "n°", "num", "street number", "house number"],
+  complemento:         ["complemento", "comp", "apto", "apartamento", "address line 2", "address2", "suite", "unit"],
+  bairro:              ["bairro", "district", "neighborhood", "neighbourhood"],
+  cidade:              ["cidade", "municipio", "município", "city", "town"],
+  estado:              ["estado", "uf", "state", "province", "region"],
+  tags:                ["tags", "tag", "categoria", "grupo", "classificação", "category", "group", "segment", "label"],
+  inv_valor:           ["valor", "quantia", "montante", "dívida", "divida", "saldo", "valor boleto", "vlr", "valor total",
+                        "value", "amount", "total", "total amount", "balance", "outstanding", "outstanding balance",
+                        "debt", "due amount", "amount due", "price"],
+  inv_vencimento:      ["vencimento", "venc", "data vencimento", "data de vencimento", "prazo",
+                        "due", "due date", "duedate", "expiry", "expiration", "expiration date", "maturity", "payment date", "date"],
+  inv_numero_nf:       ["nf", "nota fiscal", "número boleto", "num boleto", "ref", "referência", "referencia", "boleto",
+                        "invoice", "invoice number", "invoice no", "invoice id", "reference", "document number", "order id"],
+  inv_codigo_barras:   ["código de barras", "codigo barras", "linha digitável", "barcode", "bar code", "digitable line"],
+  inv_status:          ["status", "situação", "situacao", "status boleto", "payment status", "paid"],
 };
 
-export function autoDetect(headers: string[]): Mapping {
-  const mapping: Mapping = {};
-  const used = new Set<FieldKey>();
+const semAcento = (t: string): string =>
+  t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+/** Quão bem um cabeçalho casa com um termo. Maior é melhor; 0 é não casa.
+ *
+ *  A versão anterior usava `includes` e ficava com a PRIMEIRA que casasse, na
+ *  ordem em que os campos estavam escritos no arquivo. Isso fazia "Company
+ *  Name" virar Nome, porque contém "name" e Nome vem antes de Empresa, e
+ *  deixava "Preferência" virar Número do Boleto, por conter "ref". Casar por
+ *  palavra inteira e pontuar resolve os dois: termo específico ganha de termo
+ *  curto, independente da ordem em que foram escritos. */
+function pontuar(cabecalho: string, termo: string): number {
+  if (cabecalho === termo) return 1000;
+  const compacto = (t: string) => t.replace(/[\s_\-.]/g, "");
+  if (compacto(cabecalho) === compacto(termo)) return 900;
+
+  const escapado = termo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`(^|[^a-z0-9])${escapado}($|[^a-z0-9])`).test(cabecalho)) {
+    return 500 + termo.length;   // palavra inteira: "Due Date" acha "due"
+  }
+  if (cabecalho.includes(termo)) {
+    return 100 + termo.length;   // pedaço solto: fraco de propósito
+  }
+  return 0;
+}
+
+export type Confianca = "exata" | "forte" | "fraca" | "nenhuma";
+
+export interface Deteccao {
+  campo: FieldKey | "";
+  confianca: Confianca;
+  /** O termo que fez casar. É o "porquê" que a tela mostra ao usuário. */
+  termo: string | null;
+}
+
+/**
+ * Reconhece as colunas e diz POR QUE reconheceu cada uma.
+ *
+ * A atribuição é global e gulosa, não coluna a coluna: todos os pares
+ * (cabeçalho, campo) são pontuados e os melhores casam primeiro. Sem isso,
+ * uma planilha com "Nome" e "Nome Fantasia" dependia de qual coluna vinha
+ * antes — a primeira levava o campo Nome e a segunda ficava sem nada.
+ */
+export function autoDetectDetalhado(headers: string[]): Record<string, Deteccao> {
+  const candidatos: { header: string; campo: FieldKey; termo: string; pts: number }[] = [];
 
   for (const header of headers) {
-    const norm = header.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-    let matched: FieldKey | "" = "";
-
-    for (const [field, keywords] of Object.entries(DETECT) as [FieldKey, string[]][]) {
-      if (used.has(field)) continue;
-      if (keywords.some((kw) => norm.includes(kw.normalize("NFD").replace(/[\u0300-\u036f]/g, "")))) {
-        matched = field;
-        used.add(field);
-        break;
+    const norm = semAcento(header);
+    if (!norm) continue;
+    for (const [campo, termos] of Object.entries(DETECT) as [FieldKey, string[]][]) {
+      let melhor = 0;
+      let melhorTermo = "";
+      for (const t of termos) {
+        const p = pontuar(norm, semAcento(t));
+        if (p > melhor) { melhor = p; melhorTermo = t; }
       }
+      if (melhor > 0) candidatos.push({ header, campo, termo: melhorTermo, pts: melhor });
     }
-    mapping[header] = matched;
   }
+
+  candidatos.sort((a, b) => b.pts - a.pts);
+
+  const saida: Record<string, Deteccao> = {};
+  for (const h of headers) saida[h] = { campo: "", confianca: "nenhuma", termo: null };
+  const camposUsados = new Set<FieldKey>();
+
+  for (const c of candidatos) {
+    if (saida[c.header].campo || camposUsados.has(c.campo)) continue;
+    saida[c.header] = {
+      campo: c.campo,
+      confianca: c.pts >= 900 ? "exata" : c.pts >= 500 ? "forte" : "fraca",
+      termo: c.termo,
+    };
+    camposUsados.add(c.campo);
+  }
+  return saida;
+}
+
+export function autoDetect(headers: string[]): Mapping {
+  const detalhado = autoDetectDetalhado(headers);
+  const mapping: Mapping = {};
+  for (const h of headers) mapping[h] = detalhado[h]?.campo ?? "";
   return mapping;
 }
 
