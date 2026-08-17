@@ -1,8 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { LeituraDaPlanilha } from "./LeituraDaPlanilha";
 import {
+  listarPerfis, melhorPerfil, aplicarPerfil, salvarPerfil, registrarUso,
+  type PerfilDeImportacao,
+} from "@/lib/perfisDeImportacao";
+import {
   X, Upload, FileSpreadsheet, Loader2,
-  CheckCircle2, AlertCircle, RotateCcw,
+  CheckCircle2, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
 } from "lucide-react";
 import {
   Mapping, ParsedFile, OrdemData,
@@ -181,7 +185,7 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 // ── Main component ────────────────────────────────────────────────
 
 export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuccess?: () => void }) {
-  const { workspaceId: workspaceIdAuth } = useAuth();
+  const { workspaceId: workspaceIdAuth, profile } = useAuth();
   const [step,     setStep]     = useState<Step>("idle");
   const [parsing,  setParsing]  = useState(false);
   const [parsed,   setParsed]   = useState<ParsedFile | null>(null);
@@ -193,6 +197,17 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const [stats,    setStats]    = useState<ImportStats | null>(null);
   const [error,    setError]    = useState<string | null>(null);
 
+  /* Perfil reconhecido para ESTE arquivo, e o quanto ele se parece. Nulo
+     quando nenhum passou do limiar — que e o caso normal na primeira vez. */
+  const [perfil,   setPerfil]   = useState<{ perfil: PerfilDeImportacao; score: number } | null>(null);
+  /* Guardado para o botao "usar deteccao automatica": sem isto, dispensar o
+     perfil deixaria a pessoa com o mapeamento dele mesmo assim. */
+  const [autoBase, setAutoBase] = useState<Mapping>({});
+  const [nomeNovo, setNomeNovo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [salvo,    setSalvo]    = useState(false);
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
+
   async function handleFile(file: File) {
     setParsing(true);
     setError(null);
@@ -201,7 +216,36 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
       if (result.headers.length === 0) throw new Error("Arquivo sem colunas detectáveis.");
       const detected = autoDetect(result.headers);
       setParsed(result);
-      setMapping(detected);
+      setAutoBase(detected);
+
+      /* O perfil e conveniencia; a importacao e o trabalho.
+         O try/catch PROPRIO e o que garante isso. listarPerfis ja nao lanca,
+         mas melhorPerfil e aplicarPerfil leem jsonb vindo do banco: um perfil
+         com mapeamento corrompido faria Object.entries estourar, o erro cairia
+         no catch do parse la embaixo, e a pessoa veria "Erro ao ler arquivo"
+         com um arquivo perfeitamente valido na mao. Um perfil defeituoso nao
+         pode derrubar a importacao — ele so pode deixar de sugerir. */
+      let achado: { perfil: PerfilDeImportacao; score: number } | null = null;
+      try {
+        if (workspaceIdAuth) {
+          achado = melhorPerfil(await listarPerfis(workspaceIdAuth), result.headers);
+        }
+      } catch {
+        achado = null;
+      }
+
+      let inicial = detected;
+      if (achado) {
+        try {
+          inicial = aplicarPerfil(achado.perfil, result.headers, detected);
+          setOrdemData(achado.perfil.ordem_data === "mdy" ? "mdy" : "dmy");
+        } catch {
+          achado = null;
+          inicial = detected;
+        }
+      }
+      setPerfil(achado);
+      setMapping(inicial);
       setStep("mapping");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao ler arquivo.");
@@ -224,6 +268,9 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
       });
       setStats(result);
       setStep("done");
+      /* Depois do sucesso: o mapeamento acabou de ser conferido por uma pessoa
+         de verdade, entao e agora que ele vale a pena ser guardado. */
+      if (perfil) void registrarUso(perfil.perfil, mapping, ordemData);
       onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro durante importação.");
@@ -238,6 +285,11 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     setStats(null);
     setError(null);
     setProgress({ phase: "", done: 0, total: 0 });
+    setPerfil(null);
+    setAutoBase({});
+    setNomeNovo("");
+    setSalvo(false);
+    setErroSalvar(null);
   }
 
   const mappedCount = Object.values(mapping).filter(Boolean).length;
@@ -301,6 +353,31 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           )}
 
           {step === "idle" && <DropZone onFile={handleFile} loading={parsing} />}
+          {step === "mapping" && parsed && perfil && (
+            <div
+              className="mb-3 rounded-xl px-4 py-3 flex items-start gap-2.5"
+              style={{ background: "rgba(63,176,108,0.07)", border: "1px solid rgba(63,176,108,0.22)" }}
+            >
+              <BookmarkCheck className="w-4 h-4 shrink-0 mt-0.5 text-[#3fb06c]" />
+              <div className="min-w-0 flex-1 text-xs leading-relaxed">
+                <p className="text-white/90">
+                  Reconheci o formato <strong>{perfil.perfil.nome}</strong>
+                  {perfil.perfil.usos > 0 && <> · usado {perfil.perfil.usos}{perfil.perfil.usos === 1 ? " vez" : " vezes"}</>}
+                  {perfil.score < 1 && <span className="text-[#6b7f6e]"> · algumas colunas mudaram desde a última vez</span>}
+                </p>
+                <p className="text-[#6b7f6e] mt-0.5">
+                  O mapeamento e a ordem das datas já vieram preenchidos. Confira abaixo antes de importar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setPerfil(null); setMapping(autoBase); }}
+                className="shrink-0 text-[11px] text-[#6b7f6e] hover:text-white underline underline-offset-2"
+              >
+                Não usar
+              </button>
+            </div>
+          )}
           {step === "mapping" && parsed && (
             <LeituraDaPlanilha
                 parsed={parsed}
@@ -312,7 +389,66 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           )}
           {step === "importing" && <ProgressView progress={progress} />}
           {step === "done" && stats && (
-            <SummaryView stats={stats} onClose={onClose} onReset={handleReset} />
+            <>
+              <SummaryView stats={stats} onClose={onClose} onReset={handleReset} />
+
+              {/* Depois do sucesso, e nao antes: o mapeamento so vale a pena ser
+                  guardado depois de alguem ter conferido que ele produz o
+                  resultado certo. Oferecer antes seria pedir para salvar um
+                  palpite. */}
+              {!perfil && !salvo && parsed && (
+                <div
+                  className="mt-4 rounded-xl px-4 py-3.5"
+                  style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.16)" }}
+                >
+                  <p className="text-xs text-white/85 flex items-center gap-2">
+                    <Bookmark className="w-3.5 h-3.5 text-[#3fb06c] shrink-0" />
+                    Esse cliente manda a mesma planilha todo mês?
+                  </p>
+                  <p className="text-[11px] text-[#6b7f6e] mt-1 leading-relaxed">
+                    Guarde este formato e a próxima importação já vem conferida — inclusive a ordem das datas.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2.5">
+                    <input
+                      value={nomeNovo}
+                      onChange={(e) => { setNomeNovo(e.target.value); setErroSalvar(null); }}
+                      placeholder="Ex.: Cobrança mensal"
+                      maxLength={60}
+                      className="flex-1 min-w-[180px] bg-[#0d1710] border border-[#2a3d30] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-[#3a4d3e] focus:outline-none focus:border-[#3fb06c]"
+                    />
+                    <button
+                      type="button"
+                      disabled={!nomeNovo.trim() || salvando}
+                      onClick={async () => {
+                        setSalvando(true);
+                        setErroSalvar(null);
+                        const r = await salvarPerfil({
+                          workspaceId: workspaceIdAuth ?? "",
+                          nome: nomeNovo,
+                          cabecalhos: parsed.headers,
+                          mapeamento: mapping,
+                          ordemData,
+                          criadoPor: profile?.id ?? null,
+                        });
+                        setSalvando(false);
+                        if (r.ok) setSalvo(true); else setErroSalvar(r.erro ?? null);
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#3fb06c] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {salvando ? "Guardando…" : "Guardar formato"}
+                    </button>
+                  </div>
+                  {erroSalvar && <p className="text-[11px] text-amber-400 mt-1.5">{erroSalvar}</p>}
+                </div>
+              )}
+
+              {salvo && (
+                <p className="mt-4 text-xs text-[#3fb06c] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Formato guardado. Na próxima importação eu reconheço sozinho.
+                </p>
+              )}
+            </>
           )}
         </div>
 
