@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -23,7 +24,11 @@ const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) ?? "";
 const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? "";
 
 
-type EmailStatus = "draft" | "sending" | "paused" | "completed" | "cancelled" | "failed";
+/* "agendada" entrou junto com o disparo agendado. Faltar aqui nao dava
+   erro: dava SUMICO. As abas filtram por status, e um status que nao esta
+   em nenhuma lista some das tres — a campanha existia, ia disparar na
+   hora certa, e nao havia tela nenhuma onde consulta-la ou cancela-la. */
+type EmailStatus = "draft" | "agendada" | "sending" | "paused" | "completed" | "cancelled" | "failed";
 
 interface EmailCampaign {
   id: string;
@@ -34,12 +39,19 @@ interface EmailCampaign {
   sent_count: number;
   failed_count: number;
   created_at: string;
+  agendado_para?: string | null;
   email_connections?: { name: string } | null;
   _source?: "smtp" | "n8n";
 }
 
+/* agendado_para e nova e ainda nao esta em src/types/database.ts.
+   Regenerar aquele arquivo hoje quebra 105 outros pontos. So esta
+   consulta passa sem tipo; o resto do arquivo continua tipado. */
+const dbSemTipo = supabase as unknown as SupabaseClient;
+
 const STATUS_STYLE: Record<EmailStatus, { bg: string; color: string; border: string }> = {
   draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
+  agendada:  { bg: "rgba(168,85,247,0.12)",  color: "#c084fc", border: "rgba(168,85,247,0.28)"  },
   sending:   { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa", border: "rgba(59,130,246,0.3)"   },
   paused:    { bg: "rgba(245,158,11,0.1)",   color: "#fbbf24", border: "rgba(245,158,11,0.2)"   },
   completed: { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)"   },
@@ -49,6 +61,7 @@ const STATUS_STYLE: Record<EmailStatus, { bg: string; color: string; border: str
 
 const STATUS_LABELS: Record<EmailStatus, string> = {
   draft:     "Rascunho",
+  agendada:  "Agendada",
   sending:   "Enviando",
   paused:    "Pausado",
   completed: "Concluído",
@@ -69,7 +82,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   const [search,    setSearch]    = useState("");
   const [deleteId,  setDeleteId]  = useState<string | null>(null);
   const [actionId,  setActionId]  = useState<string | null>(null);
-  const [tab,       setTab]       = useState<"active" | "draft" | "history">("active");
+  const [tab,       setTab]       = useState<"active" | "agendadas" | "draft" | "history">("active");
 
   useEffect(() => { load(); }, []);
 
@@ -81,9 +94,9 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
         .select("id,name,subject,status,total_recipients,sent_count,failed_count,created_at,email_connections(name)")
         .eq("workspace_id", WORKSPACE_ID)
         .order("created_at", { ascending: false }),
-      supabase
+      dbSemTipo
         .from("shooting_campaigns")
-        .select("id,name,status,total_recipients,sent_count,failed_count,created_at,dispatch_channel")
+        .select("id,name,status,total_recipients,sent_count,failed_count,created_at,dispatch_channel,agendado_para")
         .eq("workspace_id", WORKSPACE_ID)
         .eq("dispatch_channel", "n8n_email")
         .order("created_at", { ascending: false }),
@@ -103,6 +116,7 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
       sent_count:       c.sent_count ?? 0,
       failed_count:     c.failed_count ?? 0,
       created_at:       c.created_at,
+      agendado_para:    (c as unknown as { agendado_para?: string | null }).agendado_para ?? null,
       email_connections: null,
       _source:          "n8n" as const,
     }));
@@ -182,11 +196,12 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
     toast({ title: "Campanha excluída" });
   }
 
-  const active  = campaigns.filter((c) => c.status === "sending" || c.status === "paused");
-  const drafts  = campaigns.filter((c) => c.status === "draft");
-  const history = campaigns.filter((c) => ["completed","cancelled","failed"].includes(c.status));
+  const active    = campaigns.filter((c) => c.status === "sending" || c.status === "paused");
+  const agendadas = campaigns.filter((c) => c.status === "agendada");
+  const drafts    = campaigns.filter((c) => c.status === "draft");
+  const history   = campaigns.filter((c) => ["completed","cancelled","failed"].includes(c.status));
 
-  const tabData: Record<string, EmailCampaign[]> = { active, draft: drafts, history };
+  const tabData: Record<string, EmailCampaign[]> = { active, agendadas, draft: drafts, history };
 
   const filtered = (tabData[tab] ?? []).filter(
     (c) =>
@@ -195,9 +210,10 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
   );
 
   const TABS = [
-    { id: "active",  label: "Em andamento", count: active.length  },
-    { id: "draft",   label: "Rascunhos",     count: drafts.length  },
-    { id: "history", label: "Histórico",     count: history.length },
+    { id: "active",    label: "Em andamento", count: active.length    },
+    { id: "agendadas", label: "Agendadas",    count: agendadas.length },
+    { id: "draft",     label: "Rascunhos",    count: drafts.length    },
+    { id: "history",   label: "Histórico",    count: history.length   },
   ];
 
   return (
@@ -338,6 +354,26 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
                         )}
                       </td>
                       <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                        {c.status === "agendada" && (
+                          <div className="flex items-center gap-2">
+                            {c.agendado_para && (
+                              <span className="text-[11px] text-agro-muted whitespace-nowrap">
+                                {new Date(c.agendado_para).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                              </span>
+                            )}
+                            {/* Cancelar grava 'cancelled', e o ticker so pega
+                                'agendada' — entao cancelar aqui realmente
+                                impede o disparo, nao so muda o rotulo. */}
+                            <button disabled={actionId === c.id}
+                              onClick={() => handleAction(c.id, "cancel")}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                              style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}
+                            >
+                              {actionId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              Cancelar
+                            </button>
+                          </div>
+                        )}
                         {!isN8N && c.status === "draft" && (
                           <button disabled={actionId === c.id}
                             onClick={() => handleAction(c.id, "start")}
