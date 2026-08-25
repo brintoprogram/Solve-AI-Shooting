@@ -91,6 +91,20 @@ export interface ImportStats {
   invoicesSkipped:  number;
   skipped:          number;
   errors:           string[];
+
+  /* ── Contabilidade do que NÃO entrou ──────────────────────────────
+     Antes existia um caminho pelo qual um boleto sumia sem aparecer em
+     contador nenhum: quando o contato dele não era encontrado, a linha virava
+     null e era filtrada fora. Não entrava em criados, nem em ignorados, nem em
+     erros. A pessoa via "12 boletos criados" numa planilha de 40 e não tinha
+     como saber que 28 evaporaram, nem por quê. */
+
+  /** Boletos descartados por não ter dono no sistema. */
+  invoicesSemDono:  number;
+  /** Linhas sem telefone e sem CPF: não há como identificar a pessoa. */
+  semChave:         number;
+  /** Linhas só com CPF, cujo CPF não existe na base. Não criam contato. */
+  cpfNaoEncontrado: number;
 }
 
 // ── Palavras-chave para auto-detecção ─────────────────────────────
@@ -643,13 +657,17 @@ export async function runImport(
     invoicesSkipped:  0,
     skipped:          0,
     errors:           [],
+    invoicesSemDono:  0,
+    semChave:         0,
+    cpfNaoEncontrado: 0,
   };
 
   // Separa linhas com phone e sem phone
   const withPhone    = rows.filter((r) => r.phone);
   const withoutPhone = rows.filter((r) => !r.phone && r.cpf_cnpj);
   const noKey        = rows.filter((r) => !r.phone && !r.cpf_cnpj);
-  stats.skipped += noKey.length;
+  stats.skipped  += noKey.length;
+  stats.semChave += noKey.length;
 
   // Mapa dedup de contatos (phone → dados mais completos)
   // skippedRows: linhas "perdedoras" do dedup com nome diferente —
@@ -718,7 +736,7 @@ export async function runImport(
 
     for (const r of withoutPhone) {
       const id = existingMap.get(r.cpf_cnpj!);
-      if (!id) { stats.skipped++; continue; }
+      if (!id) { stats.skipped++; stats.cpfNaoEncontrado++; continue; }
       cpfIdMap.set(r.cpf_cnpj!, id);
       await supabase.from("inbox_contacts").update(toContactRow(r, workspaceId, true)).eq("id", id);
       stats.contactsUpdated++;
@@ -737,7 +755,7 @@ export async function runImport(
         r.phone    ? phoneIdMap.get(phoneKey(r.phone))
         : r.cpf_cnpj ? cpfIdMap.get(r.cpf_cnpj)
         : undefined;
-      if (!cid) return null;
+      if (!cid) { stats.invoicesSemDono++; return null; }
       return {
         workspace_id:   workspaceId,
         contact_id:     cid,
@@ -818,6 +836,26 @@ export async function runImport(
       stats.invoicesCreated += chunk.length;
     }
     onProgress("Importando boletos…", Math.min(i + CHUNK, total3), total3);
+  }
+
+  /* ── A conta tem que fechar ────────────────────────────────────────
+     Toda linha que trazia boleto precisa ter terminado em um destes três
+     lugares: gravada, ignorada por já existir, ou sem dono. Se a soma não
+     bate, existe um caminho de perda que ninguém mapeou — e é exatamente
+     assim que a falha silenciosa nasce de novo, num refactor futuro.
+
+     Contabilidade que fecha é mais forte que contador: ela pega o erro que
+     ainda não foi cometido. */
+  const comBoleto = rows
+    .filter((r) => !skippedRows.has(r))
+    .filter((r) => r.inv_valor !== undefined || r.inv_vencimento).length;
+  const contabilizados = stats.invoicesCreated + stats.invoicesSkipped + stats.invoicesSemDono;
+
+  if (contabilizados !== comBoleto && stats.errors.length === 0) {
+    stats.errors.push(
+      `A planilha trazia ${comBoleto} boletos e só ${contabilizados} foram explicados. ` +
+      `${comBoleto - contabilizados} desapareceram sem motivo registrado — avise o suporte.`
+    );
   }
 
   return stats;

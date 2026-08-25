@@ -145,6 +145,56 @@ function SummaryView({ stats, onClose, onReset }: { stats: ImportStats; onClose:
         </div>
       )}
 
+      {/* O que NAO entrou, com o motivo. Um numero de "criados" menor que o
+          esperado sem nenhuma explicacao e o que faz a pessoa concluir que o
+          sistema esta quebrado — quando na maioria das vezes a planilha e que
+          nao tem como identificar aquelas linhas. */}
+      {(stats.invoicesSemDono > 0 || stats.semChave > 0 || stats.cpfNaoEncontrado > 0) && (
+        <div className="w-full max-w-sm rounded-xl border border-amber-900/40 bg-amber-950/20 p-3 space-y-2">
+          <p className="text-xs font-medium text-amber-300/90">O que não entrou</p>
+
+          {stats.invoicesSemDono > 0 && (
+            <div>
+              <p className="text-xs text-amber-300/90">
+                <span className="font-semibold">{stats.invoicesSemDono}</span>
+                {stats.invoicesSemDono === 1 ? " boleto ficou" : " boletos ficaram"} sem dono.
+              </p>
+              <p className="text-[11px] text-amber-300/60 mt-0.5 leading-relaxed">
+                O contato dessas linhas não foi encontrado nem criado, então não havia em quem
+                pendurar o boleto.
+              </p>
+            </div>
+          )}
+
+          {stats.semChave > 0 && (
+            <div>
+              <p className="text-xs text-amber-300/90">
+                <span className="font-semibold">{stats.semChave}</span>
+                {stats.semChave === 1 ? " linha não tinha" : " linhas não tinham"} telefone nem CPF.
+              </p>
+              <p className="text-[11px] text-amber-300/60 mt-0.5 leading-relaxed">
+                Sem um dos dois não há como saber de quem é a linha. Confira se a coluna de
+                telefone foi reconhecida na etapa anterior.
+              </p>
+            </div>
+          )}
+
+          {stats.cpfNaoEncontrado > 0 && (
+            <div>
+              <p className="text-xs text-amber-300/90">
+                <span className="font-semibold">{stats.cpfNaoEncontrado}</span>
+                {stats.cpfNaoEncontrado === 1 ? " linha tinha" : " linhas tinham"} só CPF, e esse CPF
+                não existe na base.
+              </p>
+              <p className="text-[11px] text-amber-300/60 mt-0.5 leading-relaxed">
+                Linha só com CPF atualiza quem já existe, mas não cria cliente novo. Para cadastrar,
+                a planilha precisa trazer o telefone.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {hasErrors && (
         <div className="w-full max-w-sm rounded-xl border border-red-900/40 bg-red-950/20 p-3">
           <p className="text-xs font-medium text-red-400 mb-2">Erros ({stats.errors.length})</p>
