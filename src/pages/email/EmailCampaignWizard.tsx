@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   Settings2, Users, FileText, CheckCircle,
   ChevronLeft, ChevronRight, Search, Mail, X, Plus,
-  AlertCircle, Info, Zap, Loader2, ChevronDown,
+  AlertCircle, Info, Zap, Loader2, ChevronDown, CalendarClock,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -54,6 +55,9 @@ interface WizardState {
   ccRepresentante: boolean;
   ccGerentes: boolean;
   totalRecipients: number;
+  /* Valor cru do input datetime-local ("2026-08-11T08:00"), no fuso de
+     quem esta olhando. Vazio = disparar na hora. */
+  agendadoPara: string;
   // N8N invoice filter
   invoiceVencFrom: string;
   invoiceVencTo: string;
@@ -76,6 +80,7 @@ const INITIAL: WizardState = {
   ccRepresentante: false,
   ccGerentes: false,
   totalRecipients: 0,
+  agendadoPara: "",
   invoiceVencFrom: "",
   invoiceVencTo: "",
   contactInvoices: {},
@@ -88,6 +93,12 @@ const SMTP_STEPS = [
   { id: 3, label: "Conteúdo",       subtitle: "Assunto & corpo",  icon: FileText   },
   { id: 4, label: "Confirmação",    subtitle: "Revisar & enviar", icon: CheckCircle},
 ];
+
+/* agendado_para e nova e ainda nao esta em src/types/database.ts.
+   Regenerar aquele arquivo hoje quebra 105 outros pontos — e tarefa
+   separada, nao efeito colateral deste recurso. So o insert da campanha
+   passa por aqui; o resto do arquivo continua tipado. */
+const dbSemTipo = supabase as unknown as SupabaseClient;
 
 const N8N_STEPS = [
   { id: 1, label: "Configuração",   subtitle: "Nome & canal",     icon: Settings2  },
@@ -282,7 +293,15 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
   async function handleSubmitN8N() {
     setSubmitting(true);
     try {
-      const { data: campaign, error: camErr } = await supabase
+      /* datetime-local devolve hora LOCAL sem fuso ("2026-08-11T08:00"). O
+         construtor de Date interpreta essa forma como local, entao toISOString
+         faz a conversao certa para UTC. Gravar a string crua no banco salvaria
+         8h UTC, que no Brasil sai as 5h da manha — o tipo de erro que so
+         aparece quando o cliente ja recebeu. */
+      const agendarPara = state.agendadoPara
+        ? new Date(state.agendadoPara).toISOString()
+        : null;
+      const { data: campaign, error: camErr } = await dbSemTipo
         .from("shooting_campaigns")
         .insert({
           workspace_id:       WORKSPACE_ID,
@@ -294,7 +313,13 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
           column_mapping:     {},
           filters:            {},
           total_recipients:   state.totalRecipients,
-          status:             "draft",
+          /* status 'agendada' e agendado_para sao as DUAS condicoes que o
+             ticker exige, e ambas sao novas. Nenhuma campanha anterior a este
+             recurso pode satisfaze-las — e assim que a "Safra Verao 2026", com
+             490 destinatarios parada em status 'scheduled', fica fora do
+             alcance do disparo automatico por estrutura, e nao por sorte. */
+          status:             agendarPara ? "agendada" : "draft",
+          agendado_para:      agendarPara,
           sending_speed:      0,
           error_summary:      {},
           created_by:         null,
@@ -354,14 +379,24 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
       if (!inserted || inserted.length === 0)
         throw new Error("Nenhuma mensagem foi gravada — tente novamente.");
 
-      await dispatchToN8N(campaign.id, WORKSPACE_ID, state.name.trim(), inserted);
+      if (agendarPara) {
+        /* Agendada: as mensagens ja estao gravadas e o ticker as encontra na
+           hora marcada. Nada sai agora, nem se esta aba ficar aberta. */
+        toast({
+          title: "Campanha agendada",
+          description: `${state.totalRecipients} emails sairao em ${new Date(agendarPara).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. Nao precisa deixar o site aberto.`,
+          variant: "success",
+        });
+      } else {
+        await dispatchToN8N(campaign.id, WORKSPACE_ID, state.name.trim(), inserted);
 
-      await supabase
-        .from("shooting_campaigns")
-        .update({ status: "sending", started_at: new Date().toISOString() })
-        .eq("id", campaign.id);
+        await supabase
+          .from("shooting_campaigns")
+          .update({ status: "sending", started_at: new Date().toISOString() })
+          .eq("id", campaign.id);
 
-      toast({ title: "Campanha disparada!", description: `${state.totalRecipients} emails enviados com sucesso.`, variant: "success" });
+        toast({ title: "Campanha disparada!", description: `${state.totalRecipients} emails enviados com sucesso.`, variant: "success" });
+      }
       onCreated();
       onClose();
     } catch (err) {
@@ -490,7 +525,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
               {step === 1 && <Step1 state={state} emailConns={emailConns} onChange={patch} />}
               {step === 2 && <Step2 state={state} onChange={patch} />}
               {step === 3 && state.dispatchChannel === "n8n_email" && (
-                <N8NConfirmationStep state={state} onSubmit={handleSubmit} submitting={submitting} />
+                <N8NConfirmationStep state={state} onChange={patch} onSubmit={handleSubmit} submitting={submitting} />
               )}
               {step === 3 && state.dispatchChannel === "smtp" && <Step3 state={state} onChange={patch} />}
               {step === 4 && state.dispatchChannel === "smtp" && (
@@ -803,12 +838,24 @@ function N8NEmailPreview({ state, workspaceId }: { state: WizardState; workspace
 
 // ── N8N Confirmation Step ────────────────────────────────────────
 
-function N8NConfirmationStep({ state, onSubmit, submitting }: {
+/** Agora, no formato que o input datetime-local espera, no fuso de quem esta
+ *  olhando. Serve de minimo: agendar para o passado nao e agendar. */
+function agoraLocal(): string {
+  const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000);
+  return d.toISOString().slice(0, 16);
+}
+
+function N8NConfirmationStep({ state, onChange, onSubmit, submitting }: {
   state: WizardState;
+  onChange: (p: Partial<WizardState>) => void;
   onSubmit: () => void;
   submitting: boolean;
 }) {
   const { workspaceId } = useAuth();
+  const agendado = state.agendadoPara !== "";
+  const quando   = agendado ? new Date(state.agendadoPara) : null;
+  const noPassado = quando !== null && quando.getTime() <= Date.now();
+  const fuso = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const hasInvoices = Object.keys(state.contactInvoices).length > 0;
   const totalValor  = hasInvoices
     ? state.contacts.reduce((sum, c) => {
@@ -873,22 +920,85 @@ function N8NConfirmationStep({ state, onSubmit, submitting }: {
 
       <N8NEmailPreview state={state} workspaceId={workspaceId ?? ""} />
 
+      {/* ── Quando enviar ─────────────────────────────────────── */}
+      <div className="p-4 rounded-xl space-y-3"
+        style={{ background: "rgba(63,176,108,0.05)", border: "1px solid rgba(63,176,108,0.14)" }}
+      >
+        <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">Quando enviar</p>
+
+        <div className="grid grid-cols-2 gap-3">
+          {([false, true] as const).map((ag) => (
+            <button
+              key={String(ag)}
+              type="button"
+              onClick={() => onChange({ agendadoPara: ag ? agoraLocal() : "" })}
+              className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl text-left transition-all"
+              style={{
+                background: agendado === ag ? "rgba(63,176,108,0.12)" : "rgba(13,26,17,0.5)",
+                border: agendado === ag ? "1px solid rgba(63,176,108,0.4)" : "1px solid rgba(63,176,108,0.1)",
+              }}
+            >
+              {ag ? <CalendarClock className="w-4 h-4 text-agro-green shrink-0" />
+                  : <Zap className="w-4 h-4 text-agro-green shrink-0" />}
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-agro-text">{ag ? "Agendar" : "Enviar agora"}</span>
+                <span className="block text-[11px] text-agro-muted-2 leading-tight mt-0.5">
+                  {ag ? "sai sozinho na hora marcada" : "sai ao confirmar"}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {agendado && (
+          <div className="space-y-2">
+            <input
+              type="datetime-local"
+              value={state.agendadoPara}
+              min={agoraLocal()}
+              onChange={(e) => onChange({ agendadoPara: e.target.value })}
+              className="w-full bg-[#0d1710] border border-[#2a3d30] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3fb06c]"
+            />
+            {/* Repetir a data por extenso nao e redundancia: o campo mostra
+                11/08/2026 08:00, e e exatamente essa forma que a pessoa le
+                errado. E o fuso vai junto porque o servidor esta em UTC. */}
+            {quando && !noPassado && (
+              <p className="text-xs text-agro-muted leading-relaxed">
+                Sai em <strong className="text-agro-text">
+                  {quando.toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}
+                </strong>
+                <span className="text-agro-muted-2"> · horário de {fuso}</span>
+              </p>
+            )}
+            {noPassado && (
+              <p className="text-xs text-amber-400">
+                Esse horário já passou. Escolha um momento no futuro.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-start gap-3 p-4 rounded-xl"
         style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)" }}
       >
         <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
         <p className="text-sm text-amber-400">
-          O disparo acontece imediatamente ao confirmar. Os emails serão processados e os status atualizados automaticamente.
+          {agendado
+            ? "Nada é enviado agora. Na hora marcada o sistema dispara sozinho, mesmo com o site fechado."
+            : "O disparo acontece imediatamente ao confirmar. Os emails serão processados e os status atualizados automaticamente."}
         </p>
       </div>
 
       <button
         onClick={onSubmit}
-        disabled={submitting}
-        className="btn-agro w-full flex items-center justify-center gap-3 py-3.5 rounded-xl text-base font-semibold text-white disabled:opacity-60"
+        disabled={submitting || noPassado}
+        className="btn-agro w-full flex items-center justify-center gap-3 py-3.5 rounded-xl text-base font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-        {submitting ? "Disparando…" : "Confirmar disparo"}
+        {submitting ? <Loader2 className="w-5 h-5 animate-spin" />
+          : agendado ? <CalendarClock className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+        {submitting ? (agendado ? "Agendando…" : "Disparando…")
+          : agendado ? "Agendar disparo" : "Confirmar disparo"}
       </button>
     </div>
   );
