@@ -6,6 +6,7 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { phoneKey } from "./format";
 
 // ── Tipos públicos ────────────────────────────────────────────────
@@ -721,6 +722,11 @@ export function applyMapping(
 
 // ── Import principal (Upsert inteligente) ─────────────────────────
 
+/* importar_contatos e nova e ainda nao esta em src/types/database.ts.
+   Regenerar aquele arquivo hoje quebra 105 outros pontos — tarefa
+   separada. So a chamada da funcao passa sem tipo. */
+const dbSemTipo = supabase as unknown as SupabaseClient;
+
 const CHUNK = 80; // seguro abaixo do limite do PostgREST
 
 
@@ -780,20 +786,30 @@ export async function runImport(
     const chunk = contactsWithPhone.slice(i, i + CHUNK);
     const rows_ = chunk.map((r) => toContactRow(r, workspaceId));
 
-    const { data, error } = await supabase
-      .from("inbox_contacts")
-      .upsert(rows_, { onConflict: "workspace_id,phone", ignoreDuplicates: false })
-      .select("id, phone, cpf_cnpj");
+    /* Passa pela funcao do banco em vez do upsert direto.
+    
+       O upsert mandava TODOS os campos, e os ausentes iam como null: o
+       ON CONFLICT DO UPDATE grava o que recebe, entao uma planilha de cobranca
+       com telefone, valor e vencimento zerava e-mail, empresa, endereco e tags
+       de todo cliente que ja existia. Provado em transacao desfeita.
+       
+       A regra certa e COALESCE campo a campo, e isso nao da para expressar
+       daqui — o PostgREST monta o SET a partir das colunas que chegam. Por
+       isso a decisao mora no banco. */
+    const { data, error } = await dbSemTipo.rpc("importar_contatos", {
+      p_workspace_id: workspaceId,
+      p_linhas: rows_,
+    });
 
     if (error) {
       stats.errors.push(`Contatos chunk ${i}: ${error.message}`);
     } else if (data) {
-      for (const c of data) {
+      for (const c of data as unknown as { id_contato: string; telefone: string | null; documento: string | null }[]) {
         // Chave canonica: o mesmo telefone chega com e sem o codigo do pais
         // dependendo da planilha. Sem normalizar, o boleto de uma linha nao
         // encontrava o contato criado por outra e ficava orfao.
-        if (c.phone)    phoneIdMap.set(phoneKey(c.phone), c.id);
-        if (c.cpf_cnpj) cpfIdMap.set(c.cpf_cnpj, c.id);
+        if (c.telefone)  phoneIdMap.set(phoneKey(c.telefone), c.id_contato);
+        if (c.documento) cpfIdMap.set(c.documento, c.id_contato);
       }
       // Conta inseridos vs atualizados (Supabase não diferencia, estimamos)
       stats.contactsInserted += chunk.length;
