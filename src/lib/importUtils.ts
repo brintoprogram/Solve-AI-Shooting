@@ -238,13 +238,44 @@ export function autoDetect(headers: string[]): Mapping {
 
 // ── Limpeza / parsing de tipos ────────────────────────────────────
 
-/** Remove tudo exceto dígitos (e + inicial para E.164) */
+/**
+ * Telefone em formato único: só dígitos, sempre com o 55.
+ *
+ * A versão anterior tinha um comentário dizendo "garante que números
+ * brasileiros sem DDI ficam com 55" — e o código só removia pontuação. O
+ * comentário descrevia a intenção; a intenção não chega ao banco.
+ *
+ * O custo disso não era cosmético. O contato é identificado por
+ * workspace_id + phone comparando o TEXTO gravado, então "18997254812" e
+ * "5518997254812" eram duas pessoas diferentes. O mesmo cliente virava dois
+ * cadastros conforme o formato da planilha do mês, com a dívida partida entre
+ * os dois: a cobrança via metade, e a IA negociava sobre metade.
+ *
+ * Número que não tem cara de brasileiro passa como está — inventar o 55 em
+ * cima de um número estrangeiro seria estragar um dado bom.
+ */
 export function cleanPhone(raw: unknown): string {
-  const s = String(raw ?? "").trim();
-  const cleaned = s.replace(/[^\d+]/g, "");
-  // Garante que números brasileiros sem DDD internacional ficam com 55
-  // mas não força se já começar com + ou 55
-  return cleaned;
+  const digitos = String(raw ?? "").replace(/\D/g, "");
+  if (!digitos) return "";
+
+  // Já vem com o código do país.
+  if (digitos.startsWith("55") && (digitos.length === 12 || digitos.length === 13)) return digitos;
+
+  // Nacional: 10 (fixo) ou 11 (celular) dígitos, com DDD.
+  //
+  // Conferir só o tamanho não basta: um número americano como
+  // +1 415 555 2671 tem 11 dígitos e começa em "14", que é um DDD válido no
+  // Brasil — e virava 5514155552671, um número que não existe. O que separa é
+  // a FORMA: celular brasileiro tem 9 logo depois do DDD desde 2016, e fixo
+  // começa entre 2 e 5.
+  const ddd = Number(digitos.slice(0, 2));
+  const apos = digitos.charAt(2);
+  if (ddd >= 11 && ddd <= 99) {
+    if (digitos.length === 11 && apos === "9") return `55${digitos}`;
+    if (digitos.length === 10 && apos >= "2" && apos <= "5") return `55${digitos}`;
+  }
+
+  return digitos;
 }
 
 /** Remove pontos, traços, barras — só dígitos */
@@ -506,11 +537,19 @@ export function interpretar(campo: FieldKey, bruto: unknown, ordem: OrdemData = 
       return { lido: `${Number(d)} de ${MESES[Number(m) - 1]} de ${a}`, ok: true };
     }
     case "telefone": {
-      const t = cleanPhone(bruto);
-      // Telefone curto demais não é erro de formato, é linha que não vai
-      // receber nada. Melhor dizer agora do que na hora do disparo.
-      if (t.replace(/\D/g, "").length < 12) return { lido: `${t || String(bruto)} — curto demais`, ok: false };
-      return { lido: t, ok: true };
+      const d = cleanPhone(bruto).replace(/\D/g, "");
+      /* Eu tinha exigido 12 dígitos aqui, o que só aceita número que JÁ venha
+         com o 55. Celular brasileiro escrito como a pessoa escreve —
+         (18) 99725-4812 — tem 11, e a tela marcou 519 de 528 linhas válidas
+         como "curto demais". O erro era meu, não da planilha. */
+      const nacional = d.startsWith("55") && d.length >= 12 ? d.slice(2) : d;
+      if (nacional.length < 10 || nacional.length > 11) {
+        return { lido: `${String(bruto)} — não parece um telefone`, ok: false };
+      }
+      // Mostra COM o 55, que é a forma que o WhatsApp exige. Ver o número já
+      // completo é o que responde "e o código do país, entra sozinho?".
+      const completo = `55${nacional}`;
+      return { lido: completo, ok: true };
     }
     case "documento": {
       const d = cleanDocument(bruto);
