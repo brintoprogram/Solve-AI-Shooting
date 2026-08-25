@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import {
   MAPPABLE_FIELDS, autoDetectDetalhado, analisarColunaDeData, interpretar, tipoDoCampo,
+  pareceTelefone,
   type ParsedFile, type Mapping, type FieldKey, type OrdemData, type Confianca,
 } from "@/lib/importUtils";
 
@@ -92,6 +93,28 @@ export function LeituraDaPlanilha({
   const reconhecidas = parsed.headers.filter((h) => mapping[h]).length;
   const ignoradas    = parsed.headers.length - reconhecidas;
 
+  /* O sistema identifica contato pelo TELEFONE. Sem uma coluna de telefone,
+     nenhuma linha tem como ser atribuída a alguém e a importação inteira
+     grava zero — foi o que aconteceu com uma planilha de 528 linhas cuja
+     coluna "NUMERO CLIENTE" foi lida como número de endereço.
+     
+     O cabeçalho enganou; o conteúdo, não. Por isso a sugestão olha os dados. */
+  const temTelefone = parsed.headers.some((h) => mapping[h] === "phone");
+  const temCpf      = parsed.headers.some((h) => mapping[h] === "cpf_cnpj");
+
+  const candidatoTelefone = useMemo(() => {
+    if (temTelefone) return null;
+    return parsed.headers.find((_, i) => pareceTelefone(parsed.rows.map((r) => r[i]))) ?? null;
+  }, [parsed, temTelefone]);
+
+  const usarComoTelefone = (header: string) => {
+    const novo: Mapping = { ...mapping };
+    // Libera o campo de quem estiver com ele, senão dois cabeçalhos disputam.
+    for (const h of Object.keys(novo)) if (novo[h] === "phone") novo[h] = "";
+    novo[header] = "phone";
+    setMapping(novo);
+  };
+
   /* Amostra e contagem de problemas de TODAS as colunas, numa passada só e
      memoizadas.
      
@@ -136,6 +159,40 @@ export function LeituraDaPlanilha({
         <span className="text-[#3fb06c]">{reconhecidas} colunas reconhecidas</span>
         {ignoradas > 0 && <><span>·</span><span>{ignoradas} ignoradas</span></>}
       </div>
+
+      {/* ── Sem telefone, nada entra ─────────────────────────────── */}
+      {!temTelefone && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-start gap-2.5"
+          style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.3)" }}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#f87171" }} />
+          <div className="min-w-0 flex-1 text-xs leading-relaxed">
+            <p className="text-white/90">
+              <strong>Nenhuma coluna está sendo lida como telefone.</strong>{" "}
+              {temCpf
+                ? "As linhas só vão atualizar contatos que já existem — nenhum cliente novo será criado."
+                : `Sem telefone o sistema não consegue saber de quem é cada linha, e as ${parsed.rows.length} linhas serão ignoradas.`}
+            </p>
+            {candidatoTelefone && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-agro-muted">
+                  A coluna <span className="font-mono text-agro-text">{candidatoTelefone}</span> parece
+                  conter telefones.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => usarComoTelefone(candidatoTelefone)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white"
+                  style={{ background: "rgba(63,176,108,0.9)" }}
+                >
+                  Usar como telefone
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Ordem das datas ─────────────────────────────────────────
           Só aparece quando existe coluna de data, porque fora daí é uma

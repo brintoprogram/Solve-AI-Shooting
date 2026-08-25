@@ -527,6 +527,39 @@ export function interpretar(campo: FieldKey, bruto: unknown, ordem: OrdemData = 
   }
 }
 
+/**
+ * A coluna parece conter telefones?
+ *
+ * Existe porque o cabeçalho engana e o CONTEÚDO não. "NUMERO CLIENTE" foi lido
+ * como número de endereço — casou a palavra "número" — enquanto carregava
+ * "(18) 99725-4812" em todas as linhas. O sistema identifica contato pelo
+ * telefone, então uma planilha inteira de 528 linhas foi importada como zero.
+ *
+ * Olhar o dado desfaz o engano do nome: telefone brasileiro tem 10 a 13
+ * dígitos e DDD entre 11 e 99. Exige maioria clara, não uma linha solta, para
+ * não sugerir bobagem em cima de uma coincidência.
+ */
+export function pareceTelefone(valores: unknown[]): boolean {
+  let comConteudo = 0;
+  let telefones = 0;
+  for (const v of valores) {
+    if (v === null || v === undefined || String(v).trim() === "") continue;
+    comConteudo++;
+    const d = String(v).replace(/\D/g, "");
+    if (d.length < 10 || d.length > 13) continue;
+    const semPais = d.startsWith("55") && d.length >= 12 ? d.slice(2) : d;
+    const ddd = Number(semPais.slice(0, 2));
+    if (ddd < 11 || ddd > 99) continue;
+    // CPF tambem tem 11 digitos, entao contar so o tamanho classificaria uma
+    // coluna de documento como telefone. O que separa os dois e a forma do
+    // numero: celular tem 9 logo depois do DDD, fixo comeca entre 2 e 5.
+    const primeiro = semPais.charAt(2);
+    if (semPais.length === 11 && primeiro === "9") telefones++;
+    else if (semPais.length === 10 && primeiro >= "2" && primeiro <= "5") telefones++;
+  }
+  return comConteudo >= 3 && telefones / comConteudo >= 0.7;
+}
+
 const VALID_STATUSES = new Set(["pendente", "pago", "vencido", "cancelado"]);
 
 function parseStatus(raw: unknown): string {
