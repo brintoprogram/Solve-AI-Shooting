@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { LeituraDaPlanilha } from "./LeituraDaPlanilha";
+import { log } from "@/lib/logger";
 import {
   listarPerfis, melhorPerfil, aplicarPerfil, salvarPerfil, registrarUso,
   type PerfilDeImportacao,
@@ -306,13 +307,29 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
   async function handleImport() {
     if (!parsed) return;
-    const mappedRows = applyMapping(parsed.headers, parsed.rows, mapping, ordemData);
-    const workspaceId = workspaceIdAuth ?? "";
 
-    setStep("importing");
-    setProgress({ phase: "Preparando…", done: 0, total: mappedRows.length });
-
+    /* TUDO dentro do try, e este e o ponto.
+    
+       applyMapping ficava FORA dele. Uma excecao ali escapava como rejeicao
+       nao tratada: a tela ficava exatamente onde estava, sem mensagem, sem
+       progresso, sem nada — o clique em "Importar" simplesmente nao produzia
+       efeito visivel. E o modo de falhar mais cruel que existe, porque nao da
+       nem o que pesquisar.
+       
+       O workspace tambem passou a ser conferido antes: sem ele, toda linha ia
+       para o banco com workspace_id vazio e os 528 registros falhavam de uma
+       vez, por um motivo que a tela nao tinha como explicar. */
     try {
+      const workspaceId = workspaceIdAuth ?? "";
+      if (!workspaceId) {
+        throw new Error("Nenhum workspace selecionado. Recarregue a página e tente de novo.");
+      }
+
+      const mappedRows = applyMapping(parsed.headers, parsed.rows, mapping, ordemData);
+
+      setStep("importing");
+      setProgress({ phase: "Preparando…", done: 0, total: mappedRows.length });
+
       const result = await runImport(mappedRows, workspaceId, (phase, done, total) => {
         setProgress({ phase, done, total });
       });
@@ -323,7 +340,12 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
       if (perfil) void registrarUso(perfil.perfil, mapping, ordemData);
       onSuccess?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro durante importação.");
+      const detalhe = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      log.error("importacao_falhou", { err: detalhe.slice(0, 900) });
+      setError(
+        (err instanceof Error ? err.message : "Erro durante importação.") +
+        " — abra o console do navegador (F12) para o detalhe completo."
+      );
       setStep("mapping");
     }
   }
