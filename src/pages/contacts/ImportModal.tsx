@@ -3,11 +3,12 @@ import { LeituraDaPlanilha } from "./LeituraDaPlanilha";
 import { log } from "@/lib/logger";
 import {
   listarPerfis, melhorPerfil, aplicarPerfil, salvarPerfil, registrarUso,
+  desfazerImportacao,
   type PerfilDeImportacao,
 } from "@/lib/perfisDeImportacao";
 import {
   X, Upload, FileSpreadsheet, Loader2,
-  CheckCircle2, AlertCircle, RotateCcw, Bookmark, BookmarkCheck,
+  CheckCircle2, AlertCircle, RotateCcw, Bookmark, BookmarkCheck, Undo2,
 } from "lucide-react";
 import {
   Mapping, ParsedFile, OrdemData,
@@ -258,10 +259,14 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const [salvando, setSalvando] = useState(false);
   const [salvo,    setSalvo]    = useState(false);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
+  const [nomeArquivo, setNomeArquivo] = useState<string | null>(null);
+  const [desfazendo, setDesfazendo] = useState(false);
+  const [desfeito,   setDesfeito]   = useState<string | null>(null);
 
   async function handleFile(file: File) {
     setParsing(true);
     setError(null);
+    setNomeArquivo(file.name);
     try {
       const result = await parseFile(file);
       if (result.headers.length === 0) throw new Error("Arquivo sem colunas detectáveis.");
@@ -332,7 +337,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
       const result = await runImport(mappedRows, workspaceId, (phase, done, total) => {
         setProgress({ phase, done, total });
-      });
+      }, nomeArquivo ?? undefined);
       setStats(result);
       setStep("done");
       /* Depois do sucesso: o mapeamento acabou de ser conferido por uma pessoa
@@ -358,6 +363,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     setError(null);
     setProgress({ phase: "", done: 0, total: 0 });
     setPerfil(null);
+    setDesfeito(null);
     setAutoBase({});
     setNomeNovo("");
     setSalvo(false);
@@ -514,7 +520,39 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
                 </div>
               )}
 
-              {salvo && (
+              {/* Desfazer, enquanto o modal está aberto e a pessoa ainda lembra do que
+          acabou de fazer. É o oposto de descobrir amanhã que a planilha estava
+          errada e ter 200 registros para caçar à mão. */}
+      {stats.runId && !desfeito && (stats.contactsInserted > 0 || stats.invoicesCreated > 0) && (
+        <button
+          type="button"
+          disabled={desfazendo}
+          onClick={async () => {
+            setDesfazendo(true);
+            const r = await desfazerImportacao(stats.runId as string);
+            setDesfazendo(false);
+            if (r.ok) { setDesfeito(r.resumo ?? "Importação desfeita."); onSuccess?.(); }
+            else setDesfeito(null);
+            if (!r.ok) setError(r.erro ?? "Não foi possível desfazer.");
+          }}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#2a3d30] text-[#6b7f6e] text-sm hover:border-red-500/40 hover:text-red-300 transition-colors disabled:opacity-50"
+        >
+          <Undo2 className="w-4 h-4" />
+          {desfazendo ? "Desfazendo…" : "Desfazer esta importação"}
+        </button>
+      )}
+
+      {desfeito && (
+        <div className="w-full max-w-sm rounded-xl border border-[#2a3d30] bg-[#111a14] p-3">
+          <p className="text-xs text-white/85">{desfeito}</p>
+          <p className="text-[11px] text-[#6b7f6e] mt-1 leading-relaxed">
+            Contatos que já existiam antes voltaram ao estado anterior. Quem já tinha conversa
+            no inbox foi mantido, para não apagar histórico de atendimento.
+          </p>
+        </div>
+      )}
+
+      {salvo && (
                 <p className="mt-4 text-xs text-[#3fb06c] flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Formato guardado. Na próxima importação eu reconheço sozinho.

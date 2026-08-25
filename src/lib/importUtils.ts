@@ -106,6 +106,9 @@ export interface ImportStats {
   semChave:         number;
   /** Linhas só com CPF, cujo CPF não existe na base. Não criam contato. */
   cpfNaoEncontrado: number;
+
+  /** O lote desta importação. Com ele dá para desfazer tudo depois. */
+  runId?: string | null;
 }
 
 // ── Palavras-chave para auto-detecção ─────────────────────────────
@@ -734,6 +737,7 @@ export async function runImport(
   rows:        MappedRow[],
   workspaceId: string,
   onProgress:  (phase: string, done: number, total: number) => void,
+  arquivo?:    string,
 ): Promise<ImportStats> {
   const stats: ImportStats = {
     contactsInserted: 0,
@@ -746,6 +750,26 @@ export async function runImport(
     semChave:         0,
     cpfNaoEncontrado: 0,
   };
+
+  /* Abre o lote ANTES de escrever qualquer coisa. Sem ele a importação
+     acontece e não há a que voltar — e o caso que dói é justamente o meio
+     termo: 200 linhas entraram, 200 falharam, e apagar as 200 na mão antes de
+     tentar de novo e algo que ninguem faz. Reimporta por cima, duplica o que
+     der, e a base piora a cada tentativa. */
+  let runId: string | null = null;
+  try {
+    const { data: run } = await dbSemTipo
+      .from("import_runs")
+      .insert({ workspace_id: workspaceId, arquivo: arquivo ?? null, linhas: rows.length })
+      .select("id")
+      .single();
+    runId = (run as { id?: string } | null)?.id ?? null;
+  } catch {
+    // Sem lote a importação segue: poder desfazer é bom, mas não poder
+    // importar é pior.
+    runId = null;
+  }
+  stats.runId = runId;
 
   // Separa linhas com phone e sem phone
   const withPhone    = rows.filter((r) => r.phone);
@@ -799,6 +823,7 @@ export async function runImport(
     const { data, error } = await dbSemTipo.rpc("importar_contatos", {
       p_workspace_id: workspaceId,
       p_linhas: rows_,
+      p_run_id: runId,
     });
 
     if (error) {
@@ -924,13 +949,36 @@ export async function runImport(
 
   for (let i = 0; i < novos.length; i += CHUNK) {
     const chunk = novos.slice(i, i + CHUNK);
-    const { error } = await supabase.from("contact_invoices").insert(chunk);
+    const { data: criados, error } = await supabase
+      .from("contact_invoices").insert(chunk).select("id");
     if (error) {
       stats.errors.push(`Boletos chunk ${i}: ${error.message}`);
     } else {
       stats.invoicesCreated += chunk.length;
+      // Anota quais boletos nasceram deste lote, para o desfazer saber
+      // exatamente o que apagar — e, principalmente, o que NÃO apagar.
+      if (runId && criados?.length) {
+        try {
+          await dbSemTipo.from("import_run_items").insert(
+            criados.map((b: { id: string }) => ({
+              run_id: runId, workspace_id: workspaceId,
+              tipo: "boleto_criado", boleto_id: b.id,
+            })),
+          );
+        } catch { /* o boleto entrou; perder o registro do lote nao o desfaz */ }
+      }
     }
     onProgress("Importando boletos…", Math.min(i + CHUNK, total3), total3);
+  }
+
+  if (runId) {
+    try {
+      await dbSemTipo.from("import_runs").update({
+        contatos_criados:     stats.contactsInserted,
+        contatos_atualizados: stats.contactsUpdated,
+        boletos_criados:      stats.invoicesCreated,
+      }).eq("id", runId);
+    } catch { /* numeros do relatorio, nao do desfazer */ }
   }
 
   /* ── A conta tem que fechar ────────────────────────────────────────

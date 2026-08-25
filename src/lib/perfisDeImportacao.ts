@@ -174,3 +174,37 @@ export async function registrarUso(
     }).eq("id", perfil.id);
   } catch { /* ver o comentário do topo */ }
 }
+
+// ── Desfazer uma importação ───────────────────────────────────────
+
+export interface ResultadoDesfazer {
+  ok: boolean;
+  resumo?: string;
+  erro?: string;
+}
+
+/**
+ * Devolve a base ao estado anterior a uma importação.
+ *
+ * Ao contrário do resto deste arquivo, esta NÃO falha em silêncio: quem clicou
+ * em desfazer precisa saber se desfez. Silêncio aqui faria a pessoa achar que
+ * a base voltou quando não voltou, e é justamente o momento em que ela vai
+ * reimportar por cima.
+ */
+export async function desfazerImportacao(runId: string): Promise<ResultadoDesfazer> {
+  try {
+    const { data, error } = await db.rpc("desfazer_importacao", { p_run_id: runId });
+    if (error) return { ok: false, erro: error.message };
+
+    const r = (data ?? {}) as Record<string, number>;
+    const partes: string[] = [];
+    if (r.boletos_removidos)    partes.push(`${r.boletos_removidos} boleto(s) removido(s)`);
+    if (r.contatos_removidos)   partes.push(`${r.contatos_removidos} contato(s) removido(s)`);
+    if (r.contatos_restaurados) partes.push(`${r.contatos_restaurados} contato(s) restaurado(s)`);
+    if (r.contatos_mantidos)    partes.push(`${r.contatos_mantidos} mantido(s) por já ter conversa`);
+
+    return { ok: true, resumo: partes.length ? partes.join(" · ") : "Nada havia para desfazer." };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : "Falha ao desfazer." };
+  }
+}
