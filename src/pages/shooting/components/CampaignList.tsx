@@ -20,8 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { CampaignWithTemplate, CampaignStatus } from "@/types/shooting";
-import { STATUS_LABELS, asCampaignStatus } from "@/types/shooting";
+import type { CampaignWithTemplate } from "@/types/shooting";
+import { STATUS_LABELS, asCampaignStatus, estiloDoStatus } from "@/types/shooting";
 import { calcPercent } from "@/lib/utils";
 
 const CHANNEL_CONFIG = {
@@ -51,15 +51,6 @@ function ChannelBadge({ campaign }: { campaign: CampaignWithTemplate }) {
   );
 }
 
-const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: string }> = {
-  draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
-  scheduled: { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)"   },
-  sending:   { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa", border: "rgba(59,130,246,0.3)"   },
-  paused:    { bg: "rgba(245,158,11,0.1)",   color: "#fbbf24", border: "rgba(245,158,11,0.2)"   },
-  completed: { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)"   },
-  cancelled: { bg: "rgba(107,114,128,0.08)", color: "#6b7280", border: "rgba(107,114,128,0.15)" },
-  failed:    { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)"    },
-};
 
 interface CampaignListProps {
   campaigns: CampaignWithTemplate[];
@@ -145,7 +136,7 @@ export function CampaignList({ campaigns, loading, onDelete, onAction }: Campaig
                 // Status e contadores sao nulaveis no banco; normaliza uma vez
                 // por linha em vez de espalhar ?? por cada uso.
                 const status    = asCampaignStatus(c.status);
-                const st        = STATUS_STYLE[status];
+                const st        = estiloDoStatus(status);
                 const enviadas  = c.sent_count       ?? 0;
                 const entregues = c.delivered_count  ?? 0;
                 const lidas     = c.read_count       ?? 0;

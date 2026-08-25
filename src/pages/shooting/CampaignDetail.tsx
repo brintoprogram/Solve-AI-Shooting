@@ -17,19 +17,9 @@ import { supabase } from "@/lib/supabase";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import type { CampaignStatus } from "@/types/shooting";
-import { STATUS_LABELS } from "@/types/shooting";
+import { estiloDoStatus, rotuloDoStatus } from "@/types/shooting";
 import { formatBRL } from "@/lib/format";
 
-const STATUS_STYLE: Record<CampaignStatus, { bg: string; color: string; border: string }> = {
-  draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
-  scheduled: { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)"   },
-  sending:   { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa", border: "rgba(59,130,246,0.3)"   },
-  paused:    { bg: "rgba(245,158,11,0.1)",   color: "#fbbf24", border: "rgba(245,158,11,0.2)"   },
-  completed: { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)"   },
-  cancelled: { bg: "rgba(107,114,128,0.08)", color: "#6b7280", border: "rgba(107,114,128,0.15)" },
-  failed:    { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)"    },
-};
 
 
 interface TimelineBucket {
@@ -631,7 +621,7 @@ export function CampaignDetail() {
     );
   }
 
-  const st = STATUS_STYLE[campaign.status];
+  const st = estiloDoStatus(campaign.status);
 
   return (
     <div className="min-h-screen transition-colors duration-300" style={{ background: T.pageBg }}>
@@ -689,7 +679,7 @@ export function CampaignDetail() {
                   {campaign.status === "sending" && (
                     <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                   )}
-                  {STATUS_LABELS[campaign.status]}
+                  {rotuloDoStatus(campaign.status)}
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-agro-muted flex-wrap" style={{ color: T.muted }}>

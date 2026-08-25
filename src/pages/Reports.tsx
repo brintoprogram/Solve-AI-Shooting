@@ -69,6 +69,7 @@ interface AuditLog {
 const CAMP_STATUS: Record<string, { label: string; bg: string; color: string; border: string }> = {
   draft:     { label: "Rascunho",  bg: "rgba(107,114,128,0.12)", color: "#9ca3af", border: "rgba(107,114,128,0.25)" },
   scheduled: { label: "Agendado",  bg: "rgba(59,130,246,0.12)",  color: "#60a5fa", border: "rgba(59,130,246,0.25)"  },
+  agendada:  { label: "Agendada",  bg: "rgba(168,85,247,0.12)",  color: "#c084fc", border: "rgba(168,85,247,0.28)" },
   sending:   { label: "Enviando",  bg: "rgba(63,176,108,0.15)",  color: "#3fb06c", border: "rgba(63,176,108,0.35)"  },
   paused:    { label: "Pausado",   bg: "rgba(245,158,11,0.12)",  color: "#fbbf24", border: "rgba(245,158,11,0.25)"  },
   completed: { label: "Concluído", bg: "rgba(63,176,108,0.12)",  color: "#3fb06c", border: "rgba(63,176,108,0.25)"  },

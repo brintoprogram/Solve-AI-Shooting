@@ -110,7 +110,7 @@ async function fetchCampaignsForExport(workspaceId: string, periodStart: string 
 
 function campStatus(s: string) {
   const MAP: Record<string, string> = {
-    draft: "Rascunho", scheduled: "Agendado", sending: "Enviando",
+    draft: "Rascunho", scheduled: "Agendado", agendada: "Agendada", sending: "Enviando",
     paused: "Pausado", completed: "Concluído", cancelled: "Cancelado", failed: "Falhou",
   };
   return MAP[s] ?? s;
@@ -418,7 +418,7 @@ export function Dashboard() {
       if (y > 165) { doc.addPage(); y = MX; }
       y = sectionBar("CAMPANHAS DO PERÍODO", y);
       const STATUS_PT: Record<string, string> = {
-        draft: "Rascunho", scheduled: "Agendado", sending: "Enviando",
+        draft: "Rascunho", scheduled: "Agendado", agendada: "Agendada", sending: "Enviando",
         paused: "Pausado", completed: "Concluído", cancelled: "Cancelado", failed: "Falhou",
       };
       const statusColIdx = 2;

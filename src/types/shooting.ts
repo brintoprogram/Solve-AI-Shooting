@@ -111,7 +111,7 @@ export type MessageStatus =
   | "replied" | "failed" | "undeliverable";
 
 export type CampaignStatus =
-  | "draft" | "scheduled" | "sending" | "paused"
+  | "draft" | "scheduled" | "agendada" | "sending" | "paused"
   | "completed" | "cancelled" | "failed";
 
 /** Normaliza o status cru do banco (nulavel, texto livre) para a uniao. */
@@ -127,12 +127,52 @@ export function asCampaignStatus(raw: string | null | undefined): CampaignStatus
 export const STATUS_LABELS: Record<CampaignStatus, string> = {
   draft: "Rascunho",
   scheduled: "Agendado",
+  agendada: "Agendada",
   sending: "Enviando",
   paused: "Pausado",
   completed: "Concluído",
   cancelled: "Cancelado",
   failed: "Falhou",
 };
+
+/**
+ * Aparência do status, em UM lugar.
+ *
+ * Estava declarado identicamente em CampaignDetail e em CampaignList, e o
+ * mesmo mapa existe ainda em Reports e no Dashboard. Quando o status
+ * "agendada" nasceu junto com o disparo agendado, cada cópia teve que ser
+ * lembrada — e a de CampaignDetail não foi. Abrir o detalhe de uma campanha
+ * agendada quebrava a página inteira com "Cannot read properties of undefined
+ * (reading 'bg')".
+ *
+ * A busca é por `estiloDoStatus()` e não por índice direto de propósito: um
+ * status que o front ainda não conhece precisa render um selo neutro, não
+ * derrubar a tela. O banco pode ganhar valor novo a qualquer deploy; a tela
+ * não pode depender de ter sido atualizada junto.
+ */
+export interface EstiloDeStatus { bg: string; color: string; border: string }
+
+export const STATUS_STYLE: Record<CampaignStatus, EstiloDeStatus> = {
+  draft:     { bg: "rgba(107,114,128,0.1)",  color: "#9ca3af", border: "rgba(107,114,128,0.2)"  },
+  scheduled: { bg: "rgba(59,130,246,0.1)",   color: "#60a5fa", border: "rgba(59,130,246,0.2)"   },
+  agendada:  { bg: "rgba(168,85,247,0.12)",  color: "#c084fc", border: "rgba(168,85,247,0.28)"  },
+  sending:   { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa", border: "rgba(59,130,246,0.3)"   },
+  paused:    { bg: "rgba(245,158,11,0.1)",   color: "#fbbf24", border: "rgba(245,158,11,0.2)"   },
+  completed: { bg: "rgba(63,176,108,0.1)",   color: "#3fb06c", border: "rgba(63,176,108,0.2)"   },
+  cancelled: { bg: "rgba(107,114,128,0.08)", color: "#6b7280", border: "rgba(107,114,128,0.15)" },
+  failed:    { bg: "rgba(239,68,68,0.1)",    color: "#f87171", border: "rgba(239,68,68,0.2)"    },
+};
+
+const NEUTRO: EstiloDeStatus =
+  { bg: "rgba(107,114,128,0.1)", color: "#9ca3af", border: "rgba(107,114,128,0.2)" };
+
+export function estiloDoStatus(status: string | null | undefined): EstiloDeStatus {
+  return STATUS_STYLE[status as CampaignStatus] ?? NEUTRO;
+}
+
+export function rotuloDoStatus(status: string | null | undefined): string {
+  return STATUS_LABELS[status as CampaignStatus] ?? (status ?? "—");
+}
 
 export const MESSAGE_STATUS_LABELS: Record<MessageStatus, string> = {
   pending: "Na fila",

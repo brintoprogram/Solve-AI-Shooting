@@ -39,7 +39,7 @@ export function ShootingPage() {
   const draftCampaigns   = campaigns.filter((c) => c.status === "draft" || c.status === "scheduled");
 
   const STATUS_PT: Record<string, string> = {
-    draft: "Rascunho", scheduled: "Agendado", sending: "Enviando",
+    draft: "Rascunho", scheduled: "Agendado", agendada: "Agendada", sending: "Enviando",
     paused: "Pausado", completed: "Concluído", cancelled: "Cancelado", failed: "Falhou",
   };
 
