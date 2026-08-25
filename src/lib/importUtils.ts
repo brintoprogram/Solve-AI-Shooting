@@ -474,6 +474,13 @@ export interface Interpretacao {
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
                "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
+/* UM formatador, criado uma vez. `valor.toLocaleString(...)` constroi um
+   Intl.NumberFormat NOVO a cada chamada, e a tela de leitura chama isto para
+   toda celula de toda coluna. Numa planilha de 5 mil linhas por 20 colunas sao
+   100 mil construcoes por render: medido em 3,5 s no Node, pior no navegador —
+   a aba congela e o clique em Importar nao chega a acontecer. */
+const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
 /**
  * Traduz uma célula para o que o sistema entendeu dela.
  *
@@ -490,7 +497,7 @@ export function interpretar(campo: FieldKey, bruto: unknown, ordem: OrdemData = 
       const n = parseValor(bruto);
       return n === null
         ? { lido: "não reconheci como valor", ok: false }
-        : { lido: n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), ok: true };
+        : { lido: MOEDA.format(n), ok: true };
     }
     case "data": {
       const iso = parseDate(bruto, ordem);

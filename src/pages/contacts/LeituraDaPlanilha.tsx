@@ -92,22 +92,41 @@ export function LeituraDaPlanilha({
   const reconhecidas = parsed.headers.filter((h) => mapping[h]).length;
   const ignoradas    = parsed.headers.length - reconhecidas;
 
-  // Amostra: as 3 primeiras linhas que TÊM conteúdo naquela coluna. Pegar as 3
-  // primeiras da planilha mostraria "—" três vezes quando a coluna começa
-  // vazia, e a pessoa não veria interpretação nenhuma justo onde precisa.
-  const amostraDe = (header: string) => {
-    const i = colunaDe(header);
-    const cheias = parsed.rows.filter((r) => r[i] !== null && r[i] !== undefined && String(r[i]).trim() !== "");
-    return (cheias.length ? cheias : parsed.rows).slice(0, 3).map((r) => r[i]);
-  };
+  /* Amostra e contagem de problemas de TODAS as colunas, numa passada só e
+     memoizadas.
+     
+     A primeira versão calculava isto durante o render, por coluna, varrendo a
+     planilha inteira duas vezes cada uma. Numa planilha de 5 mil linhas por 20
+     colunas dava 100 mil interpretações A CADA RENDER — inclusive a cada tecla
+     digitada e a cada troca de campo. Medido: 3,5 s no Node, pior no
+     navegador. A aba congelava, e o clique em "Importar" não chegava a
+     acontecer: parecia que a importação simplesmente não fazia nada.
 
-  const problemasDe = (header: string, campo: FieldKey) => {
-    if (tipoDoCampo(campo) === "texto") return 0;
-    return valoresDe(header).filter((v) => {
-      if (v === null || v === undefined || String(v).trim() === "") return false;
-      return !interpretar(campo, v, ordem).ok;
-    }).length;
-  };
+     A amostra são as 3 primeiras linhas COM conteúdo. Pegar as 3 primeiras da
+     planilha mostraria "—" três vezes quando a coluna começa vazia, e a pessoa
+     não veria interpretação nenhuma justo onde precisa. */
+  const porColuna = useMemo(() => {
+    const mapa = new Map<string, { amostra: unknown[]; problemas: number }>();
+    parsed.headers.forEach((header, i) => {
+      const campo = mapping[header] ?? "";
+      const conferir = campo !== "" && tipoDoCampo(campo as FieldKey) !== "texto";
+      const amostra: unknown[] = [];
+      let problemas = 0;
+
+      for (const linha of parsed.rows) {
+        const v = linha[i];
+        const vazio = v === null || v === undefined || String(v).trim() === "";
+        if (!vazio && amostra.length < 3) amostra.push(v);
+        if (conferir && !vazio && !interpretar(campo as FieldKey, v, ordem).ok) problemas++;
+      }
+
+      if (amostra.length === 0) {
+        for (const linha of parsed.rows.slice(0, 3)) amostra.push(linha[i]);
+      }
+      mapa.set(header, { amostra, problemas });
+    });
+    return mapa;
+  }, [parsed, mapping, ordem]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -197,8 +216,7 @@ export function LeituraDaPlanilha({
             {parsed.headers.map((header) => {
               const campo = mapping[header] ?? "";
               const det   = deteccao[header];
-              const amostra = amostraDe(header);
-              const problemas = campo ? problemasDe(header, campo as FieldKey) : 0;
+              const { amostra, problemas } = porColuna.get(header) ?? { amostra: [], problemas: 0 };
               // O palpite só vale como explicação enquanto ninguém mexeu: se a
               // pessoa trocou o campo à mão, dizer "reconheci pela palavra X"
               // seria mentira sobre a escolha dela.
