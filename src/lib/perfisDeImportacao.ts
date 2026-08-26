@@ -268,3 +268,59 @@ export async function listarImportacoes(
     return [];
   }
 }
+
+// ── Trilha de eventos ─────────────────────────────────────────────
+
+export type NivelEvento = "info" | "aviso" | "erro";
+
+/**
+ * Registra um evento da importação no servidor.
+ *
+ * O logger do front escreve só no console, e o console fecha junto com a aba.
+ * Quando alguém diz "importei e não aconteceu nada", não há como pedir para
+ * repetir o que houve — todo diagnóstico vira reconstrução por adivinhação.
+ * Estas linhas ficam no banco e podem ser lidas depois.
+ *
+ * Silenciosa e sem await obrigatório: registrar é apoio, importar é o
+ * trabalho. Uma trilha que derruba a importação seria pior que trilha nenhuma.
+ */
+export function registrarEvento(
+  workspaceId: string,
+  runId: string | null,
+  etapa: string,
+  nivel: NivelEvento,
+  mensagem: string,
+  detalhe?: Record<string, unknown>,
+): void {
+  try {
+    void db.from("import_run_logs").insert({
+      run_id: runId, workspace_id: workspaceId,
+      etapa, nivel, mensagem,
+      detalhe: detalhe ?? null,
+    }).then(undefined, () => { /* trilha nao interrompe importacao */ });
+  } catch { /* idem */ }
+}
+
+export interface EventoImportacao {
+  id: number;
+  etapa: string;
+  nivel: NivelEvento;
+  mensagem: string;
+  detalhe: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function listarEventos(runId: string): Promise<EventoImportacao[]> {
+  try {
+    const { data, error } = await db
+      .from("import_run_logs")
+      .select("id, etapa, nivel, mensagem, detalhe, created_at")
+      .eq("run_id", runId)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    if (error) return [];
+    return (data ?? []) as EventoImportacao[];
+  } catch {
+    return [];
+  }
+}

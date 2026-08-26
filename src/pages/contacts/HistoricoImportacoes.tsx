@@ -13,10 +13,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   History, Loader2, Undo2, FileSpreadsheet, AlertTriangle, CheckCircle2, X,
+  ChevronDown, ChevronRight, ScrollText,
 } from "lucide-react";
 import {
-  listarImportacoes, desfazerImportacao,
-  type Importacao, type Periodo,
+  listarImportacoes, desfazerImportacao, listarEventos,
+  type Importacao, type Periodo, type EventoImportacao,
 } from "@/lib/perfisDeImportacao";
 
 const PERIODOS: { id: Periodo; rotulo: string }[] = [
@@ -44,6 +45,17 @@ export function HistoricoImportacoes({
   const [confirmar, setConfirmar]   = useState<Importacao | null>(null);
   const [desfazendo, setDesfazendo] = useState(false);
   const [aviso, setAviso]           = useState<{ ok: boolean; texto: string } | null>(null);
+  const [aberto, setAberto]         = useState<string | null>(null);
+  const [eventos, setEventos]       = useState<EventoImportacao[]>([]);
+  const [carregandoLog, setCarregandoLog] = useState(false);
+
+  async function abrirLog(id: string) {
+    if (aberto === id) { setAberto(null); return; }
+    setAberto(id);
+    setCarregandoLog(true);
+    setEventos(await listarEventos(id));
+    setCarregandoLog(false);
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -141,6 +153,47 @@ export function HistoricoImportacoes({
                         <p className="text-[11px] text-[#6b7f6e] mt-1">
                           Desfeita em {imp.desfeita_em ? quando(imp.desfeita_em) : "—"}
                         </p>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => void abrirLog(imp.id)}
+                        className="mt-2 flex items-center gap-1 text-[11px] text-[#6b7f6e] hover:text-white transition-colors"
+                      >
+                        {aberto === imp.id ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        <ScrollText className="w-3 h-3" /> Detalhes técnicos
+                      </button>
+
+                      {aberto === imp.id && (
+                        <div className="mt-2 rounded-lg p-2.5 space-y-1.5"
+                             style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(63,176,108,0.08)" }}>
+                          {carregandoLog ? (
+                            <p className="text-[11px] text-[#6b7f6e]">Carregando…</p>
+                          ) : eventos.length === 0 ? (
+                            <p className="text-[11px] text-[#6b7f6e]">
+                              Sem registros. Importações feitas antes desta versão não têm trilha.
+                            </p>
+                          ) : eventos.map((e) => (
+                            <div key={e.id} className="text-[11px] leading-relaxed">
+                              <span className="font-mono text-[#3a4d3e]">
+                                {new Date(e.created_at).toLocaleTimeString("pt-BR")}
+                              </span>
+                              <span className="mx-1.5 uppercase text-[9px] font-bold tracking-wider"
+                                    style={{ color: e.nivel === "erro" ? "#f87171"
+                                                  : e.nivel === "aviso" ? "#fbbf24" : "#6b7f6e" }}>
+                                {e.etapa}
+                              </span>
+                              <span className={e.nivel === "erro" ? "text-red-300" : "text-white/80"}>
+                                {e.mensagem}
+                              </span>
+                              {e.detalhe && (
+                                <pre className="mt-0.5 text-[10px] text-[#6b7f6e] whitespace-pre-wrap break-all">
+                                  {JSON.stringify(e.detalhe)}
+                                </pre>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
 

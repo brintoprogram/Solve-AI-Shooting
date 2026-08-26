@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { phoneKey } from "./format";
+import { registrarEvento } from "./perfisDeImportacao";
 
 // ── Tipos públicos ────────────────────────────────────────────────
 
@@ -770,6 +771,9 @@ export async function runImport(
     runId = null;
   }
   stats.runId = runId;
+  registrarEvento(workspaceId, runId, "inicio", "info",
+    `Importação iniciada com ${rows.length} linhas`,
+    { arquivo: arquivo ?? null, linhas: rows.length });
 
   // Separa linhas com phone e sem phone
   const withPhone    = rows.filter((r) => r.phone);
@@ -828,16 +832,27 @@ export async function runImport(
 
     if (error) {
       stats.errors.push(`Contatos chunk ${i}: ${error.message}`);
+      registrarEvento(workspaceId, runId, "contatos", "erro",
+        `Lote de contatos falhou na linha ${i + 1}`,
+        { erro: error.message, codigo: (error as { code?: string }).code ?? null, tamanho: chunk.length });
     } else if (data) {
-      for (const c of data as unknown as { id_contato: string; telefone: string | null; documento: string | null }[]) {
+      for (const c of data as unknown as
+           { id_contato: string; telefone: string | null; documento: string | null; nasceu_agora: boolean }[]) {
         // Chave canonica: o mesmo telefone chega com e sem o codigo do pais
         // dependendo da planilha. Sem normalizar, o boleto de uma linha nao
         // encontrava o contato criado por outra e ficava orfao.
         if (c.telefone)  phoneIdMap.set(phoneKey(c.telefone), c.id_contato);
         if (c.documento) cpfIdMap.set(c.documento, c.id_contato);
+
+        /* Quem diz se a linha nasceu ou foi atualizada e o BANCO, por xmax = 0.
+           Antes isto era `contactsInserted += chunk.length`, que contava o lote
+           inteiro como insercao: uma importacao de 528 linhas reportou "235
+           criados, 0 atualizados" quando a verdade era 205 e 30. O desfazer
+           acertou, mas o numero na tela fez a conta nao fechar e levantou
+           suspeita sobre uma operacao que estava correta. */
+        if (c.nasceu_agora) stats.contactsInserted++;
+        else                stats.contactsUpdated++;
       }
-      // Conta inseridos vs atualizados (Supabase não diferencia, estimamos)
-      stats.contactsInserted += chunk.length;
     }
     onProgress("Importando contatos…", Math.min(i + CHUNK, total1), total1);
   }
@@ -953,6 +968,9 @@ export async function runImport(
       .from("contact_invoices").insert(chunk).select("id");
     if (error) {
       stats.errors.push(`Boletos chunk ${i}: ${error.message}`);
+      registrarEvento(workspaceId, runId, "boletos", "erro",
+        `Lote de boletos falhou na posição ${i + 1}`,
+        { erro: error.message, codigo: (error as { code?: string }).code ?? null, tamanho: chunk.length });
     } else {
       stats.invoicesCreated += chunk.length;
       // Anota quais boletos nasceram deste lote, para o desfazer saber
@@ -970,6 +988,22 @@ export async function runImport(
     }
     onProgress("Importando boletos…", Math.min(i + CHUNK, total3), total3);
   }
+
+  registrarEvento(workspaceId, runId, "fim",
+    stats.errors.length ? "erro" : (stats.invoicesSemDono || stats.semChave ? "aviso" : "info"),
+    stats.errors.length
+      ? `Importação terminou com ${stats.errors.length} erro(s)`
+      : `Importação concluída: ${stats.contactsInserted} criados, ${stats.contactsUpdated} atualizados, ${stats.invoicesCreated} boletos`,
+    {
+      contatos_criados:     stats.contactsInserted,
+      contatos_atualizados: stats.contactsUpdated,
+      boletos_criados:      stats.invoicesCreated,
+      boletos_ja_existiam:  stats.invoicesSkipped,
+      boletos_sem_dono:     stats.invoicesSemDono,
+      linhas_sem_chave:     stats.semChave,
+      cpf_nao_encontrado:   stats.cpfNaoEncontrado,
+      erros:                stats.errors.slice(0, 10),
+    });
 
   if (runId) {
     try {
