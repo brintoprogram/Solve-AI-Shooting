@@ -141,12 +141,18 @@ function SummaryView({ stats, onClose, onReset }: { stats: ImportStats; onClose:
         <div className="w-full max-w-sm rounded-xl border border-amber-900/40 bg-amber-950/20 p-3">
           <p className="text-xs text-amber-300/90">
             <span className="font-semibold">{stats.invoicesSkipped}</span>
-            {stats.invoicesSkipped === 1 ? " boleto já existia" : " boletos já existiam"} e
-            {stats.invoicesSkipped === 1 ? " foi ignorado" : " foram ignorados"}.
+            {stats.invoicesSkipped === 1 ? " boleto já existia" : " boletos já existiam"} na base
+            {stats.invoicesUpdated > 0 && (
+              <>, e <span className="font-semibold">{stats.invoicesUpdated}</span>{" "}
+              {stats.invoicesUpdated === 1 ? "teve" : "tiveram"} valor ou vencimento corrigidos</>
+            )}.
           </p>
-          <p className="text-[11px] text-amber-300/60 mt-1">
-            A identificação usa o código de barras ou o número da NF. Isso evita
-            que reimportar a mesma planilha dobre a dívida dos contatos.
+          <p className="text-[11px] text-amber-300/60 mt-1 leading-relaxed">
+            A identificação usa o código de barras ou o número da NF, o que evita que reimportar a
+            mesma planilha dobre a dívida.
+            {stats.invoicesUpdated > 0
+              ? " Boleto reemitido com a mesma nota e vencimento novo é corrigido, não duplicado."
+              : " Nenhum deles mudou de valor ou de vencimento."}
           </p>
         </div>
       )}

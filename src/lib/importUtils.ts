@@ -89,7 +89,7 @@ export interface ImportStats {
   contactsInserted: number;
   contactsUpdated:  number;
   invoicesCreated:  number;
-  /** Boletos ignorados por já existirem (reimportação da mesma planilha). */
+  /** Boletos que já existiam e foram CORRIGIDOS (mesma NF, vencimento novo). */
   invoicesSkipped:  number;
   skipped:          number;
   errors:           string[];
@@ -101,6 +101,8 @@ export interface ImportStats {
      erros. A pessoa via "12 boletos criados" numa planilha de 40 e não tinha
      como saber que 28 evaporaram, nem por quê. */
 
+  /** Boletos que já existiam e tiveram valor ou vencimento corrigidos. */
+  invoicesUpdated:  number;
   /** Boletos descartados por não ter dono no sistema. */
   invoicesSemDono:  number;
   /** Linhas sem telefone e sem CPF: não há como identificar a pessoa. */
@@ -815,6 +817,7 @@ export async function runImport(
     invoicesSkipped:  0,
     skipped:          0,
     errors:           [],
+    invoicesUpdated:  0,
     invoicesSemDono:  0,
     semChave:         0,
     cpfNaoEncontrado: 0,
@@ -1028,13 +1031,20 @@ export async function runImport(
   const chaveBarras = (cb: string) => `b:${cb.trim()}`;
   const chaveNf     = (cid: string, nf: string) => `n:${cid}:${nf.trim()}`;
 
-  const jaExiste = new Set<string>();
+  /* Guarda o boleto existente inteiro, e não só a chave.
+  
+     Antes era um Set de chaves: dava para saber que a linha já existia, e não
+     dava para comparar nem para corrigir. É isso que fazia um boleto reemitido
+     — mesma nota, vencimento novo — ser descartado com o vencimento velho
+     ficando na base. */
+  type BoletoExistente = { id: string; valor: number | null; vencimento: string | null; status: string | null; numero_nf: string | null; codigo_barras: string | null };
+  const jaExiste = new Map<string, BoletoExistente>();
 
   const contactIds = [...new Set(invoiceRows_.map((r) => r.contact_id))];
   for (let i = 0; i < contactIds.length; i += CHUNK) {
     const { data, error } = await supabase
       .from("contact_invoices")
-      .select("contact_id, numero_nf, codigo_barras")
+      .select("id, contact_id, numero_nf, codigo_barras, valor, vencimento, status")
       .eq("workspace_id", workspaceId)
       .in("contact_id", contactIds.slice(i, i + CHUNK));
 
@@ -1044,25 +1054,72 @@ export async function runImport(
       stats.errors.push(`Verificação de boletos existentes: ${error.message}`);
       return stats;
     }
-    for (const inv of (data ?? []) as Array<{ contact_id: string; numero_nf: string | null; codigo_barras: string | null }>) {
-      if (inv.codigo_barras?.trim()) jaExiste.add(chaveBarras(inv.codigo_barras));
-      if (inv.numero_nf?.trim())     jaExiste.add(chaveNf(inv.contact_id, inv.numero_nf));
+    for (const inv of (data ?? []) as Array<BoletoExistente & { contact_id: string }>) {
+      if (inv.codigo_barras?.trim()) jaExiste.set(chaveBarras(inv.codigo_barras), inv);
+      if (inv.numero_nf?.trim())     jaExiste.set(chaveNf(inv.contact_id, inv.numero_nf), inv);
     }
   }
 
   const novos: typeof invoiceRows_ = [];
+  const corrigir: { id: string; antes: BoletoExistente; depois: typeof invoiceRows_[number] }[] = [];
+
   for (const row of invoiceRows_) {
     const kb = row.codigo_barras?.trim() ? chaveBarras(row.codigo_barras) : null;
     const kn = row.numero_nf?.trim()     ? chaveNf(row.contact_id, row.numero_nf) : null;
+    const existente = (kb && jaExiste.get(kb)) || (kn && jaExiste.get(kn)) || null;
 
-    if ((kb && jaExiste.has(kb)) || (kn && jaExiste.has(kn))) {
+    if (existente) {
+      /* Já existe. Antes isso era o fim da linha e o boleto era descartado —
+         inclusive quando o vencimento tinha mudado, que é o caso mais comum:
+         boleto reemitido com a mesma nota. O saldo ficava certo e a data
+         ficava velha, e a régua de cobrança passava a mirar um vencimento que
+         já não existe.
+         
+         Agora corrige o que mudou. Se nada mudou, não gasta escrita. */
+      const mudou =
+        Number(existente.valor ?? 0) !== Number(row.valor ?? 0) ||
+        (existente.vencimento ?? null) !== (row.vencimento ?? null) ||
+        (existente.codigo_barras ?? null) !== (row.codigo_barras ?? null);
+      if (mudou) corrigir.push({ id: existente.id, antes: existente, depois: row });
       stats.invoicesSkipped++;
       continue;
     }
     // Marca já: pega também a planilha que repete a mesma nota em duas linhas.
-    if (kb) jaExiste.add(kb);
-    if (kn) jaExiste.add(kn);
+    const marcador: BoletoExistente = {
+      id: "", valor: row.valor, vencimento: row.vencimento,
+      status: row.status, numero_nf: row.numero_nf, codigo_barras: row.codigo_barras,
+    };
+    if (kb) jaExiste.set(kb, marcador);
+    if (kn) jaExiste.set(kn, marcador);
     novos.push(row);
+  }
+
+  /* Corrige os reemitidos, um a um. São poucos por natureza — na planilha que
+     motivou isto foram 6 em 528 — e cada um precisa do próprio UPDATE porque
+     os valores diferem. Guarda o estado anterior antes de mexer, para o
+     desfazer conseguir devolver. */
+  if (corrigir.length > 0) {
+    onProgress("Atualizando boletos reemitidos…", 0, corrigir.length);
+    let feitos = 0;
+    for (const c of corrigir) {
+      if (!c.id) continue;
+      try {
+        if (runId) {
+          await dbSemTipo.from("import_run_items").insert({
+            run_id: runId, workspace_id: workspaceId,
+            tipo: "boleto_atualizado", boleto_id: c.id, antes: c.antes,
+          });
+        }
+        const { error } = await supabase.from("contact_invoices").update({
+          valor:         c.depois.valor,
+          vencimento:    c.depois.vencimento,
+          codigo_barras: c.depois.codigo_barras,
+        }).eq("id", c.id);
+        if (error) stats.errors.push(`Boleto ${c.depois.numero_nf ?? c.id}: ${error.message}`);
+        else stats.invoicesUpdated++;
+      } catch { /* um boleto que nao corrige nao pode parar os outros */ }
+      onProgress("Atualizando boletos reemitidos…", ++feitos, corrigir.length);
+    }
   }
 
   const total3 = novos.length;
@@ -1105,6 +1162,7 @@ export async function runImport(
       contatos_atualizados: stats.contactsUpdated,
       boletos_criados:      stats.invoicesCreated,
       boletos_ja_existiam:  stats.invoicesSkipped,
+      boletos_corrigidos:   stats.invoicesUpdated,
       boletos_sem_dono:     stats.invoicesSemDono,
       linhas_sem_chave:     stats.semChave,
       cpf_nao_encontrado:   stats.cpfNaoEncontrado,
