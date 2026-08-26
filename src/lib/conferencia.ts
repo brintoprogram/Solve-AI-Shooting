@@ -65,10 +65,25 @@ export interface TotaisConferencia {
   valorEmConflito: number;
 }
 
+/** Um telefone disputado por dois ou mais nomes, com o que cada um traz.
+ *
+ *  O sistema identifica cliente pelo telefone, então esses nomes vão ser UM
+ *  cadastro só — não há como serem dois. A decisão que sobra para a pessoa é
+ *  qual nome esse cadastro carrega, e se os boletos de todos entram nele.
+ *  Descartar em silêncio, como era antes, não é uma das opções. */
+export interface GrupoConflito {
+  telefone: string;
+  nomes: { nome: string; linhas: number[]; total: number; boletos: number }[];
+  /** Soma de tudo que está em disputa neste telefone. */
+  total: number;
+}
+
 export interface Conferencia {
   linhas: LinhaConferida[];
   problemas: LinhaConferida[];
   totais: TotaisConferencia;
+  /** Telefones com mais de um nome, para conferência manual. */
+  conflitos: GrupoConflito[];
   /** true quando o detalhe foi cortado — a tela avisa em vez de mentir. */
   detalheCortado: boolean;
 }
@@ -116,6 +131,10 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
      linhas e R$ 1,36 milhão sumiram assim, e a diferença só apareceu quando
      alguém foi conferir a soma. Aqui isso passa a ser dito ANTES. */
   const donoDoTelefone = new Map<string, string>();
+  /* Todos os nomes de cada telefone, com as linhas e os valores de cada um.
+     É o que a tela precisa para perguntar "para qual cadastro vai cada
+     boleto?" em vez de decidir sozinha. */
+  const porTelefone = new Map<string, Map<string, { linhas: number[]; total: number; boletos: number }>>();
   let cortado = false;
 
   parsed.rows.forEach((linha, idx) => {
@@ -168,6 +187,16 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
     if (problemasDaLinha.length) totais.comProblema++;
     if (valor !== null) totais.somaValor += valor;
     if (conflito && valor !== null) totais.valorEmConflito += valor;
+
+    if (tel) {
+      const nomes = porTelefone.get(tel) ?? new Map();
+      const rotulo = nome || "(sem nome)";
+      const atual = nomes.get(rotulo) ?? { linhas: [], total: 0, boletos: 0 };
+      atual.linhas.push(idx + 2);
+      if (valor !== null) { atual.total += valor; atual.boletos++; }
+      nomes.set(rotulo, atual);
+      porTelefone.set(tel, nomes);
+    }
     if (venc) {
       if (!totais.vencimentoDe  || venc < totais.vencimentoDe)  totais.vencimentoDe  = venc;
       if (!totais.vencimentoAte || venc > totais.vencimentoAte) totais.vencimentoAte = venc;
@@ -199,5 +228,26 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
   totais.somaValor       = Math.round(totais.somaValor * 100) / 100;
   totais.valorEmConflito = Math.round(totais.valorEmConflito * 100) / 100;
 
-  return { linhas, problemas, totais, detalheCortado: cortado };
+  /* Só vira conflito quando há mais de um NOME. Mesmo telefone com o mesmo
+     nome é o caso normal da cobrança: vários boletos do mesmo cliente. */
+  const conflitos: GrupoConflito[] = [];
+  for (const [telefone, nomes] of porTelefone) {
+    if (nomes.size < 2) continue;
+    const lista = [...nomes.entries()].map(([nome, d]) => ({
+      nome,
+      linhas: d.linhas,
+      total: Math.round(d.total * 100) / 100,
+      boletos: d.boletos,
+    }));
+    // O primeiro a aparecer fica em primeiro: é o que o importador elegeria
+    // sozinho, e o padrão da tela precisa ser previsível.
+    conflitos.push({
+      telefone,
+      nomes: lista,
+      total: Math.round(lista.reduce((soma, n) => soma + n.total, 0) * 100) / 100,
+    });
+  }
+  conflitos.sort((a, b) => b.total - a.total);
+
+  return { linhas, problemas, totais, conflitos, detalheCortado: cortado };
 }

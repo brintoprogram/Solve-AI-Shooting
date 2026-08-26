@@ -746,11 +746,24 @@ const dbSemTipo = supabase as unknown as SupabaseClient;
 const CHUNK = 80; // seguro abaixo do limite do PostgREST
 
 
+/** O que fazer com um telefone disputado por vários nomes.
+ *
+ *  Chave: o telefone normalizado. `nome` é o nome que o cadastro vai carregar;
+ *  `importar` decide se os boletos das linhas em conflito entram nele.
+ *
+ *  Antes disso o importador decidia sozinho: mantinha o primeiro nome e
+ *  DESCARTAVA os boletos dos demais, em silêncio. Numa planilha real isso
+ *  tirou 37 linhas e R$ 1,36 milhão. A regra existia por um bom motivo — não
+ *  pendurar dívida no cliente errado — mas a decisão é de quem conhece a base,
+ *  não do código. */
+export type ResolucaoConflito = Record<string, { nome: string; importar: boolean }>;
+
 export async function runImport(
   rows:        MappedRow[],
   workspaceId: string,
   onProgress:  (phase: string, done: number, total: number) => void,
   arquivo?:    string,
+  resolucoes?: ResolucaoConflito,
 ): Promise<ImportStats> {
   const stats: ImportStats = {
     contactsInserted: 0,
@@ -785,7 +798,11 @@ export async function runImport(
   stats.runId = runId;
   registrarEvento(workspaceId, runId, "inicio", "info",
     `Importação iniciada com ${rows.length} linhas`,
-    { arquivo: arquivo ?? null, linhas: rows.length });
+    {
+      arquivo: arquivo ?? null,
+      linhas: rows.length,
+      conflitos_resolvidos: resolucoes ? Object.keys(resolucoes).length : 0,
+    });
 
   // Separa linhas com phone e sem phone
   const withPhone    = rows.filter((r) => r.phone);
@@ -802,15 +819,28 @@ export async function runImport(
 
   for (const r of withPhone) {
     const existing = contactMap.get(r.phone!);
-    if (existing) {
-      if (existing.name && r.name && existing.name !== r.name) {
+    const decisao  = resolucoes?.[r.phone!];
+
+    if (existing && existing.name && r.name && existing.name !== r.name) {
+      if (decisao?.importar) {
+        /* Decidido na conferência: os boletos entram, no cadastro escolhido.
+           A linha some do descarte, e o nome vem da escolha da pessoa. */
+        stats.errors.push(
+          `Telefone ${r.phone}: "${r.name}" e "${existing.name}" foram unificados em "${decisao.nome}" por decisão na conferência`
+        );
+      } else {
         stats.errors.push(
           `Telefone ${r.phone} duplicado: "${existing.name}" mantido, "${r.name}" ignorado — verifique a planilha`
         );
-        skippedRows.add(r); // boleto desta linha será pulado
+        skippedRows.add(r);   // boleto desta linha será pulado
       }
     }
-    contactMap.set(r.phone!, mergeRow(existing, r));
+
+    const juntos = mergeRow(existing, r);
+    // O nome escolhido vale sobre o que a planilha traz: é a decisão explícita
+    // de uma pessoa contra a ordem acidental das linhas do arquivo.
+    if (decisao?.nome) juntos.name = decisao.nome;
+    contactMap.set(r.phone!, juntos);
   }
 
   // ─── 1. Upsert contatos com phone ────────────────────────────────

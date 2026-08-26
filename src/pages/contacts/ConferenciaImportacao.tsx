@@ -9,13 +9,16 @@
 // vem com o NÚMERO DA LINHA NO EXCEL, a coluna, o valor original e o motivo —
 // os quatro dados necessários para ela abrir a planilha e corrigir.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, CheckCircle2, Users, FileText, Coins, CalendarRange,
-  Copy, Search, ArrowLeft,
+  Copy, Search, ArrowLeft, Phone,
 } from "lucide-react";
-import { conferir, type LinhaConferida } from "@/lib/conferencia";
-import { interpretar, type ParsedFile, type Mapping, type OrdemData, type FieldKey } from "@/lib/importUtils";
+import { conferir, type LinhaConferida, type GrupoConflito } from "@/lib/conferencia";
+import {
+  interpretar,
+  type ParsedFile, type Mapping, type OrdemData, type FieldKey, type ResolucaoConflito,
+} from "@/lib/importUtils";
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -41,7 +44,7 @@ function Cartao({ icone: Icone, rotulo, valor, sub, cor }: {
 }
 
 export function ConferenciaImportacao({
-  parsed, mapping, ordem, onVoltar, onCorrigir,
+  parsed, mapping, ordem, onVoltar, onCorrigir, resolucoes, setResolucoes,
 }: {
   parsed: ParsedFile;
   mapping: Mapping;
@@ -49,10 +52,13 @@ export function ConferenciaImportacao({
   onVoltar: () => void;
   /** Corrige uma célula na memória. A planilha no disco não é tocada. */
   onCorrigir: (linhaExcel: number, coluna: string, valor: string) => void;
+  resolucoes: ResolucaoConflito;
+  setResolucoes: (r: ResolucaoConflito) => void;
 }) {
   const c = useMemo(() => conferir(parsed, mapping, ordem), [parsed, mapping, ordem]);
-  const [aba, setAba]   = useState<"resumo" | "linhas" | "problemas">(
-    c.totais.comProblema > 0 || c.totais.semChave > 0 ? "problemas" : "resumo");
+  const [aba, setAba]   = useState<"resumo" | "conflitos" | "linhas" | "problemas">(
+    c.conflitos.length > 0 ? "conflitos"
+      : (c.totais.comProblema > 0 || c.totais.semChave > 0) ? "problemas" : "resumo");
   const [busca, setBusca] = useState("");
 
   const t = c.totais;
@@ -80,10 +86,37 @@ export function ConferenciaImportacao({
   };
 
   const abas = [
-    { id: "resumo"    as const, rotulo: "Resumo",       n: null },
+    { id: "resumo"    as const, rotulo: "Resumo",        n: null },
+    { id: "conflitos" as const, rotulo: "Conflitos",     n: c.conflitos.length },
     { id: "linhas"    as const, rotulo: "Linha a linha", n: c.linhas.length },
-    { id: "problemas" as const, rotulo: "Problemas",    n: c.problemas.length },
+    { id: "problemas" as const, rotulo: "Problemas",     n: c.problemas.length },
   ];
+
+  /* Todo conflito nasce RESOLVIDO: importar tudo, no primeiro nome. O padrão
+     antigo era o contrário — descartar — e foi assim que R$ 1,36 milhão sumiu
+     sem ninguém decidir nada. Quem quiser deixar de fora agora precisa dizer
+     isso explicitamente, que é a ordem certa das coisas. */
+  useEffect(() => {
+    if (c.conflitos.length === 0) return;
+    const faltando = c.conflitos.filter((g) => !resolucoes[g.telefone]);
+    if (faltando.length === 0) return;
+    const novo: ResolucaoConflito = { ...resolucoes };
+    for (const g of faltando) novo[g.telefone] = { nome: g.nomes[0].nome, importar: true };
+    setResolucoes(novo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.conflitos]);
+
+  const decidir = (telefone: string, patch: Partial<{ nome: string; importar: boolean }>) => {
+    const atual = resolucoes[telefone] ?? { nome: "", importar: true };
+    setResolucoes({ ...resolucoes, [telefone]: { ...atual, ...patch } });
+  };
+
+  const valorQueFicaDeFora = c.conflitos.reduce((soma, g) => {
+    const d = resolucoes[g.telefone];
+    if (d?.importar !== false) return soma;
+    // Fora só o que NÃO é do nome escolhido: o dono do cadastro entra sempre.
+    return soma + g.nomes.filter((n) => n.nome !== d.nome).reduce((x, n) => x + n.total, 0);
+  }, 0);
 
   return (
     <div className="flex flex-col gap-3">
@@ -208,6 +241,45 @@ export function ConferenciaImportacao({
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Conflitos ───────────────────────────────────────────── */}
+      {aba === "conflitos" && (
+        c.conflitos.length === 0 ? (
+          <div className="rounded-xl border border-[#2a3d30] py-10 text-center">
+            <CheckCircle2 className="w-7 h-7 text-[#3fb06c] mx-auto mb-2" />
+            <p className="text-sm text-white/85">Nenhum telefone disputado.</p>
+            <p className="text-xs text-[#6b7f6e] mt-1">Cada telefone da planilha pertence a um nome só.</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            <p className="text-xs text-[#6b7f6e] leading-relaxed">
+              O sistema identifica cliente pelo telefone, então os nomes abaixo vão virar{" "}
+              <strong className="text-white/85">um cadastro só</strong> — não há como serem dois.
+              Escolha o nome que esse cadastro carrega. Por padrão os boletos de todos entram nele.
+            </p>
+
+            {c.conflitos.map((g) => (
+              <GrupoDeConflito
+                key={g.telefone}
+                grupo={g}
+                decisao={resolucoes[g.telefone] ?? { nome: g.nomes[0].nome, importar: true }}
+                onDecidir={(patch) => decidir(g.telefone, patch)}
+              />
+            ))}
+
+            {valorQueFicaDeFora > 0 && (
+              <div className="rounded-xl px-4 py-2.5 flex items-start gap-2.5"
+                   style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.28)" }}>
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#f87171" }} />
+                <p className="text-xs text-white/85">
+                  Com as escolhas atuais, <strong>{brl.format(valorQueFicaDeFora)}</strong> em boletos
+                  não vai ser importado.
+                </p>
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {/* ── Linha a linha ───────────────────────────────────────── */}
@@ -392,6 +464,93 @@ function CampoCorrigivel({
       >
         cancelar
       </button>
+    </div>
+  );
+}
+
+
+/**
+ * Um telefone, vários nomes, uma decisão.
+ *
+ * Mostra lado a lado quem já está com o telefone e quem mais aparece nele, com
+ * o número de boletos e o valor de cada um — porque a decisão "para qual
+ * cadastro isso vai" só é possível vendo quanto dinheiro está de cada lado.
+ */
+function GrupoDeConflito({
+  grupo, decisao, onDecidir,
+}: {
+  grupo: GrupoConflito;
+  decisao: { nome: string; importar: boolean };
+  onDecidir: (patch: Partial<{ nome: string; importar: boolean }>) => void;
+}) {
+  const outros = grupo.nomes.filter((n) => n.nome !== decisao.nome);
+  const valorDosOutros = outros.reduce((s, n) => s + n.total, 0);
+
+  return (
+    <div className="rounded-xl px-4 py-3"
+         style={{ background: "rgba(13,26,17,0.6)", border: "1px solid rgba(63,176,108,0.14)" }}>
+      <p className="flex items-center gap-2 text-xs text-[#6b7f6e]">
+        <Phone className="w-3.5 h-3.5" />
+        <span className="font-mono text-white/85">{grupo.telefone}</span>
+        <span>· {grupo.nomes.length} nomes · {brl.format(grupo.total)} em jogo</span>
+      </p>
+
+      <div className="mt-2.5 space-y-1">
+        {grupo.nomes.map((n) => {
+          const escolhido = n.nome === decisao.nome;
+          const entra = escolhido || decisao.importar;
+          return (
+            <label key={n.nome}
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors"
+              style={{
+                background: escolhido ? "rgba(63,176,108,0.1)" : "transparent",
+                border: `1px solid ${escolhido ? "rgba(63,176,108,0.3)" : "rgba(63,176,108,0.06)"}`,
+              }}>
+              <input
+                type="radio"
+                name={`dono-${grupo.telefone}`}
+                checked={escolhido}
+                onChange={() => onDecidir({ nome: n.nome })}
+                className="accent-[#3fb06c]"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs text-agro-text truncate">
+                  {n.nome}
+                  {escolhido && <span className="ml-2 text-[10px] text-[#3fb06c]">nome do cadastro</span>}
+                </span>
+                <span className="block text-[11px] text-[#6b7f6e]">
+                  {n.boletos} boleto{n.boletos === 1 ? "" : "s"} · {brl.format(n.total)}
+                  {" · "}linha{n.linhas.length === 1 ? "" : "s"} {n.linhas.slice(0, 6).join(", ")}
+                  {n.linhas.length > 6 && ` e mais ${n.linhas.length - 6}`}
+                </span>
+              </span>
+              <span className="text-[10px] shrink-0" style={{ color: entra ? "#3fb06c" : "#f87171" }}>
+                {entra ? "entra" : "fica de fora"}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+
+      {outros.length > 0 && (
+        <label className="mt-2.5 flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={decisao.importar}
+            onChange={(e) => onDecidir({ importar: e.target.checked })}
+            className="mt-0.5 accent-[#3fb06c]"
+          />
+          <span className="text-[11px] text-[#6b7f6e] leading-relaxed">
+            Importar também os {brl.format(valorDosOutros)} em boletos dos outros{" "}
+            {outros.length === 1 ? "nome" : "nomes"}, dentro do cadastro de{" "}
+            <strong className="text-white/85">{decisao.nome}</strong>.
+            {" "}
+            {decisao.importar
+              ? "Desmarque só se forem clientes diferentes que por acaso dividem o telefone."
+              : "Desmarcado: esses boletos NÃO serão importados."}
+          </span>
+        </label>
+      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
   CheckCircle2, AlertCircle, RotateCcw, Bookmark, BookmarkCheck, Undo2,
 } from "lucide-react";
 import {
-  Mapping, ParsedFile, OrdemData,
+  Mapping, ParsedFile, OrdemData, ResolucaoConflito,
   parseFile, autoDetect, applyMapping, runImport, ImportStats,
 } from "@/lib/importUtils";
 import { useAuth } from "@/context/AuthContext";
@@ -341,7 +341,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
       const result = await runImport(mappedRows, workspaceId, (phase, done, total) => {
         setProgress({ phase, done, total });
-      }, nomeArquivo ?? undefined);
+      }, nomeArquivo ?? undefined, resolucoes);
       setStats(result);
       setStep("done");
       /* Depois do sucesso: o mapeamento acabou de ser conferido por uma pessoa
@@ -371,6 +371,9 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
      lugar mudaria o dado sem avisar ninguém, e a conferência continuaria
      mostrando o valor velho. */
   const [corrigidas, setCorrigidas] = useState(0);
+  /* Decisao por telefone disputado. Vive aqui e nao na conferencia porque
+     precisa sobreviver ate a gravacao — e a mesma escolha que a tela mostrou. */
+  const [resolucoes, setResolucoes] = useState<ResolucaoConflito>({});
 
   function corrigirCelula(linhaExcel: number, coluna: string, valor: string) {
     if (!parsed) return;
@@ -393,6 +396,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     setProgress({ phase: "", done: 0, total: 0 });
     setPerfil(null);
     setCorrigidas(0);
+    setResolucoes({});
     setDesfeito(null);
     setAutoBase({});
     setNomeNovo("");
@@ -504,6 +508,8 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
               ordem={ordemData}
               onVoltar={() => setStep("mapping")}
               onCorrigir={corrigirCelula}
+              resolucoes={resolucoes}
+              setResolucoes={setResolucoes}
             />
           )}
           {step === "importing" && <ProgressView progress={progress} />}
