@@ -861,7 +861,7 @@ export function CampaignDetail() {
         {/* ── Messages table ───────────────────── */}
         <div className="animate-fade-up-delay-1">
           <DarkCard title="Mensagens individuais" T={T}>
-            <MessagesTable campaignId={campaign.id} dispatchChannel={campaign.dispatch_channel} light={lightMode} />
+            <MessagesTable campaignId={campaign.id} campaignName={campaign.name} campaignCreatedAt={campaign.created_at} dispatchChannel={campaign.dispatch_channel} light={lightMode} />
           </DarkCard>
         </div>
       </div>

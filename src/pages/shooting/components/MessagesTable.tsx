@@ -9,6 +9,7 @@ import { useCampaignMessages } from "@/hooks/useCampaignMessages";
 import type { ShootingMessage, MessageStatus } from "@/types/shooting";
 import { MESSAGE_STATUS_LABELS, asMessageStatus } from "@/types/shooting";
 import * as XLSX from "xlsx";
+import { montarRelatorio, nomeDoArquivo, type MensagemDoDisparo } from "@/lib/relatorioDisparo";
 
 interface StatusDef {
   bg: string; color: string; border: string; label: string;
@@ -34,11 +35,14 @@ function getStatusStyle(status: MessageStatus): StatusDef {
 
 interface MessagesTableProps {
   campaignId: string;
+  /** Nome da campanha, para o relatório e para o nome do arquivo. */
+  campaignName?: string;
+  campaignCreatedAt?: string | null;
   dispatchChannel?: string;
   light?: boolean;
 }
 
-export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTableProps) {
+export function MessagesTable({ campaignId, campaignName, campaignCreatedAt, dispatchChannel, light }: MessagesTableProps) {
   const isEmail = dispatchChannel === "n8n_email";
   const [statusFilter, setStatusFilter] = useState<MessageStatus | "all">("all");
   const [detail, setDetail] = useState<ShootingMessage | null>(null);
@@ -54,51 +58,25 @@ export function MessagesTable({ campaignId, dispatchChannel, light }: MessagesTa
 
   async function exportAllToXlsx() {
     setExporting(true);
-    const { data } = await supabase
-      .from("shooting_messages")
-      .select("*")
-      .eq("campaign_id", campaignId)
-      .order("created_at");
+    try {
+      const { data } = await supabase
+        .from("shooting_messages")
+        .select("*")
+        .eq("campaign_id", campaignId)
+        .order("created_at");
 
-    const all: ShootingMessage[] = data ?? [];
-    const anyFinancial = all.some((m) => {
-      const d = m.recipient_data as Record<string, unknown> | null;
-      return d && d._financial_campaign === true;
-    });
-    const rows = all.map((m) => {
-      const d = m.recipient_data as Record<string, unknown> | null;
-      const base: Record<string, string> = {
-        "Nome": m.recipient_name ?? "",
-        ...(isEmail
-          ? { "Email": (d?.email as string) ?? "" }
-          : { "Telefone": m.recipient_phone }),
-        "Status":  MESSAGE_STATUS_LABELS[asMessageStatus(m.status)],
-        "Enviado": m.sent_at ? format(new Date(m.sent_at), "dd/MM/yyyy HH:mm") : "",
-        ...(!isEmail && {
-          "Entregue":   m.delivered_at ? format(new Date(m.delivered_at), "dd/MM/yyyy HH:mm") : "",
-          "Lido":       m.read_at      ? format(new Date(m.read_at),      "dd/MM/yyyy HH:mm") : "",
-          "Respondido": m.replied_at   ? format(new Date(m.replied_at),   "dd/MM/yyyy HH:mm") : "",
-        }),
-        "Código de erro": m.error_code ? `#${m.error_code}` : "",
-        "Mensagem de erro": m.error_message ?? "",
-      };
-      if (anyFinancial) {
-        base["Valor (boleto)"]      = d?.valor_total_pendente as string ?? "";
-        base["Vencimento (filtro)"] = d?.proximo_vencimento   as string ?? "";
-        base["Qtd Boletos"]         = d?._invoice_count != null ? String(d._invoice_count) : "";
-        const invIds = d?._invoice_ids as string[] | undefined;
-        const allInvs = d?.contact_invoices as Array<{ id: string; numero_nf: string | null }> | undefined;
-        base["Nº NF(s)"] = invIds && allInvs
-          ? allInvs.filter((inv) => invIds.includes(inv.id)).map((inv) => inv.numero_nf || "sem NF").join(", ") || "—"
-          : (d?.boleto_nf as string | undefined) ?? "";
-      }
-      return base;
-    });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Mensagens");
-    XLSX.writeFile(wb, `campanha_${campaignId}_mensagens.xlsx`);
-    setExporting(false);
+      const wb = montarRelatorio((data ?? []) as unknown as MensagemDoDisparo[], {
+        campanhaNome: campaignName || "Campanha",
+        campanhaId:   campaignId,
+        criadaEm:     campaignCreatedAt ?? null,
+        isEmail,
+        rotuloStatus: (st) => MESSAGE_STATUS_LABELS[asMessageStatus(st)],
+      });
+
+      XLSX.writeFile(wb, nomeDoArquivo(campaignName || "Campanha", campaignId), { cellDates: true });
+    } finally {
+      setExporting(false);
+    }
   }
 
   function fmt(ts: string | null) {
