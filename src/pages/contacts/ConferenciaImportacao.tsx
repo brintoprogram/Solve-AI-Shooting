@@ -71,6 +71,8 @@ export function ConferenciaImportacao({
     const texto = c.problemas.map((l) => {
       const motivos = l.semChave
         ? "sem telefone e sem CPF"
+        : l.conflito
+        ? `telefone ${l.conflito.telefone} ja e de ${l.conflito.donoAnterior} — boleto descartado`
         : l.problemas.map((p) => `${p.coluna}="${p.bruto}" (${p.motivo})`).join("; ");
       return `Linha ${l.numero} · ${l.contato} · ${motivos}`;
     }).join("\n");
@@ -112,6 +114,32 @@ export function ConferenciaImportacao({
       {/* A soma é o número que a pessoa confere contra o sistema dela. Se
           bater, a leitura está certa; se não bater, algo foi lido errado e
           ainda dá tempo de voltar. */}
+      {/* Este aviso vale mais que o de duplicata simples: aqui some DINHEIRO.
+          Numa planilha real foram 37 linhas e R$ 1,36 milhão descartados em
+          silêncio, e a diferença só apareceu quando alguém conferiu a soma. */}
+      {t.conflitoDeNome > 0 && (
+        <div className="rounded-xl px-4 py-3 flex items-start gap-2.5"
+             style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.3)" }}>
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#f87171" }} />
+          <div className="min-w-0 text-xs leading-relaxed">
+            <p className="text-white/90">
+              <strong>{t.conflitoDeNome} {t.conflitoDeNome === 1 ? "linha usa" : "linhas usam"} um telefone
+              que já pertence a outro nome</strong> na planilha.
+              {t.valorEmConflito > 0 && (
+                <> O boleto delas <strong>não vai entrar</strong> — são {brl.format(t.valorEmConflito)}{" "}
+                que ficam de fora.</>
+              )}
+            </p>
+            <p className="text-[#6b7f6e] mt-1">
+              O sistema identifica cliente pelo telefone. Dois nomes no mesmo número podem ser duas
+              pessoas, e pendurar a dívida de uma no cadastro da outra é pior do que não importar.
+              Veja quais em <strong>Problemas</strong> — se for o telefone de um representante,
+              corrija a planilha para dar o número de cada cliente.
+            </p>
+          </div>
+        </div>
+      )}
+
       {t.duplicadosNoArquivo > 0 && (
         <div className="rounded-xl px-4 py-2.5 flex items-start gap-2.5"
              style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.28)" }}>
@@ -119,8 +147,8 @@ export function ConferenciaImportacao({
           <p className="text-xs text-white/85 leading-relaxed">
             <strong>{t.duplicadosNoArquivo}</strong>{" "}
             {t.duplicadosNoArquivo === 1 ? "linha repete um telefone" : "linhas repetem telefones"}
-            {" "}que já aparece antes no próprio arquivo. A última vence — as anteriores não viram
-            contatos separados. Os boletos de todas elas entram no mesmo cliente.
+            {" "}que já aparece antes no próprio arquivo, com o mesmo nome. Isso é normal em
+            planilha de cobrança: são vários boletos do mesmo cliente, e todos entram nele.
           </p>
         </div>
       )}
@@ -168,6 +196,8 @@ export function ConferenciaImportacao({
             { r: "Trazem boleto",                   v: String(t.comBoleto) },
             { r: "Não entram (sem telefone e sem CPF)", v: String(t.semChave), alerta: t.semChave > 0 },
             { r: "Com algum campo ilegível",        v: String(t.comProblema), alerta: t.comProblema > 0 },
+            { r: "Telefone de outro nome (boleto fora)", v: String(t.conflitoDeNome), alerta: t.conflitoDeNome > 0 },
+            { r: "Valor que fica de fora",          v: brl.format(t.valorEmConflito), alerta: t.valorEmConflito > 0 },
             { r: "Soma dos boletos",                v: brl.format(t.somaValor) },
           ].map((l) => (
             <div key={l.r} className="flex items-center justify-between px-4 py-2.5">
@@ -246,6 +276,13 @@ export function ConferenciaImportacao({
                   {l.semChave && (
                     <p className="text-[11px] text-amber-400 mt-1">
                       Sem telefone e sem CPF — não há como saber de quem é. Esta linha não entra.
+                    </p>
+                  )}
+                  {l.conflito && (
+                    <p className="text-[11px] text-red-300 mt-1 leading-relaxed">
+                      O telefone <span className="font-mono">{l.conflito.telefone}</span> já é
+                      de <strong>{l.conflito.donoAnterior}</strong> neste arquivo.
+                      O boleto desta linha não vai entrar.
                     </p>
                   )}
                   {l.problemas.map((p, i) => (

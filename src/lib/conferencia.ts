@@ -38,6 +38,9 @@ export interface LinhaConferida {
   problemas: Problema[];
   /** Sem telefone e sem CPF a linha não tem dono e não entra de jeito nenhum. */
   semChave: boolean;
+  /** O telefone desta linha já pertence a outro nome no arquivo. O boleto dela
+   *  não vai entrar. */
+  conflito: { telefone: string; donoAnterior: string } | null;
 }
 
 export interface TotaisConferencia {
@@ -53,8 +56,13 @@ export interface TotaisConferencia {
   somaValor: number;
   vencimentoDe: string | null;
   vencimentoAte: string | null;
-  /** Telefones repetidos dentro do próprio arquivo. */
+  /** Telefones repetidos dentro do próprio arquivo, com o MESMO nome. */
   duplicadosNoArquivo: number;
+  /** Linhas que repetem um telefone já usado por OUTRO nome. O importador
+   *  descarta o boleto delas para não pendurar dívida no cliente errado. */
+  conflitoDeNome: number;
+  /** Quanto em boletos vai ser descartado por esse conflito. */
+  valorEmConflito: number;
 }
 
 export interface Conferencia {
@@ -92,12 +100,22 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
     linhas: parsed.rows.length,
     comContato: 0, comBoleto: 0, semChave: 0, comProblema: 0,
     somaValor: 0, vencimentoDe: null, vencimentoAte: null,
-    duplicadosNoArquivo: 0,
+    duplicadosNoArquivo: 0, conflitoDeNome: 0, valorEmConflito: 0,
   };
 
   const linhas: LinhaConferida[] = [];
   const problemas: LinhaConferida[] = [];
-  const telefonesVistos = new Set<string>();
+  /* Guarda o PRIMEIRO nome visto para cada telefone.
+  
+     O importador tem uma regra de segurança: duas linhas com o mesmo telefone
+     e nomes diferentes provavelmente são pessoas diferentes, então ele mantém
+     a primeira e DESCARTA O BOLETO da segunda — para não pendurar dívida no
+     cliente errado.
+     
+     A regra é boa. O problema era ela agir em silêncio: numa planilha real, 37
+     linhas e R$ 1,36 milhão sumiram assim, e a diferença só apareceu quando
+     alguém foi conferir a soma. Aqui isso passa a ser dito ANTES. */
+  const donoDoTelefone = new Map<string, string>();
   let cortado = false;
 
   parsed.rows.forEach((linha, idx) => {
@@ -110,9 +128,18 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
     // Duplicata dentro do arquivo: a segunda linha não cria contato novo, ela
     // sobrescreve a primeira. Saber disso ANTES evita a conversa de "sumiu um
     // cliente" depois.
+    const nome = String(bruto("name") ?? "").trim();
+    let conflito: LinhaConferida["conflito"] = null;
     if (tel) {
-      if (telefonesVistos.has(tel)) totais.duplicadosNoArquivo++;
-      telefonesVistos.add(tel);
+      const dono = donoDoTelefone.get(tel);
+      if (dono === undefined) {
+        donoDoTelefone.set(tel, nome);
+      } else if (nome && dono && nome !== dono) {
+        conflito = { telefone: tel, donoAnterior: dono };
+        totais.conflitoDeNome++;
+      } else {
+        totais.duplicadosNoArquivo++;
+      }
     }
 
     const problemasDaLinha: Problema[] = [];
@@ -140,6 +167,7 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
     if (temBoleto && !semChave) totais.comBoleto++;
     if (problemasDaLinha.length) totais.comProblema++;
     if (valor !== null) totais.somaValor += valor;
+    if (conflito && valor !== null) totais.valorEmConflito += valor;
     if (venc) {
       if (!totais.vencimentoDe  || venc < totais.vencimentoDe)  totais.vencimentoDe  = venc;
       if (!totais.vencimentoAte || venc > totais.vencimentoAte) totais.vencimentoAte = venc;
@@ -155,19 +183,21 @@ export function conferir(parsed: ParsedFile, mapping: Mapping, ordem: OrdemData)
       vencimento: venc,
       problemas: problemasDaLinha,
       semChave,
+      conflito,
     };
 
     if (linhas.length < MAX_DETALHE) linhas.push(conferida);
     else cortado = true;
 
-    if ((problemasDaLinha.length > 0 || semChave) && problemas.length < MAX_PROBLEMA) {
+    if ((problemasDaLinha.length > 0 || semChave || conflito) && problemas.length < MAX_PROBLEMA) {
       problemas.push(conferida);
     }
   });
 
   // Arredonda no fim, não a cada soma: somar centavos em ponto flutuante 500
   // vezes acumula erro que aparece no total.
-  totais.somaValor = Math.round(totais.somaValor * 100) / 100;
+  totais.somaValor       = Math.round(totais.somaValor * 100) / 100;
+  totais.valorEmConflito = Math.round(totais.valorEmConflito * 100) / 100;
 
   return { linhas, problemas, totais, detalheCortado: cortado };
 }
