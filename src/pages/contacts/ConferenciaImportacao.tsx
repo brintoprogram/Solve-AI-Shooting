@@ -174,28 +174,39 @@ export function ConferenciaImportacao({
       {/* A soma é o número que a pessoa confere contra o sistema dela. Se
           bater, a leitura está certa; se não bater, algo foi lido errado e
           ainda dá tempo de voltar. */}
-      {/* Este aviso vale mais que o de duplicata simples: aqui some DINHEIRO.
-          Numa planilha real foram 37 linhas e R$ 1,36 milhão descartados em
-          silêncio, e a diferença só apareceu quando alguém conferiu a soma. */}
-      {t.conflitoDeNome > 0 && (
+      {/* Faixa sempre visível, em qualquer aba: é a resposta para "e os
+          telefones repetidos, o que vai acontecer?". Antes ela só alarmava;
+          agora ela diz a decisão atual e leva até onde se muda. */}
+      {c.conflitos.length > 0 && (
         <div className="rounded-xl px-4 py-3 flex items-start gap-2.5"
-             style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.3)" }}>
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#f87171" }} />
-          <div className="min-w-0 text-xs leading-relaxed">
+             style={{
+               background: valorQueFicaDeFora > 0 ? "rgba(239,68,68,0.07)" : "rgba(63,176,108,0.06)",
+               border: `1px solid ${valorQueFicaDeFora > 0 ? "rgba(239,68,68,0.3)" : "rgba(63,176,108,0.2)"}`,
+             }}>
+          {valorQueFicaDeFora > 0
+            ? <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#f87171" }} />
+            : <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "#3fb06c" }} />}
+          <div className="min-w-0 flex-1 text-xs leading-relaxed">
             <p className="text-white/90">
-              <strong>{t.conflitoDeNome} {t.conflitoDeNome === 1 ? "linha usa" : "linhas usam"} um telefone
-              que já pertence a outro nome</strong> na planilha.
-              {t.valorEmConflito > 0 && (
-                <> O boleto delas <strong>não vai entrar</strong> — são {brl.format(t.valorEmConflito)}{" "}
-                que ficam de fora.</>
+              <strong>{c.conflitos.length}</strong> telefone{c.conflitos.length === 1 ? "" : "s"}{" "}
+              {c.conflitos.length === 1 ? "é dividido" : "são divididos"} por mais de um nome.
+              {valorQueFicaDeFora > 0
+                ? <> Com as escolhas atuais, <strong>{brl.format(valorQueFicaDeFora)}</strong> em
+                    boletos <strong>não vai ser importado</strong>.</>
+                : <> Tudo será importado — nada fica de fora.</>}
+              {cadastrosNovos > 0 && (
+                <> {cadastrosNovos} cadastro{cadastrosNovos === 1 ? "" : "s"} novo
+                  {cadastrosNovos === 1 ? "" : "s"} com telefone provisório.</>
               )}
             </p>
-            <p className="text-[#6b7f6e] mt-1">
-              O sistema identifica cliente pelo telefone. Dois nomes no mesmo número podem ser duas
-              pessoas, e pendurar a dívida de uma no cadastro da outra é pior do que não importar.
-              Veja quais em <strong>Problemas</strong> — se for o telefone de um representante,
-              corrija a planilha para dar o número de cada cliente.
-            </p>
+            <button
+              type="button"
+              onClick={() => setAba("conflitos")}
+              className="mt-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white"
+              style={{ background: "rgba(63,176,108,0.85)" }}
+            >
+              Conferir e decidir um a um
+            </button>
           </div>
         </div>
       )}
@@ -395,13 +406,38 @@ export function ConferenciaImportacao({
                       Sem telefone e sem CPF — não há como saber de quem é. Esta linha não entra.
                     </p>
                   )}
-                  {l.conflito && (
-                    <p className="text-[11px] text-red-300 mt-1 leading-relaxed">
-                      O telefone <span className="font-mono">{l.conflito.telefone}</span> já é
-                      de <strong>{l.conflito.donoAnterior}</strong> neste arquivo.
-                      O boleto desta linha não vai entrar.
-                    </p>
-                  )}
+                  {/* A decisão desta linha é a do GRUPO dela, e o grupo mora na
+                      aba Conflitos. Esta mensagem dizia "o boleto não vai
+                      entrar" mesmo depois de a decisão passar a ser juntar por
+                      padrão — texto velho que sobreviveu à mudança de regra, e
+                      mentira sobre o que o sistema ia fazer. Agora ela lê a
+                      decisão de verdade e leva até onde se muda. */}
+                  {l.conflito && (() => {
+                    const d = resolucoes[l.conflito.telefone];
+                    const acao = d
+                      ? (l.contato === d.nome ? "juntar" : (d.acoes[l.contato] ?? "juntar"))
+                      : "juntar";
+                    const texto =
+                      acao === "fora"    ? { cor: "#f87171", frase: "Decidido: não importar. O boleto desta linha fica de fora." }
+                      : acao === "separar" ? { cor: "#3fb06c", frase: `Decidido: cadastro próprio para ${l.contato}, com telefone provisório. O boleto entra nele.` }
+                      : { cor: "#3fb06c", frase: `Decidido: juntar no cadastro de ${d?.nome ?? l.conflito!.donoAnterior}. O boleto entra normalmente.` };
+                    return (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <p className="text-[11px] leading-relaxed" style={{ color: texto.cor }}>
+                          Telefone <span className="font-mono">{l.conflito!.telefone}</span> dividido
+                          com <strong>{l.conflito!.donoAnterior}</strong>. {texto.frase}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setAba("conflitos")}
+                          className="px-2 py-0.5 rounded-lg text-[11px] font-semibold text-white"
+                          style={{ background: "rgba(63,176,108,0.85)" }}
+                        >
+                          Mudar em Conflitos
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {l.problemas.map((p, i) => (
                     <CampoCorrigivel
                       key={`${l.numero}-${p.coluna}-${i}`}
