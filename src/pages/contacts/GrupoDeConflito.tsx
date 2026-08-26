@@ -15,9 +15,14 @@ import type { GrupoConflito } from "@/lib/conferencia";
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
+/* Separar vem primeiro e é o padrão. Numa planilha de cobrança, dois nomes
+   diferentes no mesmo telefone quase sempre são duas pessoas atendidas pelo
+   mesmo representante — não a mesma pessoa escrita de dois jeitos. Juntar por
+   padrão misturaria a dívida de clientes distintos, que é o erro mais caro dos
+   três. */
 const OPCOES: { id: AcaoConflito; rotulo: string; ajuda: string }[] = [
-  { id: "juntar",  rotulo: "Juntar",         ajuda: "os boletos entram no cadastro principal" },
   { id: "separar", rotulo: "Separar",        ajuda: "cria cadastro próprio, com telefone provisório" },
+  { id: "juntar",  rotulo: "Juntar",         ajuda: "os boletos entram no cadastro principal" },
   { id: "fora",    rotulo: "Deixar de fora", ajuda: "não importa estes boletos" },
 ];
 
@@ -41,7 +46,7 @@ export function GrupoDeConflito({
       <div className="mt-2.5 space-y-1.5">
         {grupo.nomes.map((n) => {
           const ehDono = n.nome === decisao.nome;
-          const acao: AcaoConflito = ehDono ? "juntar" : (decisao.acoes[n.nome] ?? "juntar");
+          const acao: AcaoConflito = ehDono ? "juntar" : (decisao.acoes[n.nome] ?? "separar");
           return (
             <div key={n.nome} className="px-2.5 py-2 rounded-lg"
                  style={{

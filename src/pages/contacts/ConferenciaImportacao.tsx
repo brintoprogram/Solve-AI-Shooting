@@ -105,8 +105,12 @@ export function ConferenciaImportacao({
     const novo: ResolucaoConflito = { ...resolucoes };
     for (const g of faltando) {
       const acoes: Record<string, AcaoConflito> = {};
-      // Todos "juntar" por padrao: nada se perde sem alguem decidir.
-      for (const n of g.nomes.slice(1)) acoes[n.nome] = "juntar";
+      /* SEPARAR por padrao. Dois nomes diferentes no mesmo telefone quase
+         sempre sao duas pessoas atendidas pelo mesmo representante, e juntar
+         misturaria a divida de clientes distintos — o erro mais caro dos tres,
+         porque produz um saldo que parece certo e nao e. Nada se perde de
+         qualquer forma: separar importa tudo. */
+      for (const n of g.nomes.slice(1)) acoes[n.nome] = "separar";
       novo[g.telefone] = { nome: g.nomes[0].nome, acoes };
     }
     setResolucoes(novo);
@@ -121,7 +125,7 @@ export function ConferenciaImportacao({
        como "juntar" nele mesmo. */
     const acoes = { ...atual.acoes };
     delete acoes[nome];
-    if (!acoes[atual.nome]) acoes[atual.nome] = "juntar";
+    if (!acoes[atual.nome]) acoes[atual.nome] = "separar";
     setResolucoes({ ...resolucoes, [telefone]: { nome, acoes } });
   };
 
@@ -294,10 +298,12 @@ export function ConferenciaImportacao({
             <p className="text-xs text-[#6b7f6e] leading-relaxed">
               O sistema identifica cliente pelo telefone, então os nomes abaixo vão virar{" "}
               <strong className="text-white/85">um cadastro só</strong> — não há como serem dois.
-              Escolha quem fica com o telefone real. Para cada outro nome:{" "}
-              <strong className="text-white/85">Juntar</strong> no mesmo cadastro,{" "}
-              <strong className="text-white/85">Separar</strong> em cadastro próprio com telefone
-              provisório, ou deixar de fora. O padrão é juntar — nada se perde sem você decidir.
+              Escolha quem fica com o telefone real. Cada outro nome vira, por padrão,{" "}
+              <strong className="text-white/85">um cadastro próprio</strong> com telefone
+              provisório — porque nomes diferentes no mesmo número quase sempre são pessoas
+              diferentes atendidas pelo mesmo representante. Use{" "}
+              <strong className="text-white/85">Juntar</strong> quando for a mesma pessoa escrita
+              de dois jeitos. Nada fica de fora sem você mandar.
             </p>
 
             {c.conflitos.map((g) => (
@@ -368,9 +374,14 @@ export function ConferenciaImportacao({
               ))}
             </tbody>
           </table>
-          {c.detalheCortado && (
+          {c.detalheCortado ? (
             <p className="px-3 py-2 text-[11px] text-[#6b7f6e] border-t border-[#1e2e22]">
-              Mostrando as {c.linhas.length} primeiras linhas. Os totais acima são da planilha inteira.
+              Esta tabela mostra as {c.linhas.length} primeiras linhas. Os totais, os problemas e os
+              conflitos acima são da planilha inteira — nenhuma decisão se apoia em amostra.
+            </p>
+          ) : (
+            <p className="px-3 py-2 text-[11px] text-[#6b7f6e] border-t border-[#1e2e22]">
+              Todas as {c.linhas.length} linhas da planilha estão aqui.
             </p>
           )}
         </div>
@@ -415,8 +426,8 @@ export function ConferenciaImportacao({
                   {l.conflito && (() => {
                     const d = resolucoes[l.conflito.telefone];
                     const acao = d
-                      ? (l.contato === d.nome ? "juntar" : (d.acoes[l.contato] ?? "juntar"))
-                      : "juntar";
+                      ? (l.contato === d.nome ? "juntar" : (d.acoes[l.contato] ?? "separar"))
+                      : "separar";
                     const texto =
                       acao === "fora"    ? { cor: "#f87171", frase: "Decidido: não importar. O boleto desta linha fica de fora." }
                       : acao === "separar" ? { cor: "#3fb06c", frase: `Decidido: cadastro próprio para ${l.contato}, com telefone provisório. O boleto entra nele.` }

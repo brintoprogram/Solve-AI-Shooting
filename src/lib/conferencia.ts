@@ -15,11 +15,18 @@ import {
   type ParsedFile, type Mapping, type FieldKey, type OrdemData,
 } from "./importUtils";
 
-/** Quantas linhas guardamos com detalhe para exibir. Os totais são sempre da
- *  planilha inteira; o detalhe é amostra, porque montar 20 mil objetos para
- *  uma tabela que mostra 50 por vez é gastar memória à toa. */
-const MAX_DETALHE  = 300;
-const MAX_PROBLEMA = 500;
+/* O QUE É COMPLETO E O QUE É AMOSTRA.
+ *
+ *  Completo, sempre, sobre a planilha inteira: os totais, a soma, a faixa de
+ *  vencimentos, a contagem de problemas e OS GRUPOS DE CONFLITO. Nenhuma
+ *  decisão da tela se apoia em amostra — seria decidir no escuro.
+ *
+ *  Amostra só o detalhe visual, e com folga: 2.000 linhas cobrem qualquer
+ *  planilha de cobrança que apareça na prática. O teto existe para uma base de
+ *  20 mil não montar 20 mil objetos para uma tabela que mostra 50 por vez, e
+ *  quando ele corta a tela avisa em vez de calar. */
+const MAX_DETALHE  = 2000;
+const MAX_PROBLEMA = 2000;
 
 export interface Problema {
   coluna: string;

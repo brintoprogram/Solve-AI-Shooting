@@ -877,7 +877,7 @@ export async function runImport(
     const existing = contactMap.get(r.phone!);
     const decisao  = resolucoes?.[r.phone!];
     const acao     = decisao && r.name && r.name !== decisao.nome
-      ? (decisao.acoes?.[r.name] ?? "juntar")
+      ? (decisao.acoes?.[r.name] ?? "separar")
       : undefined;
 
     if (existing && existing.name && r.name && existing.name !== r.name) {
