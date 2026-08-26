@@ -289,8 +289,8 @@ export function EmailCampaignList({ onNew }: EmailCampaignListProps) {
             />
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
-            <table className="w-full text-sm">
+          <div className="rounded-xl overflow-x-auto sm:overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.1)" }}>
+            <table className="w-full text-sm min-w-[640px] sm:min-w-full">
               <thead>
                 <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest">Campanha</th>

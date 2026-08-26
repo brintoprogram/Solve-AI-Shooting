@@ -413,7 +413,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
 
   return (
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-3 py-4 sm:px-6 sm:py-8">
 
         {/* ── Stepper ─────────────────────────────── */}
         <div className="mb-10 animate-fade-up">
@@ -432,7 +432,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
                         />
                       )}
                       <div className={cn(
-                        "relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500",
+                        "relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all duration-500",
                         isDone && "glow-green-sm",
                         isActive && "glow-green",
                       )}
@@ -452,13 +452,13 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
                         )} />
                       </div>
                     </div>
-                    <div className={cn("mt-2.5 text-center transition-all duration-300", isFuture && "opacity-40")}>
+                    <div className={cn("hidden sm:block mt-2.5 text-center transition-all duration-300", isFuture && "opacity-40")}>
                       <p className={cn("text-xs font-semibold leading-none", isDone || isActive ? "text-agro-text" : "text-agro-muted-2")}>{s.label}</p>
                       <p className={cn("text-[10px] mt-0.5", isActive ? "text-agro-green" : "text-agro-muted-2")}>{s.subtitle}</p>
                     </div>
                   </div>
                   {i < STEPS.length - 1 && (
-                    <div className="flex-1 mx-3 mb-7 relative h-0.5 rounded-full overflow-hidden"
+                    <div className="flex-1 mx-1.5 sm:mx-3 mb-0 sm:mb-7 relative h-0.5 rounded-full overflow-hidden"
                       style={{ background: "rgba(63,176,108,0.12)" }}
                     >
                       {step > s.id && <div className="absolute inset-0 connector-fill" />}
@@ -520,7 +520,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
           </div>
 
           {/* Step body */}
-          <div className="px-8 py-8">
+          <div className="px-4 py-5 sm:px-8 sm:py-8">
             <div key={`${step}-${state.dispatchChannel}`} className="animate-scale-in">
               {step === 1 && <Step1 state={state} emailConns={emailConns} onChange={patch} />}
               {step === 2 && <Step2 state={state} onChange={patch} />}
@@ -535,7 +535,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
           </div>
 
           {/* Footer nav */}
-          <div className="px-8 py-5 flex items-center justify-between"
+          <div className="px-4 py-4 sm:px-8 sm:py-5 flex items-center justify-between gap-3"
             style={{ borderTop: "1px solid rgba(63,176,108,0.08)" }}
           >
             <button
@@ -550,7 +550,7 @@ export function EmailCampaignWizard({ onClose, onCreated }: EmailCampaignWizardP
                 disabled={!canProceed()}
                 onClick={goNext}
                 className={cn(
-                  "group relative flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-200",
+                  "group relative flex items-center justify-center gap-2 flex-1 sm:flex-none px-6 py-3 sm:py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-200",
                   canProceed() ? "btn-agro cursor-pointer" : "opacity-30 cursor-not-allowed",
                 )}
                 style={canProceed() ? {} : { background: "rgba(63,176,108,0.15)", border: "1px solid rgba(63,176,108,0.1)" }}
@@ -578,7 +578,7 @@ function Step1({ state, emailConns, onChange }: {
       {/* Canal de envio */}
       <div>
         <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest mb-2">Canal de envio *</p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {(["smtp", "n8n_email"] as const).map((ch) => {
             const sel = state.dispatchChannel === ch;
             return (
@@ -866,7 +866,7 @@ function N8NConfirmationStep({ state, onChange, onSubmit, submitting }: {
 
   return (
     <div className="space-y-6">
-      <div className={`grid gap-4 ${hasInvoices ? "grid-cols-3" : "grid-cols-2"}`}>
+      <div className={`grid gap-3 sm:gap-4 grid-cols-1 ${hasInvoices ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         <div className="p-4 rounded-xl text-center"
           style={{ background: "rgba(63,176,108,0.06)", border: "1px solid rgba(63,176,108,0.1)" }}
         >
@@ -926,7 +926,7 @@ function N8NConfirmationStep({ state, onChange, onSubmit, submitting }: {
       >
         <p className="text-xs font-semibold text-agro-muted-2 uppercase tracking-widest">Quando enviar</p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {([false, true] as const).map((ag) => (
             <button
               key={String(ag)}
@@ -1253,8 +1253,8 @@ function Step2({ state, onChange }: {
         </div>
       ) : (
         <>
-          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
-            <table className="w-full text-sm table-fixed">
+          <div className="rounded-xl overflow-x-auto sm:overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
+            <table className="w-full text-sm table-fixed min-w-[560px] sm:min-w-full">
               <thead>
                 <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
                   {/* Checkbox */}

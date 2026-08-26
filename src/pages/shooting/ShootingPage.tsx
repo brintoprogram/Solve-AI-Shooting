@@ -97,9 +97,9 @@ export function ShootingPage() {
     <div className="min-h-screen" style={{ background: "#0a110e" }}>
       <Topbar breadcrumbs={[{ label: "Shooting" }]} />
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-3 py-4 sm:px-6 sm:py-8">
         {/* ── Page header ───────────────────────── */}
-        <div className="flex items-start justify-between mb-6 animate-fade-up">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6 animate-fade-up">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center glow-green-sm"
@@ -109,12 +109,12 @@ export function ShootingPage() {
               </div>
               <h1 className="font-display text-2xl font-bold text-agro-text">Solve AI Shooting</h1>
             </div>
-            <p className="text-sm text-agro-muted ml-12">
+            <p className="text-sm text-agro-muted ml-0 sm:ml-12">
               Disparos em massa via WhatsApp e Email
             </p>
           </div>
 
-          <div className="flex items-center gap-2" id="shooting-header-actions">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap" id="shooting-header-actions">
             {channel === "whatsapp" ? (
               <>
                 <button
