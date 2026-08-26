@@ -730,6 +730,9 @@ export function Contacts() {
   // Invoice filter: resolve contact IDs from contact_invoices
   const [contactIds,     setContactIds]     = useState<string[] | null>(null);
   const [filterLoading,  setFilterLoading]  = useState(false);
+  /* Agregado por contato restrito ao periodo filtrado. Nulo quando nao ha
+     filtro de vencimento: ai a linha volta a mostrar o total do contato. */
+  const [escopo, setEscopo] = useState<Record<string, { total: number; nextDue: string | null }> | null>(null);
 
   // Invoice totals for current page contacts (per-row display)
   const [invoiceTotals, setInvoiceTotals] = useState<Record<string, { total: number; nextDue: string | null }>>({});
@@ -875,22 +878,61 @@ export function Contacts() {
   useEffect(() => {
     if (!filters.hasInvoice && !filters.vencFrom && !filters.vencTo) {
       setContactIds(null);
+      setEscopo(null);
       return;
     }
     let cancelled = false;
     setFilterLoading(true);
-    let q = supabase
-      .from("contact_invoices")
-      .select("contact_id")
-      .eq("workspace_id", workspaceId);
-    if (filters.vencFrom) q = q.gte("vencimento", filters.vencFrom);
-    if (filters.vencTo)   q = q.lte("vencimento", filters.vencTo);
-    q.then(({ data }: { data: { contact_id: string }[] | null }) => {
+
+    (async () => {
+      /* Pagina de mil em mil.
+
+         Sem isto o PostgREST devolve as primeiras 1000 linhas e cala: passando
+         de mil boletos no periodo, contatos legitimos sumiriam da lista, sem
+         erro e sem aviso. Hoje sao 488 no periodo — ainda cabe, e e por isso
+         que vale consertar agora, enquanto o sintoma nao existe. */
+      type Bol = { contact_id: string; vencimento: string | null; valor: number | null; status: string | null };
+      const linhas: Bol[] = [];
+      const PAGINA = 1000;
+      for (let de = 0; ; de += PAGINA) {
+        let q = supabase
+          .from("contact_invoices")
+          .select("contact_id, vencimento, valor, status")
+          .eq("workspace_id", workspaceId)
+          .range(de, de + PAGINA - 1);
+        if (filters.vencFrom) q = q.gte("vencimento", filters.vencFrom);
+        if (filters.vencTo)   q = q.lte("vencimento", filters.vencTo);
+
+        const { data, error } = await q;
+        if (error || !data) break;
+        linhas.push(...(data as unknown as Bol[]));
+        if (data.length < PAGINA) break;
+      }
       if (cancelled) return;
-      const ids = [...new Set((data ?? []).map((r) => r.contact_id))];
-      setContactIds(ids);
+
+      setContactIds([...new Set(linhas.map((r) => r.contact_id))]);
+
+      /* Agregado DO PERIODO, por contato.
+
+         A view traz saldo e proximo vencimento do contato INTEIRO, sem saber do
+         filtro. Por isso um cliente com boleto em 31/08 aparecia — corretamente,
+         ele TEM boleto no periodo — mas a linha exibia "03/07/2026, 53 dias em
+         atraso", que e outro boleto dele, fora do escopo pedido. O filtro estava
+         certo; a linha e que respondia outra pergunta. */
+      const porContato: Record<string, { total: number; nextDue: string | null }> = {};
+      for (const r of linhas) {
+        const aberto = r.status === null ||
+          (OPEN_INVOICE_STATUSES as unknown as string[]).includes(r.status);
+        if (!aberto) continue;
+        const atual = porContato[r.contact_id] ?? { total: 0, nextDue: null };
+        atual.total += Number(r.valor ?? 0);
+        if (r.vencimento && (!atual.nextDue || r.vencimento < atual.nextDue)) atual.nextDue = r.vencimento;
+        porContato[r.contact_id] = atual;
+      }
+      setEscopo(porContato);
       setFilterLoading(false);
-    });
+    })();
+
     return () => { cancelled = true; };
   }, [filters.hasInvoice, filters.vencFrom, filters.vencTo, workspaceId]);
 
@@ -988,13 +1030,17 @@ export function Contacts() {
   useEffect(() => {
     const map: Record<string, { total: number; nextDue: string | null }> = {};
     for (const c of contacts) {
-      map[c.id] = {
+      /* Com filtro de vencimento ativo, a linha mostra o que esta DENTRO do
+         periodo. Sem filtro, o total do contato. Exibir o agregado geral sob um
+         filtro de periodo e responder algo que a pessoa nao perguntou — e que
+         contradiz o que ela acabou de pedir. */
+      map[c.id] = escopo?.[c.id] ?? {
         total:   Number(c.saldo_em_aberto ?? 0),
         nextDue: c.proximo_vencimento ?? null,
       };
     }
     setInvoiceTotals(map);
-  }, [contacts]);
+  }, [contacts, escopo]);
 
   async function handleExport() {
     setExporting(true);
