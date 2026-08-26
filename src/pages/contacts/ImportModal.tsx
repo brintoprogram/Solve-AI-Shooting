@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { LeituraDaPlanilha } from "./LeituraDaPlanilha";
+import { ConferenciaImportacao } from "./ConferenciaImportacao";
 import { log } from "@/lib/logger";
 import {
   listarPerfis, melhorPerfil, aplicarPerfil, salvarPerfil, registrarUso,
@@ -18,7 +19,10 @@ import { useAuth } from "@/context/AuthContext";
 
 // ── Types ─────────────────────────────────────────────────────────
 
-type Step = "idle" | "mapping" | "importing" | "done";
+/* "conferencia" entra entre o mapeamento e a gravacao. Ate aqui a pessoa
+   via como cada COLUNA foi lida; falta ver o que acontece com cada LINHA,
+   e conferir a soma contra o sistema dela antes de autorizar. */
+type Step = "idle" | "mapping" | "conferencia" | "importing" | "done";
 
 interface Progress { phase: string; done: number; total: number }
 
@@ -351,7 +355,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         (err instanceof Error ? err.message : "Erro durante importação.") +
         " — abra o console do navegador (F12) para o detalhe completo."
       );
-      setStep("mapping");
+      setStep("conferencia");
     }
   }
 
@@ -403,18 +407,20 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         {(step === "idle" || step === "mapping") && (
           <div className="flex items-center gap-0 px-6 pt-4 pb-2 shrink-0">
             {[
-              { id: "idle",    label: "Arquivo" },
-              { id: "mapping", label: "Mapeamento" },
-              { id: "done",    label: "Resultado" },
+              { id: "idle",        label: "Arquivo" },
+              { id: "mapping",     label: "Mapeamento" },
+              { id: "conferencia", label: "Conferência" },
+              { id: "done",        label: "Resultado" },
             ].map((s, i) => {
-              const active = step === s.id || (step === "mapping" && s.id === "idle");
+              const ordem = ["idle", "mapping", "conferencia", "importing", "done"];
+              const active = ordem.indexOf(step) >= ordem.indexOf(s.id);
               return (
                 <div key={s.id} className="flex items-center">
                   <div className={`flex items-center gap-1.5 text-xs ${active ? "text-[#3fb06c]" : "text-[#6b7f6e]"}`}>
                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${active ? "bg-[#3fb06c] text-white" : "bg-[#1e2e22]"}`}>{i + 1}</span>
                     {s.label}
                   </div>
-                  {i < 2 && <div className="w-8 h-px bg-[#2a3d30] mx-2" />}
+                  {i < 3 && <div className="w-8 h-px bg-[#2a3d30] mx-2" />}
                 </div>
               );
             })}
@@ -464,6 +470,14 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
                 ordem={ordemData}
                 setOrdem={setOrdemData}
               />
+          )}
+          {step === "conferencia" && parsed && (
+            <ConferenciaImportacao
+              parsed={parsed}
+              mapping={mapping}
+              ordem={ordemData}
+              onVoltar={() => setStep("mapping")}
+            />
           )}
           {step === "importing" && <ProgressView progress={progress} />}
           {step === "done" && stats && (
@@ -563,6 +577,28 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         </div>
 
         {/* Footer */}
+        {step === "conferencia" && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-[#1e2e22] shrink-0">
+            <p className="text-xs text-[#6b7f6e]">
+              Nada foi gravado ainda.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep("mapping")}
+                className="px-4 py-2 rounded-lg border border-[#2a3d30] text-[#6b7f6e] text-sm hover:border-[#3fb06c]/50 hover:text-white transition-colors"
+              >
+                Ajustar mapeamento
+              </button>
+              <button
+                onClick={handleImport}
+                className="btn-agro px-6 py-2 text-sm"
+              >
+                Confirmar e importar
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === "mapping" && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-[#1e2e22] shrink-0">
             <div className="text-xs text-[#6b7f6e]">
@@ -577,11 +613,11 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
                 Trocar arquivo
               </button>
               <button
-                onClick={handleImport}
+                onClick={() => setStep("conferencia")}
                 disabled={mappedCount === 0}
                 className="btn-agro px-6 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Importar {parsed?.rows.length ?? 0} linhas
+                Conferir antes de importar
               </button>
             </div>
           </div>

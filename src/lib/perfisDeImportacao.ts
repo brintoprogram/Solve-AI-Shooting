@@ -208,3 +208,63 @@ export async function desfazerImportacao(runId: string): Promise<ResultadoDesfaz
     return { ok: false, erro: e instanceof Error ? e.message : "Falha ao desfazer." };
   }
 }
+
+// ── Histórico de importações ──────────────────────────────────────
+
+export interface Importacao {
+  id: string;
+  arquivo: string | null;
+  linhas: number;
+  contatos_criados: number;
+  contatos_atualizados: number;
+  boletos_criados: number;
+  status: "concluida" | "desfeita";
+  created_at: string;
+  desfeita_em: string | null;
+}
+
+export type Periodo = "hoje" | "ontem" | "7dias" | "30dias" | "tudo";
+
+/** Início do período, em ISO. Calculado no fuso de quem está olhando: "hoje"
+ *  para quem importou às 23h precisa ser o hoje DELE, não o do servidor. */
+export function inicioDoPeriodo(p: Periodo): string | null {
+  if (p === "tudo") return null;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  if (p === "ontem") d.setDate(d.getDate() - 1);
+  if (p === "7dias")  d.setDate(d.getDate() - 7);
+  if (p === "30dias") d.setDate(d.getDate() - 30);
+  return d.toISOString();
+}
+
+export function fimDoPeriodo(p: Periodo): string | null {
+  if (p !== "ontem") return null;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+export async function listarImportacoes(
+  workspaceId: string,
+  periodo: Periodo = "7dias",
+): Promise<Importacao[]> {
+  try {
+    let q = db
+      .from("import_runs")
+      .select("id, arquivo, linhas, contatos_criados, contatos_atualizados, boletos_criados, status, created_at, desfeita_em")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    const de  = inicioDoPeriodo(periodo);
+    const ate = fimDoPeriodo(periodo);
+    if (de)  q = q.gte("created_at", de);
+    if (ate) q = q.lt("created_at", ate);
+
+    const { data, error } = await q;
+    if (error) return [];
+    return (data ?? []) as Importacao[];
+  } catch {
+    return [];
+  }
+}

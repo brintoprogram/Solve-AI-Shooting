@@ -3,6 +3,7 @@ import {
   Users, Upload, Search, ChevronLeft, ChevronRight, Loader2, UserCircle2,
   Plus, Download, Sparkles, ArrowUpAZ, ArrowDownAZ, X, Filter, Trash2,
   AlertTriangle, SlidersHorizontal,
+  History,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
@@ -12,6 +13,7 @@ import { formatPhone, diasDeAtraso } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { ImportModal } from "./contacts/ImportModal";
+import { HistoricoImportacoes } from "./contacts/HistoricoImportacoes";
 import { ContactPanel, Contact, tagColor, formatBRL, formatDate } from "./contacts/ContactPanel";
 import { Presence } from "@/components/ui/Presence";
 import { ContactFormModal } from "./contacts/ContactFormModal";
@@ -715,6 +717,7 @@ export function Contacts() {
   const [page,            setPage]           = useState(1);
   const [selected,        setSelected]       = useState<Contact | null>(null);
   const [showImport,      setShowImport]     = useState(false);
+  const [showHistorico,   setShowHistorico]  = useState(false);
   const [showNewContact,  setShowNewContact] = useState(false);
   const [exporting,       setExporting]      = useState(false);
   const [mainTab,         setMainTab]        = useState<"lista" | "limpeza">("lista");
@@ -1039,6 +1042,16 @@ export function Contacts() {
             className="btn-agro flex items-center gap-2 px-4 py-2 text-sm"
           >
             <Upload className="w-4 h-4" /> Importar planilha
+          </button>
+          {/* Fica ao lado do importar, e nao escondido em Configuracoes: quem
+              precisa desfazer acabou de importar, e procura onde importou. */}
+          <button
+            onClick={() => setShowHistorico(true)}
+            title="Importações recentes e desfazer"
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl border border-agro-border text-agro-muted hover:text-agro-text hover:border-agro-accent/40 transition-colors"
+          >
+            <History className="w-4 h-4" />
+            <span className="hidden sm:inline">Histórico</span>
           </button>
         </div>
       </div>
@@ -1421,6 +1434,14 @@ export function Contacts() {
           contact={selected}
           onClose={() => setSelected(null)}
           onUpdated={(updated) => { setSelected(updated); refresh(); }}
+        />
+      )}
+
+      {showHistorico && workspaceId && (
+        <HistoricoImportacoes
+          workspaceId={workspaceId}
+          onFechar={() => setShowHistorico(false)}
+          onDesfeito={refresh}
         />
       )}
 
