@@ -127,31 +127,95 @@ function useContacts(
 
 // ── XLSX Export ────────────────────────────────────────────────────
 
-async function exportXlsx(workspaceId: string) {
-  const { data: allContacts } = await supabase
-    .from("inbox_contacts")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .eq("is_simulation", false)
-    .order("name", { ascending: true });
+/** Data como DATA, não como texto.
+ *
+ *  O export mandava "03/09/2026" em string. O Excel guarda isso como texto e
+ *  ordena alfabeticamente — pelo DIA primeiro. Foi o que produziu a sequência
+ *  05/05, 04/09, 04/08, 03/09, 03/08, 03/07, que parece dado corrompido e não
+ *  é: as datas estavam certas, a planilha é que não sabia que eram datas.
+ *
+ *  Meio-dia UTC de propósito: à meia-noite, qualquer fuso a oeste joga a data
+ *  para o dia anterior na hora de exibir. */
+function comoData(iso: string | null | undefined): Date | "" {
+  if (!iso) return "";
+  const [a, m, d] = iso.slice(0, 10).split("-").map(Number);
+  if (!a || !m || !d) return "";
+  return new Date(Date.UTC(a, m - 1, d, 12));
+}
 
-  const contacts: Contact[] = allContacts ?? [];
+/** Busca tudo, de mil em mil. O PostgREST devolve 1000 linhas e cala — uma
+ *  exportação truncada em silêncio é pior que uma que falha.
+ *
+ *  Sem tipo de propósito: a consulta é montada dinamicamente conforme o filtro,
+ *  e amarrar isso aos tipos gerados do banco custa mais do que rende num
+ *  caminho que só lê e exporta. */
+const dbExport = supabase as unknown as {
+  from: (t: string) => Record<string, (...a: unknown[]) => unknown>;
+};
 
-  const { data: allInvoices } = await supabase
-    .from("contact_invoices")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .order("vencimento", { ascending: true });
+async function buscarTudo(
+  tabela: string,
+  montar: (q: Record<string, (...a: unknown[]) => unknown>) => Record<string, (...a: unknown[]) => unknown>,
+): Promise<Record<string, unknown>[]> {
+  const saida: Record<string, unknown>[] = [];
+  const PAGINA = 1000;
+  for (let de = 0; ; de += PAGINA) {
+    const q = montar(dbExport.from(tabela));
+    const { data, error } = (await q.range(de, de + PAGINA - 1)) as {
+      data: Record<string, unknown>[] | null; error: unknown;
+    };
+    if (error || !data) break;
+    saida.push(...data);
+    if (data.length < PAGINA) break;
+  }
+  return saida;
+}
 
-  const invoices: Array<Record<string, unknown>> = allInvoices ?? [];
+export interface FiltroExport {
+  vencFrom?: string;
+  vencTo?: string;
+  /** Contatos que a tela está mostrando. null = todos. */
+  contactIds?: string[] | null;
+}
 
-  const { data: allNotes } = await supabase
-    .from("contact_notes")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false });
+async function exportXlsx(workspaceId: string, filtro?: FiltroExport) {
+  const temFiltro = Boolean(filtro?.vencFrom || filtro?.vencTo ||
+                           (filtro?.contactIds && filtro.contactIds.length));
 
-  const notes: Array<Record<string, unknown>> = allNotes ?? [];
+  const allContacts = await buscarTudo("inbox_contacts", (q) => {
+    type Q = Record<string, (...a: unknown[]) => unknown>;
+    let x = q.select("*") as Q;
+    x = x.eq("workspace_id", workspaceId) as Q;
+    x = x.eq("is_simulation", false) as Q;
+    if (filtro?.contactIds && filtro.contactIds.length) x = x.in("id", filtro.contactIds) as Q;
+    return x.order("name", { ascending: true }) as Q;
+  });
+
+  const contacts: Contact[] = allContacts as unknown as Contact[];
+
+  /* Os boletos saem no MESMO recorte da tela. Exportar o workspace inteiro
+     enquanto a tela mostra um período era o que fazia a soma do Excel não
+     bater com a soma do cabeçalho — e a suspeita cair sobre as datas. */
+  const invoices = await buscarTudo("contact_invoices", (q) => {
+    type Q = Record<string, (...a: unknown[]) => unknown>;
+    let x = q.select("*") as Q;
+    x = x.eq("workspace_id", workspaceId) as Q;
+    if (filtro?.vencFrom) x = x.gte("vencimento", filtro.vencFrom) as Q;
+    if (filtro?.vencTo)   x = x.lte("vencimento", filtro.vencTo) as Q;
+    if (filtro?.contactIds && filtro.contactIds.length) x = x.in("contact_id", filtro.contactIds) as Q;
+    return x.order("vencimento", { ascending: true }) as Q;
+  });
+
+  const idsExportados = new Set(contacts.map((c) => c.id));
+  const allNotes = await buscarTudo("contact_notes", (q) => {
+    type Q = Record<string, (...a: unknown[]) => unknown>;
+    const x = q.select("*") as Q;
+    return (x.eq("workspace_id", workspaceId) as Q)
+      .order("created_at", { ascending: false }) as Q;
+  });
+  const notes = temFiltro
+    ? allNotes.filter((n) => idsExportados.has(String(n.contact_id ?? "")))
+    : allNotes;
 
   const contactRows = contacts.map((c) => ({
     "Nome":               c.name ?? "",
@@ -170,7 +234,7 @@ async function exportXlsx(workspaceId: string) {
     "Cidade":             c.cidade ?? "",
     "Estado":             c.estado ?? "",
     "Tags":               (c.tags ?? []).join(", "),
-    "Cadastrado em":      c.created_at ? new Date(c.created_at).toLocaleDateString("pt-BR") : "",
+    "Cadastrado em":      comoData(c.created_at as string | null),
   }));
 
   const contactMap = new Map(contacts.map((c) => [c.id, c.name ?? c.phone ?? c.id]));
@@ -178,7 +242,7 @@ async function exportXlsx(workspaceId: string) {
     "Contato":          contactMap.get(inv.contact_id as string) ?? "",
     "Número NF":        inv.numero_nf ?? "",
     "Valor":            typeof inv.valor === "number" ? inv.valor : "",
-    "Vencimento":       formatDate(inv.vencimento as string | null),
+    "Vencimento":       comoData(inv.vencimento as string | null),
     "Status":           inv.status ?? "",
     "Código de Barras": inv.codigo_barras ?? "",
   }));
@@ -193,18 +257,26 @@ async function exportXlsx(workspaceId: string) {
     "Tipo":            TYPE_LABELS[n.type as string] ?? (n.type as string),
     "Conteúdo":        n.content ?? "",
     "Registrado por":  n.created_by_name ?? "",
-    "Data follow-up":  n.follow_up_date ? formatDate(n.follow_up_date as string) : "",
+    "Data follow-up":  comoData(n.follow_up_date as string | null),
     "Follow-up feito": n.follow_up_done ? "Sim" : "Não",
     "Data registro":   n.created_at ? new Date(n.created_at as string).toLocaleString("pt-BR") : "",
   }));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contactRows),  "Contatos");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(invoiceRows),  "Boletos");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(noteRows),     "Histórico");
+  /* dateNF define o formato de EXIBIÇÃO da célula. O valor continua sendo data
+     de verdade, então ordenação e fórmulas do Excel funcionam; só a aparência
+     é brasileira. */
+  const folha = (linhas: Record<string, unknown>[]) =>
+    XLSX.utils.json_to_sheet(linhas, { cellDates: true, dateNF: "dd/mm/yyyy" });
+  XLSX.utils.book_append_sheet(wb, folha(contactRows), "Contatos");
+  XLSX.utils.book_append_sheet(wb, folha(invoiceRows), "Boletos");
+  XLSX.utils.book_append_sheet(wb, folha(noteRows),    "Histórico");
 
   const date = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `contatos_${date}.xlsx`);
+  const sufixo = temFiltro
+    ? `_${(filtro?.vencFrom ?? "inicio").replace(/-/g, "")}_a_${(filtro?.vencTo ?? "fim").replace(/-/g, "")}`
+    : "";
+  XLSX.writeFile(wb, `contatos_${date}${sufixo}.xlsx`, { cellDates: true });
 }
 
 /** Controle de densidade e de colunas visíveis.
@@ -1044,7 +1116,16 @@ export function Contacts() {
 
   async function handleExport() {
     setExporting(true);
-    try { await exportXlsx(workspaceId); } finally { setExporting(false); }
+    try {
+      /* Exporta EXATAMENTE o que a tela mostra. Antes saía o workspace inteiro
+         mesmo com filtro na tela: a soma do Excel não batia com a do cabeçalho,
+         e a desconfiança caía sobre as datas em vez de cair sobre o recorte. */
+      await exportXlsx(workspaceId, {
+        vencFrom:   filters.vencFrom || undefined,
+        vencTo:     filters.vencTo   || undefined,
+        contactIds,
+      });
+    } finally { setExporting(false); }
   }
 
   return (
