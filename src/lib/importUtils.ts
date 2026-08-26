@@ -867,11 +867,47 @@ export async function runImport(
      Feito aqui, e não na tela, porque a partir deste ponto o telefone JÁ É a
      identidade — e trocar depois faria o boleto procurar um contato que não
      existe. */
-  for (const r of withPhone) {
-    const decisao = resolucoes?.[r.phone!];
-    if (!decisao || !r.name || r.name === decisao.nome) continue;
-    if (decisao.acoes?.[r.name] === "separar") {
-      r.phone = telefoneProvisorio(r.name);
+  const paraSeparar = withPhone.filter((r) => {
+    const d = resolucoes?.[r.phone!];
+    return Boolean(d && r.name && r.name !== d.nome && d.acoes?.[r.name] === "separar");
+  });
+
+  /* Antes de inventar um telefone provisório, procura o nome na base.
+  
+     "Antonio Pequito Tavares" já existia na NITRO com o número 5564999359795 —
+     a planilha é que trazia o telefone do representante naquela linha. Criar um
+     cadastro provisório para ele produzia DUAS fichas da mesma pessoa, com a
+     dívida partida entre as duas: exatamente o problema que separar existe
+     para evitar, só que na outra ponta.
+     
+     Achar o cadastro certo é melhor que criar um novo, sempre. */
+  const telefoneRealPorNome = new Map<string, string>();
+  const nomes = [...new Set(paraSeparar.map((r) => r.name!).filter(Boolean))];
+  if (nomes.length > 0) {
+    try {
+      for (let i = 0; i < nomes.length; i += CHUNK) {
+        const { data } = await dbSemTipo
+          .from("inbox_contacts")
+          .select("name, phone")
+          .eq("workspace_id", workspaceId)
+          .in("name", nomes.slice(i, i + CHUNK));
+        for (const c of (data ?? []) as { name: string | null; phone: string | null }[]) {
+          if (!c.name || !c.phone || c.phone.startsWith("sem-telefone-")) continue;
+          telefoneRealPorNome.set(c.name.trim().toLowerCase(), c.phone);
+        }
+      }
+    } catch { /* sem a consulta, cai no provisorio — que ainda importa tudo */ }
+  }
+
+  for (const r of paraSeparar) {
+    const jaExisteReal = telefoneRealPorNome.get(r.name!.trim().toLowerCase());
+    if (jaExisteReal) {
+      r.phone = jaExisteReal;
+      stats.errors.push(
+        `"${r.name}" já existe na base com o telefone ${jaExisteReal} — os boletos foram para o cadastro existente`
+      );
+    } else {
+      r.phone = telefoneProvisorio(r.name!);
       r.tags  = [...new Set([...(r.tags ?? []), TAG_SEM_TELEFONE])];
     }
   }
