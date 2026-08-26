@@ -359,6 +359,31 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     }
   }
 
+  /* Corrige uma célula na cópia em memória da planilha.
+  
+     O arquivo no disco não é tocado, e isso é proposital: a planilha é do
+     cliente, veio por e-mail, e pode ser reenviada. O que se corrige aqui vale
+     para ESTA importação. A alternativa — abrir o Excel, achar a linha 495,
+     arrumar, salvar, voltar e recomeçar — é o caminho que ninguém percorre por
+     causa de 12 telefones, e por isso importa com os 12 quebrados.
+     
+     `corrigidas` fica no estado para o React redesenhar: mutar parsed.rows no
+     lugar mudaria o dado sem avisar ninguém, e a conferência continuaria
+     mostrando o valor velho. */
+  const [corrigidas, setCorrigidas] = useState(0);
+
+  function corrigirCelula(linhaExcel: number, coluna: string, valor: string) {
+    if (!parsed) return;
+    const col = parsed.headers.indexOf(coluna);
+    const lin = linhaExcel - 2;   // a linha 1 é o cabeçalho; o índice começa em zero
+    if (col < 0 || lin < 0 || lin >= parsed.rows.length) return;
+
+    const linhas = parsed.rows.map((r, i) => (i === lin ? r.map((c, j) => (j === col ? valor : c)) : r));
+    setParsed({ headers: parsed.headers, rows: linhas });
+    setCorrigidas((n) => n + 1);
+    log.info?.("importacao_celula_corrigida", { linha: linhaExcel, coluna });
+  }
+
   function handleReset() {
     setStep("idle");
     setParsed(null);
@@ -367,6 +392,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     setError(null);
     setProgress({ phase: "", done: 0, total: 0 });
     setPerfil(null);
+    setCorrigidas(0);
     setDesfeito(null);
     setAutoBase({});
     setNomeNovo("");
@@ -477,6 +503,7 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
               mapping={mapping}
               ordem={ordemData}
               onVoltar={() => setStep("mapping")}
+              onCorrigir={corrigirCelula}
             />
           )}
           {step === "importing" && <ProgressView progress={progress} />}
@@ -581,6 +608,11 @@ export function ImportModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           <div className="flex items-center justify-between px-6 py-4 border-t border-[#1e2e22] shrink-0">
             <p className="text-xs text-[#6b7f6e]">
               Nada foi gravado ainda.
+              {corrigidas > 0 && (
+                <span className="text-[#3fb06c]">
+                  {" "}· {corrigidas} correção{corrigidas > 1 ? "ões" : ""} aplicada{corrigidas > 1 ? "s" : ""} nesta importação
+                </span>
+              )}
             </p>
             <div className="flex gap-3">
               <button

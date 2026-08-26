@@ -15,7 +15,7 @@ import {
   Copy, Search, ArrowLeft,
 } from "lucide-react";
 import { conferir, type LinhaConferida } from "@/lib/conferencia";
-import type { ParsedFile, Mapping, OrdemData } from "@/lib/importUtils";
+import { interpretar, type ParsedFile, type Mapping, type OrdemData, type FieldKey } from "@/lib/importUtils";
 
 const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -41,12 +41,14 @@ function Cartao({ icone: Icone, rotulo, valor, sub, cor }: {
 }
 
 export function ConferenciaImportacao({
-  parsed, mapping, ordem, onVoltar,
+  parsed, mapping, ordem, onVoltar, onCorrigir,
 }: {
   parsed: ParsedFile;
   mapping: Mapping;
   ordem: OrdemData;
   onVoltar: () => void;
+  /** Corrige uma célula na memória. A planilha no disco não é tocada. */
+  onCorrigir: (linhaExcel: number, coluna: string, valor: string) => void;
 }) {
   const c = useMemo(() => conferir(parsed, mapping, ordem), [parsed, mapping, ordem]);
   const [aba, setAba]   = useState<"resumo" | "linhas" | "problemas">(
@@ -247,11 +249,16 @@ export function ConferenciaImportacao({
                     </p>
                   )}
                   {l.problemas.map((p, i) => (
-                    <p key={i} className="text-[11px] mt-1 leading-relaxed">
-                      <span className="text-[#6b7f6e]">{p.coluna}: </span>
-                      <span className="font-mono text-amber-400">{p.bruto.slice(0, 40)}</span>
-                      <span className="text-[#6b7f6e]"> — {p.motivo}. Fica em branco.</span>
-                    </p>
+                    <CampoCorrigivel
+                      key={`${l.numero}-${p.coluna}-${i}`}
+                      linha={l.numero}
+                      coluna={p.coluna}
+                      campo={p.campo}
+                      bruto={p.bruto}
+                      motivo={p.motivo}
+                      ordem={ordem}
+                      onCorrigir={onCorrigir}
+                    />
                   ))}
                 </div>
               ))}
@@ -264,6 +271,90 @@ export function ConferenciaImportacao({
           </>
         )
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Um campo com defeito, corrigível ali mesmo.
+ *
+ * A alternativa é abrir o Excel, achar a linha, corrigir, salvar, voltar e
+ * reimportar tudo — para consertar um telefone com um dígito trocado. Com 12
+ * problemas numa planilha de 528 linhas, ninguém faz esse caminho: importa
+ * assim mesmo e deixa os 12 sem telefone.
+ *
+ * A prévia embaixo do campo mostra como o valor digitado será lido, na hora.
+ * Sem isso a pessoa corrige às cegas e só descobre o resultado depois de gravar
+ * — que é exatamente o problema que esta tela inteira existe para resolver.
+ */
+function CampoCorrigivel({
+  linha, coluna, campo, bruto, motivo, ordem, onCorrigir,
+}: {
+  linha: number;
+  coluna: string;
+  campo: FieldKey;
+  bruto: string;
+  motivo: string;
+  ordem: OrdemData;
+  onCorrigir: (linhaExcel: number, coluna: string, valor: string) => void;
+}) {
+  const [texto, setTexto] = useState(bruto);
+  const [editando, setEditando] = useState(false);
+
+  const previa = useMemo(() => interpretar(campo, texto, ordem), [campo, texto, ordem]);
+  const mudou  = texto !== bruto;
+
+  if (!editando) {
+    return (
+      <p className="text-[11px] mt-1 leading-relaxed">
+        <span className="text-[#6b7f6e]">{coluna}: </span>
+        <span className="font-mono text-amber-400">{bruto.slice(0, 40)}</span>
+        <span className="text-[#6b7f6e]"> — {motivo}. Fica em branco.</span>
+        <button
+          type="button"
+          onClick={() => setEditando(true)}
+          className="ml-2 text-[#3fb06c] hover:underline underline-offset-2"
+        >
+          corrigir
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+      <span className="text-[11px] text-[#6b7f6e]">{coluna}:</span>
+      <input
+        autoFocus
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && previa.ok && mudou) { onCorrigir(linha, coluna, texto); setEditando(false); }
+          if (e.key === "Escape") { setTexto(bruto); setEditando(false); }
+        }}
+        className="bg-[#0d1710] border rounded-lg px-2 py-1 text-[11px] font-mono text-white focus:outline-none w-44"
+        style={{ borderColor: previa.ok ? "rgba(63,176,108,0.5)" : "rgba(251,191,36,0.5)" }}
+      />
+      <span className="text-[11px]" style={{ color: previa.ok ? "#3fb06c" : "#fbbf24" }}>
+        → {previa.lido}
+      </span>
+      <button
+        type="button"
+        disabled={!previa.ok || !mudou}
+        onClick={() => { onCorrigir(linha, coluna, texto); setEditando(false); }}
+        className="px-2 py-1 rounded-lg text-[11px] font-semibold text-white disabled:opacity-35 disabled:cursor-not-allowed"
+        style={{ background: "rgba(63,176,108,0.85)" }}
+      >
+        Aplicar
+      </button>
+      <button
+        type="button"
+        onClick={() => { setTexto(bruto); setEditando(false); }}
+        className="text-[11px] text-[#6b7f6e] hover:text-white"
+      >
+        cancelar
+      </button>
     </div>
   );
 }

@@ -260,7 +260,19 @@ export function autoDetect(headers: string[]): Mapping {
  * cima de um número estrangeiro seria estragar um dado bom.
  */
 export function cleanPhone(raw: unknown): string {
-  const digitos = String(raw ?? "").replace(/\D/g, "");
+  let digitos = String(raw ?? "").replace(/\D/g, "");
+  if (!digitos) return "";
+
+  /* Zero à esquerda do DDD: "066 99608-3382". Sobrou da época em que se
+     discava 0 antes do código da operadora, e continua sendo como muita gente
+     escreve — e como muito sistema exporta. Sem tirar, o número fica com 12
+     dígitos, não casa com nenhuma regra, e um celular perfeitamente válido é
+     recusado como "não parece um telefone". Foi o que aconteceu com várias
+     linhas de uma planilha real. */
+  // Todos os zeros da frente, sem exceção: nenhum número brasileiro começa
+  // com zero. "066" é DDD com o zero antigo, "0055" é o prefixo
+  // internacional. Os dois viram lixo se ficarem.
+  digitos = digitos.replace(/^0+/, "");
   if (!digitos) return "";
 
   // Já vem com o código do país.
