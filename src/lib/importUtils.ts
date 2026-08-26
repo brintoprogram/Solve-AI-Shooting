@@ -756,7 +756,50 @@ const CHUNK = 80; // seguro abaixo do limite do PostgREST
  *  tirou 37 linhas e R$ 1,36 milhão. A regra existia por um bom motivo — não
  *  pendurar dívida no cliente errado — mas a decisão é de quem conhece a base,
  *  não do código. */
-export type ResolucaoConflito = Record<string, { nome: string; importar: boolean }>;
+export type AcaoConflito =
+  /** Entra no cadastro principal do telefone. */
+  | "juntar"
+  /** Vira cadastro proprio, com telefone provisorio. */
+  | "separar"
+  /** Nao importa. */
+  | "fora";
+
+export type ResolucaoConflito = Record<string, {
+  /** Nome que o cadastro do telefone real vai carregar. */
+  nome: string;
+  /** O que fazer com cada um dos outros nomes do mesmo telefone. */
+  acoes: Record<string, AcaoConflito>;
+}>;
+
+/**
+ * Telefone provisório para um cliente que não tem número próprio na planilha.
+ *
+ * O telefone é a identidade do contato — coluna NOT NULL e única por
+ * workspace. Sem um valor, o cliente simplesmente não pode existir, e era isso
+ * que empurrava para as duas saídas ruins: juntar gente diferente no mesmo
+ * cadastro, ou perder o boleto.
+ *
+ * Deliberadamente NÃO parece um telefone: nada disca, nada envia, e quem olhar
+ * a base entende na hora que falta o número. Derivado do nome, então
+ * reimportar a mesma planilha cai no mesmo contato em vez de criar outro.
+ */
+export function telefoneProvisorio(nome: string): string {
+  const slug = nome
+    .toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return `sem-telefone-${slug || "sem-nome"}`;
+}
+
+export const TAG_SEM_TELEFONE = "sem telefone";
+
+/** Chave de busca do contato.
+ *
+ *  phoneKey() só guarda dígitos, então todo telefone provisório viraria string
+ *  vazia — e os boletos de TODOS eles cairiam no último contato criado. O
+ *  fallback para o valor cru é o que mantém cada um com identidade própria. */
+function chaveDoContato(telefone: string): string {
+  return phoneKey(telefone) || telefone;
+}
 
 export async function runImport(
   rows:        MappedRow[],
@@ -817,29 +860,50 @@ export async function runImport(
   const contactMap  = new Map<string, MappedRow>();
   const skippedRows = new Set<MappedRow>();
 
+  /* Antes de agrupar: quem foi marcado como "separar" ganha telefone próprio.
+     Feito aqui, e não na tela, porque a partir deste ponto o telefone JÁ É a
+     identidade — e trocar depois faria o boleto procurar um contato que não
+     existe. */
+  for (const r of withPhone) {
+    const decisao = resolucoes?.[r.phone!];
+    if (!decisao || !r.name || r.name === decisao.nome) continue;
+    if (decisao.acoes?.[r.name] === "separar") {
+      r.phone = telefoneProvisorio(r.name);
+      r.tags  = [...new Set([...(r.tags ?? []), TAG_SEM_TELEFONE])];
+    }
+  }
+
   for (const r of withPhone) {
     const existing = contactMap.get(r.phone!);
     const decisao  = resolucoes?.[r.phone!];
+    const acao     = decisao && r.name && r.name !== decisao.nome
+      ? (decisao.acoes?.[r.name] ?? "juntar")
+      : undefined;
 
     if (existing && existing.name && r.name && existing.name !== r.name) {
-      if (decisao?.importar) {
-        /* Decidido na conferência: os boletos entram, no cadastro escolhido.
-           A linha some do descarte, e o nome vem da escolha da pessoa. */
+      if (acao === "fora") {
         stats.errors.push(
-          `Telefone ${r.phone}: "${r.name}" e "${existing.name}" foram unificados em "${decisao.nome}" por decisão na conferência`
+          `Telefone ${r.phone}: "${r.name}" ficou de fora por decisão na conferência`
         );
-      } else {
+        skippedRows.add(r);   // boleto desta linha será pulado
+      } else if (acao === "juntar") {
+        stats.errors.push(
+          `Telefone ${r.phone}: "${r.name}" foi unificado em "${decisao!.nome}" por decisão na conferência`
+        );
+      } else if (!decisao) {
+        // Sem decisão nenhuma: comportamento antigo, que protege contra
+        // pendurar dívida no cadastro errado.
         stats.errors.push(
           `Telefone ${r.phone} duplicado: "${existing.name}" mantido, "${r.name}" ignorado — verifique a planilha`
         );
-        skippedRows.add(r);   // boleto desta linha será pulado
+        skippedRows.add(r);
       }
     }
 
     const juntos = mergeRow(existing, r);
     // O nome escolhido vale sobre o que a planilha traz: é a decisão explícita
     // de uma pessoa contra a ordem acidental das linhas do arquivo.
-    if (decisao?.nome) juntos.name = decisao.nome;
+    if (decisao?.nome && !acao) juntos.name = decisao.nome;
     contactMap.set(r.phone!, juntos);
   }
 
@@ -883,7 +947,7 @@ export async function runImport(
         // Chave canonica: o mesmo telefone chega com e sem o codigo do pais
         // dependendo da planilha. Sem normalizar, o boleto de uma linha nao
         // encontrava o contato criado por outra e ficava orfao.
-        if (c.telefone)  phoneIdMap.set(phoneKey(c.telefone), c.id_contato);
+        if (c.telefone)  phoneIdMap.set(chaveDoContato(c.telefone), c.id_contato);
         if (c.documento) cpfIdMap.set(c.documento, c.id_contato);
 
         /* Quem diz se a linha nasceu ou foi atualizada e o BANCO, por xmax = 0.
@@ -929,7 +993,7 @@ export async function runImport(
       // Não faz fallback para CPF — evita atribuir boleto ao contato errado
       // caso o upsert do contato tenha falhado ou o telefone não esteja no mapa.
       const cid: string | undefined =
-        r.phone    ? phoneIdMap.get(phoneKey(r.phone))
+        r.phone    ? phoneIdMap.get(chaveDoContato(r.phone))
         : r.cpf_cnpj ? cpfIdMap.get(r.cpf_cnpj)
         : undefined;
       if (!cid) { stats.invoicesSemDono++; return null; }
