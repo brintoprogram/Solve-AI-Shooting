@@ -1253,8 +1253,8 @@ function Step2({ state, onChange }: {
         </div>
       ) : (
         <>
-          <div className="rounded-xl overflow-x-auto sm:overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
-            <table className="w-full text-sm table-fixed min-w-[560px] sm:min-w-full">
+          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(63,176,108,0.12)" }}>
+            <table className="w-full text-sm sm:table-fixed">
               <thead>
                 <tr style={{ background: "rgba(13,26,17,0.9)", borderBottom: "1px solid rgba(63,176,108,0.1)" }}>
                   {/* Checkbox */}
@@ -1286,18 +1286,18 @@ function Step2({ state, onChange }: {
                   </th>
                   {isN8N ? (
                     <>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[35%]">Nome</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[30%]">Email</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest w-44">Boleto(s)</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest sm:w-[35%]">Nome</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[30%] hidden sm:table-cell">Email</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-amber-400 uppercase tracking-widest sm:w-44">Boleto(s)</th>
                       <th className="w-8" />
                     </>
                   ) : (
                     <>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[25%]">Nome</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[22%]">Email</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[18%]">Representante</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%]">Gerente 1</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%]">Gerente 2</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest sm:w-[25%]">Nome</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[22%] hidden sm:table-cell">Email</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[18%] hidden sm:table-cell">Representante</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%] hidden sm:table-cell">Gerente 1</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold text-agro-muted-2 uppercase tracking-widest w-[17%] hidden sm:table-cell">Gerente 2</th>
                     </>
                   )}
                 </tr>
@@ -1337,15 +1337,20 @@ function Step2({ state, onChange }: {
 
                         {isN8N ? (
                           <>
-                            {/* Nome */}
-                            <td className="px-4 py-3 max-w-0">
-                              <p className={cn("font-medium text-sm truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
+                            {/* Nome. No celular quebra em varias linhas e traz o
+                                e-mail embaixo: `truncate` com `max-w-0` corta o
+                                nome no meio, e nome de fazenda tem 40 letras. */}
+                            <td className="px-4 py-3 sm:max-w-0">
+                              <p className={cn("font-medium text-sm break-words sm:truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
                                 title={c.name ?? ""}>
                                 {c.name}
                               </p>
+                              <p className="sm:hidden text-[11px] font-mono text-agro-muted break-all mt-0.5">
+                                {c.email}
+                              </p>
                             </td>
                             {/* Email */}
-                            <td className="px-4 py-3 max-w-0">
+                            <td className="px-4 py-3 max-w-0 hidden sm:table-cell">
                               <p className="text-xs font-mono text-agro-muted truncate" title={c.email ?? ""}>{c.email}</p>
                             </td>
                             {/* Boleto(s) */}
@@ -1382,27 +1387,32 @@ function Step2({ state, onChange }: {
                           </>
                         ) : (
                           <>
-                            {/* Nome */}
-                            <td className="px-4 py-3 max-w-0">
-                              <p className={cn("font-medium text-sm truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
+                            {/* Nome. No celular quebra em varias linhas e traz o
+                                e-mail embaixo: `truncate` com `max-w-0` corta o
+                                nome no meio, e nome de fazenda tem 40 letras. */}
+                            <td className="px-4 py-3 sm:max-w-0">
+                              <p className={cn("font-medium text-sm break-words sm:truncate transition-colors", isSelected ? "text-agro-text" : "text-agro-text-2")}
                                 title={c.name ?? ""}>
                                 {c.name}
                               </p>
+                              <p className="sm:hidden text-[11px] font-mono text-agro-muted break-all mt-0.5">
+                                {c.email}
+                              </p>
                             </td>
                             {/* Email */}
-                            <td className="px-4 py-3 max-w-0">
+                            <td className="px-4 py-3 max-w-0 hidden sm:table-cell">
                               <p className="text-xs font-mono text-agro-muted truncate" title={c.email ?? ""}>{c.email}</p>
                             </td>
                             {/* Representante */}
-                            <td className="px-4 py-3 max-w-0">
+                            <td className="px-4 py-3 max-w-0 hidden sm:table-cell">
                               <p className="text-agro-muted-2 text-xs truncate" title={c.email_representante ?? ""}>{c.email_representante ?? "—"}</p>
                             </td>
                             {/* Gerente 1 */}
-                            <td className="px-4 py-3 max-w-0">
+                            <td className="px-4 py-3 max-w-0 hidden sm:table-cell">
                               <p className="text-agro-muted-2 text-xs truncate" title={c.gerente1_email ?? ""}>{c.gerente1_email ?? "—"}</p>
                             </td>
                             {/* Gerente 2 */}
-                            <td className="px-4 py-3 max-w-0">
+                            <td className="px-4 py-3 max-w-0 hidden sm:table-cell">
                               <p className="text-agro-muted-2 text-xs truncate" title={c.gerente2_email ?? ""}>{c.gerente2_email ?? "—"}</p>
                             </td>
                           </>
