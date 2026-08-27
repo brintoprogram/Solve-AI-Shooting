@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders as getCors } from "../_shared/cors.ts";
+import { consumirCredito } from "../_shared/credits.ts";
 
 const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -60,6 +61,54 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Sem permissão para este workspace" }, 403);
   }
 
+  /* ── Crédito antes de entregar ao N8N ─────────────────────────
+  
+     Este caminho nunca cobrou. Um disparo de 96 e-mails saiu com o saldo
+     intacto — o motor de WhatsApp desconta desde sempre, e o de e-mail via N8N
+     ficou de fora quando foi escrito. Cobrar aqui, e não no retorno, é o que
+     permite RECUSAR: depois que a lista foi entregue ao N8N, a mensagem já
+     saiu e não há como desfazer.
+
+     A chave da janela é o e-mail. Falar com o mesmo contato de novo dentro de
+     24h não cobra outra vez, exatamente como no WhatsApp. */
+  const aprovados: typeof recipients = [];
+  const semCredito: string[] = [];
+  let saldoRestante = 0;
+
+  for (const r of recipients) {
+    const dados = (r.recipient_data ?? {}) as Record<string, unknown>;
+    const destino = (dados.email as string | undefined) || r.phone || null;
+    const credito = await consumirCredito(db, workspace_id, "mensagem", {
+      destino,
+      canal: "email",
+      detalhe: { origem: "campanha_n8n", campaign_id },
+    });
+    if (credito.permitido) {
+      aprovados.push(r);
+      saldoRestante = credito.saldo;
+    } else {
+      semCredito.push(r.message_id);
+    }
+  }
+
+  if (semCredito.length > 0) {
+    /* Marcadas como falha com o motivo. Sem isto elas ficariam "na fila" para
+       sempre, e a pessoa procuraria o problema no N8N. */
+    await db.from("shooting_messages")
+      .update({ status: "failed", error_code: "sem_credito",
+                error_message: "Sem créditos suficientes no workspace" })
+      .in("id", semCredito);
+    console.warn(`[n8n-dispatch] ${semCredito.length} sem credito, saldo ${saldoRestante}`);
+  }
+
+  if (aprovados.length === 0) {
+    await db.from("shooting_campaigns")
+      .update({ status: "paused",
+                error_summary: { credito: `Sem saldo para disparar (saldo ${saldoRestante}).` } })
+      .eq("id", campaign_id);
+    return json({ error: `Sem créditos: saldo ${saldoRestante}` }, 402);
+  }
+
   // ── Montar payload com secret server-side ─────────────────────
   const callbackUrl = `${SUPABASE_URL}/functions/v1/update-campaign-status`;
 
@@ -70,7 +119,7 @@ Deno.serve(async (req: Request) => {
     dispatched_at:   new Date().toISOString(),
     callback_api:    callbackUrl,
     callback_secret: WEBHOOK_SECRET, // nunca exposto no bundle do browser
-    recipients,
+    recipients: aprovados,
   };
 
   if (!N8N_WEBHOOK) {
@@ -90,6 +139,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: `N8N retornou ${n8nRes.status}` }, 502);
   }
 
-  console.log(`[n8n-dispatch] ✓ campaign ${campaign_id} → N8N (${recipients.length} recipients)`);
-  return json({ ok: true });
+  console.log(`[n8n-dispatch] ✓ campaign ${campaign_id} → N8N (${aprovados.length} de ${recipients.length}, saldo ${saldoRestante})`);
+  return json({ ok: true, enviados: aprovados.length, sem_credito: semCredito.length, saldo: saldoRestante });
 });

@@ -16,6 +16,7 @@
 // com 490 destinatários reais parada em status 'scheduled'.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { consumirCredito } from "../_shared/credits.ts";
 
 const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -93,6 +94,36 @@ Deno.serve(async () => {
       if (errMsgs) throw new Error(errMsgs.message);
       if (!msgs || msgs.length === 0) throw new Error("campanha sem destinatarios gravados");
 
+      /* Crédito antes de entregar, igual ao disparo imediato. A campanha
+         agendada dispara sozinha de madrugada: se ela não cobrasse, o saldo
+         seria contornável só marcando um horário. */
+      const aprovadas: typeof msgs = [];
+      const semCredito: string[] = [];
+      let saldoRestante = 0;
+
+      for (const m of msgs as Record<string, unknown>[]) {
+        const dados = (m.recipient_data ?? {}) as Record<string, unknown>;
+        const destino = (dados.email as string | undefined) || (m.recipient_phone as string) || null;
+        const credito = await consumirCredito(db, c.workspace_id, "mensagem", {
+          destino,
+          canal: "email",
+          detalhe: { origem: "campanha_agendada", campaign_id: c.id },
+        });
+        if (credito.permitido) { aprovadas.push(m as never); saldoRestante = credito.saldo; }
+        else semCredito.push(m.id as string);
+      }
+
+      if (semCredito.length > 0) {
+        await db.from("shooting_messages")
+          .update({ status: "failed", error_code: "sem_credito",
+                    error_message: "Sem créditos suficientes no workspace" })
+          .in("id", semCredito);
+      }
+
+      if (aprovadas.length === 0) {
+        throw new Error(`sem creditos para disparar (saldo ${saldoRestante})`);
+      }
+
       // Mesmo formato que n8n-dispatch monta, para o fluxo do N8N nao precisar
       // saber por qual caminho a campanha chegou.
       const payload = {
@@ -103,7 +134,7 @@ Deno.serve(async () => {
         agendado_para: c.agendado_para,
         callback_api:  `${SUPABASE_URL}/functions/v1/update-campaign-status`,
         callback_secret: WEBHOOK_SECRET,
-        recipients: msgs.map((m: Record<string, unknown>) => ({
+        recipients: aprovadas.map((m: Record<string, unknown>) => ({
           message_id:     m.id,
           name:           m.recipient_name,
           phone:          m.recipient_phone,
@@ -123,7 +154,7 @@ Deno.serve(async () => {
       }
 
       disparadas++;
-      console.log(`[disparo-agendado] campanha ${c.id} enviada ao N8N (${msgs.length} destinatarios)`);
+      console.log(`[disparo-agendado] campanha ${c.id} enviada ao N8N (${aprovadas.length} de ${msgs.length}, saldo ${saldoRestante})`);
     } catch (e) {
       const motivo = e instanceof Error ? e.message : String(e);
       falhas.push(`${c.id}: ${motivo}`);
