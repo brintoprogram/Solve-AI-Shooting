@@ -79,6 +79,47 @@ function getRecipientField(r: Recipient, field: string): string {
   }
 }
 
+/** Bloco de boleto do e-mail. Copia fiel do que a campanha gera em
+ *  EmailCampaignWizard — mesmo HTML, mesmos estilos, mesmo texto. O fluxo do
+ *  N8N so recebe isto pronto em recipient_data.invoice_detail_html, entao
+ *  divergir aqui produziria dois layouts de e-mail no mesmo sistema. */
+function buildInvoiceDetailHtml(
+  invs: { valor: number | null; vencimento: string | null }[],
+): string {
+  if (invs.length === 0) return "";
+  const td   = "padding:14px 20px;font-size:14px;color:#111827;";
+  const sep  = "border-top:1px solid #e5e7eb;";
+  const tbl  = "width:100%;border-collapse:collapse;margin:0 0 28px;border-left:3px solid #1a1a2e;background-color:#f9fafb;";
+  const total = invs.reduce((s, inv) => s + (inv.valor ?? 0), 0);
+
+  const uniqueVenc = [...new Set(invs.map((inv) => inv.vencimento).filter(Boolean))] as string[];
+
+  if (uniqueVenc.length <= 1) {
+    const vStr = uniqueVenc[0] ? formatDate(uniqueVenc[0]) : "—";
+    return (
+      `<table width='100%' cellpadding='0' cellspacing='0' style='${tbl}'>` +
+      `<tr><td style='${td}'>Valor: <strong>${formatBRL(total)}</strong></td></tr>` +
+      `<tr><td style='${td}${sep}'>Data de vencimento: <strong>${vStr}</strong></td></tr>` +
+      `</table>`
+    );
+  }
+
+  const sorted = [...invs].sort((a, b) => (a.vencimento ?? "").localeCompare(b.vencimento ?? ""));
+  const rows = sorted.map((inv, i) => {
+    const vStr   = inv.vencimento ? formatDate(inv.vencimento) : "—";
+    const vVal   = inv.valor != null ? formatBRL(inv.valor) : "—";
+    const border = i > 0 ? sep : "";
+    return `<tr><td style='${td}${border}'>Venc. ${vStr}: <strong>${vVal}</strong></td></tr>`;
+  }).join("");
+
+  return (
+    `<table width='100%' cellpadding='0' cellspacing='0' style='${tbl}'>` +
+    rows +
+    `<tr><td style='${td}${sep}'>Total: <strong>${formatBRL(total)}</strong></td></tr>` +
+    `</table>`
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Recipient {
@@ -404,35 +445,63 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
       }
     } else if (effectiveChannel === "n8n_email") {
       /* ── E-mail pelo N8N ────────────────────────────────────────────
-      
-         Reusa o mesmo webhook e o MESMO FORMATO de payload das campanhas, de
-         propósito: o fluxo que já existe no N8N não precisa saber se a lista
-         veio de uma campanha ou de uma régua automática. Nada do disparo de
-         campanha é tocado — este é um caminho paralelo, com dedupe e log
-         próprios da automação.
-         
-         Uma mensagem por vez, e não em lote: a automação é por destinatário,
-         e cada um tem seu registro em automation_logs. Juntar em lote faria o
-         retorno do N8N não ter a quem se referir. */
+
+         O payload e o recipient_data sao IDÊNTICOS aos da campanha, campo por
+         campo e com os mesmos nomes. Isso não é preciosismo: o fluxo do N8N lê
+         `recipient_data.invoice_detail_html`, `valor_total_pendente`,
+         `proximo_vencimento` e o contato inteiro espalhado na raiz. Um objeto
+         parecido mas com outras chaves produziria e-mail com campo vazio, e a
+         primeira versão disto tinha inventado `{ nome, valor, vencimento }` —
+         nomes que o N8N não conhece.
+
+         Campos a mais existem e são só isso: a mais. `origem`, `rule_id`,
+         `trigger_label` e `day_offset` dizem de onde a lista veio, para o fluxo
+         poder ramificar se quiser — sem precisar mudar para continuar
+         funcionando. */
       if (!N8N_WEBHOOK) {
         await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
                        { error_message: "N8N_WEBHOOK_URL não configurado" });
         return;
       }
 
-      // O e-mail não está em automation_recipients; vem do cadastro.
+      // O contato inteiro, como a campanha faz com `...c`.
       const { data: contato } = await db
         .from("inbox_contacts")
-        .select("email, email_representante, name")
+        .select("*")
         .eq("id", recipient.contact_id)
         .maybeSingle();
 
-      const email = (contato?.email as string | undefined)?.trim();
+      const email = ((contato?.email as string | undefined) ?? "").trim();
       if (!email) {
         await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
                        { error_message: "Contato sem e-mail cadastrado" });
         return;
       }
+
+      /* O boleto desta linha, no mesmo formato que a campanha guarda em
+         contact_invoices. Na automação é sempre um: a régua dispara por
+         vencimento, e cada vencimento é um gatilho. */
+      const boleto = {
+        id:            (recipRow?.invoice_id as string | undefined) ?? recipient.id,
+        contact_id:    recipient.contact_id,
+        valor:         recipient.valor,
+        vencimento:    recipient.vencimento,
+        numero_nf:     recipient.numero_nf,
+        codigo_barras: recipient.codigo_barras,
+        status:        "pendente",
+      };
+      const temBoleto = recipient.valor != null || !!recipient.vencimento;
+
+      const recipientData: Record<string, unknown> = {
+        ...(contato ?? {}),
+        _financial_campaign:  temBoleto,
+        valor_total_pendente: temBoleto ? formatBRL(recipient.valor) : undefined,
+        proximo_vencimento:   recipient.vencimento ? formatDate(recipient.vencimento) : undefined,
+        invoice_detail_html:  temBoleto ? buildInvoiceDetailHtml([boleto]) : undefined,
+        _invoice_count:       temBoleto ? 1 : 0,
+        _invoice_ids:         temBoleto ? [boleto.id] : [],
+        contact_invoices:     temBoleto ? [boleto] : [],
+      };
 
       const assunto = substituteAutoVars(trigger.email_subject ?? "", recipient, trigger.day_offset);
       const corpo   = substituteAutoVars(
@@ -459,31 +528,28 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          origem:          "automacao",
-          rule_id:         rule.id,
-          rule_name:       rule.name,
-          trigger_id:      trigger.id,
-          trigger_label:   trigger.label,
-          day_offset:      trigger.day_offset,
+          // ── Os mesmos campos da campanha, com os mesmos nomes ──
+          campaign_id:     rule.id,          // a régua faz o papel da campanha
           workspace_id:    rule.workspace_id,
+          campaign_name:   `${rule.name} — ${trigger.label}`,
           dispatched_at:   new Date().toISOString(),
+          callback_api:    `${SUPABASE_URL}/functions/v1/update-campaign-status`,
           callback_secret: WEBHOOK_SECRET,
-          assunto,
-          corpo_html:      corpo,
           recipients: [{
             message_id:     recipient.id,
-            name:           contato?.name ?? recipient.contact_name,
-            email,
-            email_representante: contato?.email_representante ?? null,
+            name:           recipient.contact_name,
             phone:          recipient.contact_phone,
-            recipient_data: {
-              nome:       recipient.contact_name,
-              valor:      recipient.valor,
-              vencimento: recipient.vencimento,
-              numero_nf:  recipient.numero_nf,
-              codigo_barras: recipient.codigo_barras,
-            },
+            recipient_data: recipientData,
           }],
+          // ── A mais, para o fluxo poder ramificar se quiser ──
+          origem:        "automacao",
+          rule_id:       rule.id,
+          rule_name:     rule.name,
+          trigger_id:    trigger.id,
+          trigger_label: trigger.label,
+          day_offset:    trigger.day_offset,
+          assunto,
+          corpo_html:    corpo,
         }),
       });
 
