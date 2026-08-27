@@ -2,6 +2,10 @@
 // For each active automation_rule where send_hour == current UTC hour:
 //   for each enabled trigger: find recipients whose vencimento == today - day_offset,
 //   verify boleto is still pending, dedup via automation_logs, send, log result.
+//
+// WhatsApp (Z-API e META) envia uma mensagem por boleto — é como o template
+// funciona. E-mail agrupa por cliente: todos os boletos que vencem naquele
+// gatilho saem num e-mail só, igual à campanha.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { consumirCredito } from "../_shared/credits.ts";
@@ -241,12 +245,28 @@ async function sendMetaTemplate(
 
 // ── Log helper ─────────────────────────────────────────────────────────────
 
+interface LogExtra {
+  zaap_id?:       string;
+  wamid?:         string;
+  error_message?: string;
+  /** Endereco/numero realmente usado. Para e-mail e a unica coluna que guarda
+   *  para onde a mensagem foi — contact_phone nao serve. */
+  destino?:       string;
+  /** Identificador do e-mail FISICO. Boletos do mesmo e-mail compartilham. */
+  email_id?:      string;
+}
+
+/** Uma linha de log POR BOLETO, sempre. É o que o dedup lê na próxima rodada:
+ *  se um boleto que saiu no e-mail agrupado não tivesse linha própria, a
+ *  rodada seguinte o encontraria "não enviado" e mandaria um segundo e-mail. */
 async function writeLog(
-  rule: Rule, trigger: Trigger, recipient: Recipient,
-  channel: string, status: "sent" | "failed",
-  extra: { zaap_id?: string; wamid?: string; error_message?: string },
+  rule: Rule, trigger: Trigger, recipients: Recipient | Recipient[],
+  channel: string, status: "sent" | "failed", extra: LogExtra,
 ): Promise<void> {
-  await db.from("automation_logs").insert({
+  const lista = Array.isArray(recipients) ? recipients : [recipients];
+  if (!lista.length) return;
+  const agora = new Date().toISOString();
+  await db.from("automation_logs").insert(lista.map((recipient) => ({
     rule_id:       rule.id,
     trigger_id:    trigger.id,
     recipient_id:  recipient.id,
@@ -259,15 +279,203 @@ async function writeLog(
     zaap_id:       extra.zaap_id       ?? null,
     wamid:         extra.wamid         ?? null,
     error_message: extra.error_message ?? null,
-    scheduled_for: new Date().toISOString(),
-  });
+    destino:       extra.destino       ?? recipient.contact_phone ?? null,
+    email_id:      extra.email_id      ?? null,
+    scheduled_for: agora,
+  })));
 }
 
 // ── PENDING_STATUSES (mirrors frontend InvoiceSelector) ────────────────────
 
 const PENDING = ["pendente", "vencido", "aberto", "em_aberto"];
 
-// ── Process one trigger + recipient pair ──────────────────────────────────
+// ── E-mail: um por cliente, com todos os boletos do gatilho ────────────────
+
+/** Filtra do grupo os boletos que já foram pagos e os que já saíram numa
+ *  rodada anterior. Em lote: um grupo de 8 boletos não deve virar 24 queries. */
+async function boletosQueAindaValem(
+  trigger: Trigger, grupo: Recipient[],
+): Promise<Recipient[]> {
+  const ids = grupo.map((r) => r.id);
+
+  const { data: linhas } = await db
+    .from("automation_recipients").select("id, invoice_id").in("id", ids);
+  const invoiceDe = new Map<string, string | null>(
+    (linhas ?? []).map((l) => [l.id as string, l.invoice_id as string | null]));
+
+  const invIds = [...invoiceDe.values()].filter(Boolean) as string[];
+  const pagos = new Set<string>();
+  if (invIds.length) {
+    const { data: invs } = await db
+      .from("contact_invoices").select("id, status").in("id", invIds);
+    for (const i of invs ?? []) {
+      if (!PENDING.includes(i.status as string)) pagos.add(i.id as string);
+    }
+  }
+
+  const { data: jaSaiu } = await db
+    .from("automation_logs").select("recipient_id")
+    .eq("trigger_id", trigger.id).in("recipient_id", ids).eq("status", "sent");
+  const enviados = new Set((jaSaiu ?? []).map((l) => l.recipient_id as string));
+
+  return grupo.filter((r) => {
+    const inv = invoiceDe.get(r.id);
+    if (inv && pagos.has(inv)) return false;
+    if (enviados.has(r.id))    return false;
+    return true;
+  });
+}
+
+/** Um e-mail para o cliente, com todos os boletos que vencem neste gatilho.
+ *
+ *  O payload e o recipient_data sao IDÊNTICOS aos da campanha, campo por campo
+ *  e com os mesmos nomes — inclusive `contact_invoices` com a lista inteira,
+ *  que é o motivo de esta função receber um grupo e não uma linha. O fluxo do
+ *  N8N lê `recipient_data.invoice_detail_html`, `valor_total_pendente`,
+ *  `proximo_vencimento` e o contato espalhado na raiz; um objeto parecido com
+ *  outras chaves produziria e-mail com campo vazio.
+ *
+ *  Campos a mais existem e são só isso: a mais. `origem`, `rule_id`,
+ *  `trigger_label` e `day_offset` dizem de onde a lista veio, para o fluxo
+ *  poder ramificar sem precisar mudar para continuar funcionando. */
+async function processarEmail(rule: Rule, trigger: Trigger, grupo: Recipient[]): Promise<void> {
+  const canal = "n8n_email";
+
+  const boletosValidos = await boletosQueAindaValem(trigger, grupo);
+  if (!boletosValidos.length) {
+    console.log(`[ticker] e-mail sem boleto pendente: contato=${grupo[0]?.contact_id}`);
+    return;
+  }
+
+  if (!N8N_WEBHOOK) {
+    await writeLog(rule, trigger, boletosValidos, canal, "failed",
+                   { error_message: "N8N_WEBHOOK_URL não configurado" });
+    return;
+  }
+
+  const primeiro = boletosValidos[0];
+
+  // O contato inteiro, como a campanha faz com `...c`.
+  const { data: contato } = await db
+    .from("inbox_contacts").select("*").eq("id", primeiro.contact_id).maybeSingle();
+
+  const email = ((contato?.email as string | undefined) ?? "").trim();
+  if (!email) {
+    await writeLog(rule, trigger, boletosValidos, canal, "failed",
+                   { error_message: "Contato sem e-mail cadastrado" });
+    return;
+  }
+
+  // invoice_id real de cada linha, para _invoice_ids apontar para os boletos.
+  const { data: linhas } = await db
+    .from("automation_recipients").select("id, invoice_id")
+    .in("id", boletosValidos.map((r) => r.id));
+  const invoiceDe = new Map<string, string | null>(
+    (linhas ?? []).map((l) => [l.id as string, l.invoice_id as string | null]));
+
+  const boletos = boletosValidos.map((r) => ({
+    id:            invoiceDe.get(r.id) ?? r.id,
+    contact_id:    r.contact_id,
+    valor:         r.valor,
+    vencimento:    r.vencimento,
+    numero_nf:     r.numero_nf,
+    codigo_barras: r.codigo_barras,
+    status:        "pendente",
+  }));
+
+  const valorTotal  = boletos.reduce((s, b) => s + (b.valor ?? 0), 0);
+  const proximoVenc = boletos.map((b) => b.vencimento).filter(Boolean).sort()[0] ?? "";
+
+  const recipientData: Record<string, unknown> = {
+    ...(contato ?? {}),
+    _financial_campaign:  true,
+    valor_total_pendente: formatBRL(valorTotal),
+    proximo_vencimento:   proximoVenc ? formatDate(proximoVenc) : undefined,
+    invoice_detail_html:  buildInvoiceDetailHtml(boletos),
+    _invoice_count:       boletos.length,
+    _invoice_ids:         boletos.map((b) => b.id),
+    contact_invoices:     boletos,
+  };
+
+  /* Assunto e corpo falam do conjunto, não de uma linha: {valor} é o total,
+     {vencimento} é o mais próximo e {boleto} lista as notas. Sem isto o
+     e-mail agrupado diria "seu boleto de R$ 1.200" tendo três dentro. */
+  const agregado: Recipient = {
+    ...primeiro,
+    valor:      valorTotal,
+    vencimento: proximoVenc,
+    numero_nf:  boletos.map((b) => b.numero_nf).filter(Boolean).join(", ") || null,
+  };
+
+  const assunto = substituteAutoVars(trigger.email_subject ?? "", agregado, trigger.day_offset);
+  const corpo   = substituteAutoVars(
+    trigger.email_body_html ?? trigger.message_body ?? "", agregado, trigger.day_offset);
+  if (!corpo.trim()) {
+    await writeLog(rule, trigger, boletosValidos, canal, "failed",
+                   { error_message: "Gatilho sem corpo de e-mail" });
+    return;
+  }
+
+  /* Um e-mail, um crédito. Cobrar por boleto puniria o cliente justamente por
+     o sistema ter feito a coisa certa e juntado tudo numa mensagem só. */
+  const emailId = crypto.randomUUID();
+  const credito = await consumirCredito(db, rule.workspace_id, "mensagem", {
+    destino: email,
+    canal:   "email",
+    detalhe: { origem: "automacao", rule_id: rule.id, day_offset: trigger.day_offset,
+               boletos: boletos.length },
+  });
+  if (!credito.permitido) {
+    await writeLog(rule, trigger, boletosValidos, canal, "failed",
+                   { error_message: `Sem créditos (saldo: ${credito.saldo})`, destino: email });
+    return;
+  }
+
+  const resp = await fetch(N8N_WEBHOOK, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      // ── Os mesmos campos da campanha, com os mesmos nomes ──
+      campaign_id:     rule.id,          // a régua faz o papel da campanha
+      workspace_id:    rule.workspace_id,
+      campaign_name:   `${rule.name} — ${trigger.label}`,
+      dispatched_at:   new Date().toISOString(),
+      callback_api:    `${SUPABASE_URL}/functions/v1/update-campaign-status`,
+      callback_secret: WEBHOOK_SECRET,
+      recipients: [{
+        /* Na campanha isto é o id da shooting_message. Aqui é o id do e-mail
+           físico, que é o que existe do nosso lado para o callback casar: as
+           linhas de log deste envio todas carregam ele em email_id. */
+        message_id:     emailId,
+        name:           primeiro.contact_name,
+        phone:          primeiro.contact_phone,
+        recipient_data: recipientData,
+      }],
+      // ── A mais, para o fluxo poder ramificar se quiser ──
+      origem:        "automacao",
+      rule_id:       rule.id,
+      rule_name:     rule.name,
+      trigger_id:    trigger.id,
+      trigger_label: trigger.label,
+      day_offset:    trigger.day_offset,
+      email_id:      emailId,
+      assunto,
+      corpo_html:    corpo,
+    }),
+  });
+
+  if (resp.ok) {
+    await writeLog(rule, trigger, boletosValidos, canal, "sent",
+                   { destino: email, email_id: emailId });
+  } else {
+    const txt = await resp.text().catch(() => "");
+    await writeLog(rule, trigger, boletosValidos, canal, "failed",
+                   { error_message: `N8N respondeu ${resp.status}: ${txt.slice(0, 200)}`,
+                     destino: email, email_id: emailId });
+  }
+}
+
+// ── Process one trigger + recipient pair (WhatsApp) ────────────────────────
 
 async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): Promise<void> {
   // 1. Check invoice still pending (via invoice_id on the automation_recipients row)
@@ -443,123 +651,6 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
       } else {
         await writeLog(rule, trigger, recipient, effectiveChannel, "failed", { error_message: result.error });
       }
-    } else if (effectiveChannel === "n8n_email") {
-      /* ── E-mail pelo N8N ────────────────────────────────────────────
-
-         O payload e o recipient_data sao IDÊNTICOS aos da campanha, campo por
-         campo e com os mesmos nomes. Isso não é preciosismo: o fluxo do N8N lê
-         `recipient_data.invoice_detail_html`, `valor_total_pendente`,
-         `proximo_vencimento` e o contato inteiro espalhado na raiz. Um objeto
-         parecido mas com outras chaves produziria e-mail com campo vazio, e a
-         primeira versão disto tinha inventado `{ nome, valor, vencimento }` —
-         nomes que o N8N não conhece.
-
-         Campos a mais existem e são só isso: a mais. `origem`, `rule_id`,
-         `trigger_label` e `day_offset` dizem de onde a lista veio, para o fluxo
-         poder ramificar se quiser — sem precisar mudar para continuar
-         funcionando. */
-      if (!N8N_WEBHOOK) {
-        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
-                       { error_message: "N8N_WEBHOOK_URL não configurado" });
-        return;
-      }
-
-      // O contato inteiro, como a campanha faz com `...c`.
-      const { data: contato } = await db
-        .from("inbox_contacts")
-        .select("*")
-        .eq("id", recipient.contact_id)
-        .maybeSingle();
-
-      const email = ((contato?.email as string | undefined) ?? "").trim();
-      if (!email) {
-        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
-                       { error_message: "Contato sem e-mail cadastrado" });
-        return;
-      }
-
-      /* O boleto desta linha, no mesmo formato que a campanha guarda em
-         contact_invoices. Na automação é sempre um: a régua dispara por
-         vencimento, e cada vencimento é um gatilho. */
-      const boleto = {
-        id:            (recipRow?.invoice_id as string | undefined) ?? recipient.id,
-        contact_id:    recipient.contact_id,
-        valor:         recipient.valor,
-        vencimento:    recipient.vencimento,
-        numero_nf:     recipient.numero_nf,
-        codigo_barras: recipient.codigo_barras,
-        status:        "pendente",
-      };
-      const temBoleto = recipient.valor != null || !!recipient.vencimento;
-
-      const recipientData: Record<string, unknown> = {
-        ...(contato ?? {}),
-        _financial_campaign:  temBoleto,
-        valor_total_pendente: temBoleto ? formatBRL(recipient.valor) : undefined,
-        proximo_vencimento:   recipient.vencimento ? formatDate(recipient.vencimento) : undefined,
-        invoice_detail_html:  temBoleto ? buildInvoiceDetailHtml([boleto]) : undefined,
-        _invoice_count:       temBoleto ? 1 : 0,
-        _invoice_ids:         temBoleto ? [boleto.id] : [],
-        contact_invoices:     temBoleto ? [boleto] : [],
-      };
-
-      const assunto = substituteAutoVars(trigger.email_subject ?? "", recipient, trigger.day_offset);
-      const corpo   = substituteAutoVars(
-        trigger.email_body_html ?? trigger.message_body ?? "", recipient, trigger.day_offset);
-      if (!corpo.trim()) {
-        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
-                       { error_message: "Gatilho sem corpo de e-mail" });
-        return;
-      }
-
-      // Crédito antes de entregar, como em todo canal.
-      const credito = await consumirCredito(db, rule.workspace_id, "mensagem", {
-        destino: email,
-        canal:   "email",
-        detalhe: { origem: "automacao", rule_id: rule.id, day_offset: trigger.day_offset },
-      });
-      if (!credito.permitido) {
-        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
-                       { error_message: `Sem créditos (saldo: ${credito.saldo})` });
-        return;
-      }
-
-      const resp = await fetch(N8N_WEBHOOK, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // ── Os mesmos campos da campanha, com os mesmos nomes ──
-          campaign_id:     rule.id,          // a régua faz o papel da campanha
-          workspace_id:    rule.workspace_id,
-          campaign_name:   `${rule.name} — ${trigger.label}`,
-          dispatched_at:   new Date().toISOString(),
-          callback_api:    `${SUPABASE_URL}/functions/v1/update-campaign-status`,
-          callback_secret: WEBHOOK_SECRET,
-          recipients: [{
-            message_id:     recipient.id,
-            name:           recipient.contact_name,
-            phone:          recipient.contact_phone,
-            recipient_data: recipientData,
-          }],
-          // ── A mais, para o fluxo poder ramificar se quiser ──
-          origem:        "automacao",
-          rule_id:       rule.id,
-          rule_name:     rule.name,
-          trigger_id:    trigger.id,
-          trigger_label: trigger.label,
-          day_offset:    trigger.day_offset,
-          assunto,
-          corpo_html:    corpo,
-        }),
-      });
-
-      if (resp.ok) {
-        await writeLog(rule, trigger, recipient, effectiveChannel, "sent", { destino: email });
-      } else {
-        const txt = await resp.text().catch(() => "");
-        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
-                       { error_message: `N8N respondeu ${resp.status}: ${txt.slice(0, 200)}` });
-      }
     }
   } catch (err) {
     await writeLog(rule, trigger, recipient, effectiveChannel, "failed", { error_message: String(err) });
@@ -615,27 +706,56 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .eq("removed", false)
         .eq("vencimento", targetVencimento);
 
-      for (const recipient of (recipients ?? []) as Recipient[]) {
-        try {
-          await processOne(rule, trigger, recipient);
-          totalSent++;
-        } catch (err) {
-          totalFailed++;
-          console.error(`[automation-ticker] error processing recipient=${recipient.id}:`, err);
+      const lista            = (recipients ?? []) as Recipient[];
+      const effectiveChannel = (trigger.channel ?? rule.channel) as string;
+
+      if (effectiveChannel === "n8n_email") {
+        /* Um e-mail por cliente. Sem isto, três boletos do mesmo cliente
+           vencendo no mesmo dia viravam três e-mails idênticos no mesmo
+           minuto — que é spam, e não é o que a campanha faz. */
+        const porContato = new Map<string, Recipient[]>();
+        for (const r of lista) {
+          const chave = r.contact_id ?? r.id;
+          const atual = porContato.get(chave);
+          if (atual) atual.push(r); else porContato.set(chave, [r]);
         }
-        await sleep(800); // brief pause between sends
+        console.log(`[automation-ticker] trigger=${trigger.id}: ${lista.length} boleto(s) → ${porContato.size} e-mail(s)`);
+
+        for (const grupo of porContato.values()) {
+          try {
+            await processarEmail(rule, trigger, grupo);
+            totalSent++;
+          } catch (err) {
+            totalFailed++;
+            console.error(`[automation-ticker] erro no e-mail do contato=${grupo[0]?.contact_id}:`, err);
+            await writeLog(rule, trigger, grupo, "n8n_email", "failed",
+                           { error_message: String(err) }).catch(() => {});
+          }
+          await sleep(800);
+        }
+      } else {
+        for (const recipient of lista) {
+          try {
+            await processOne(rule, trigger, recipient);
+            totalSent++;
+          } catch (err) {
+            totalFailed++;
+            console.error(`[automation-ticker] error processing recipient=${recipient.id}:`, err);
+          }
+          await sleep(800); // brief pause between sends
+        }
       }
     }
 
-    // Update sent_count
-    const { data: logs } = await db
-      .from("automation_logs")
-      .select("id", { count: "exact" })
-      .eq("rule_id", rule.id)
-      .eq("status", "sent");
+    /* Mensagens enviadas, não linhas de log: um e-mail com três boletos gera
+       três linhas e é UMA mensagem. count(*) aqui diria 3 e estaria mentindo
+       sobre quanto o cliente recebeu. A conta é feita no banco porque o
+       PostgREST corta em 1000 linhas sem avisar. */
+    const { data: enviadas } = await db
+      .rpc("automation_mensagens_enviadas", { p_rule_id: rule.id });
 
     await db.from("automation_rules").update({
-      sent_count: logs?.length ?? 0,
+      sent_count: (enviadas as number | null) ?? 0,
       updated_at: new Date().toISOString(),
     }).eq("id", rule.id);
   }
