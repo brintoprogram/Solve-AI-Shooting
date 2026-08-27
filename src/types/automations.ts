@@ -1,5 +1,7 @@
 export type AutomationStatus  = "draft" | "active" | "paused" | "completed";
-export type AutomationChannel = "z_api" | "meta";
+/* "n8n_email" entrou com a automacao por e-mail. Reusa o mesmo webhook das
+   campanhas, mas por dentro da regra automatica — com dedupe e log proprios. */
+export type AutomationChannel = "z_api" | "meta" | "n8n_email";
 export type TemplateMode      = "per_trigger" | "unified";
 
 export interface AutomationRule {
@@ -32,6 +34,8 @@ export interface AutomationTrigger {
   meta_template_id:     string | null;
   column_mapping:       Record<string, string>;
   message_body:         string | null;
+  email_subject:        string | null;
+  email_body_html:      string | null;
   enabled:              boolean;
   created_at:           string;
 }
@@ -84,6 +88,11 @@ export interface TriggerDraft {
   meta_template_id:     string | null;
   column_mapping:       Record<string, string>;   // "0"→"nome", "1"→"valor", etc.
   message_body:         string;   // free text (Z-API without template)
+  /* Assunto e corpo ficam no GATILHO, e nao na regra: a mensagem de "vence
+     em 3 dias" nao e a mesma de "venceu ha 5", e essa diferenca e o motivo
+     de existir mais de um gatilho. */
+  email_subject:        string;
+  email_body_html:      string;
   enabled:              boolean;
 }
 

@@ -62,7 +62,7 @@ function makeTrigger(dayOffset: number): TriggerDraft {
     key: crypto.randomUUID(), day_offset: dayOffset, label: trigLabel(dayOffset),
     channel: null, z_api_connection_id: null, z_api_template_id: null,
     meta_connection_id: null, meta_template_id: null,
-    column_mapping: {}, message_body: "", enabled: true,
+    column_mapping: {}, message_body: "", email_subject: "", email_body_html: "", enabled: true,
   };
 }
 
@@ -125,13 +125,13 @@ function Step1({ s, patch, zApiConns, metaConns }: {
       <div>
         <label className="block text-xs text-agro-muted uppercase tracking-widest mb-1.5">Canal</label>
         <div className="flex gap-2">
-          {(["z_api", "meta"] as AutomationChannel[]).map((ch) => (
+          {(["z_api", "meta", "n8n_email"] as AutomationChannel[]).map((ch) => (
             <button key={ch} onClick={() => patch({ channel: ch })}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all"
               style={s.channel === ch
                 ? { background: "rgba(63,176,108,0.15)", color: "#3fb06c", border: "1px solid rgba(63,176,108,0.4)" }
                 : { background: "rgba(0,0,0,0.2)", color: "#5a7a66", border: "1px solid rgba(63,176,108,0.1)" }}>
-              {ch === "z_api" ? "Z-API" : "Meta (Cloud API)"}
+              {ch === "z_api" ? "Z-API" : ch === "meta" ? "Meta (Cloud API)" : "E-mail"}
             </button>
           ))}
         </div>
@@ -207,12 +207,15 @@ function Step1({ s, patch, zApiConns, metaConns }: {
 
 // ── Step 2 — Triggers ─────────────────────────────────────────────────────────
 
-function TriggerEditor({ t, templateMode, onChange, onRemove }: {
+function TriggerEditor({ t, templateMode, canalDaRegra, onChange, onRemove }: {
   t: TriggerDraft;
   templateMode: TemplateMode;
+  /** Canal herdado da regra. O gatilho pode ter o proprio, e ai o dele vale. */
+  canalDaRegra: AutomationChannel;
   onChange: (u: Partial<TriggerDraft>) => void;
   onRemove: () => void;
 }) {
+  const canal = (t.channel ?? canalDaRegra) as AutomationChannel;
   const absVal = Math.abs(t.day_offset);
   const dir    = t.day_offset < 0 ? "before" : t.day_offset === 0 ? "same" : "after";
   const C      = { before: "#60a5fa", same: "#3fb06c", after: "#f87171" };
@@ -259,7 +262,36 @@ function TriggerEditor({ t, templateMode, onChange, onRemove }: {
         </button>
       </div>
 
-      {templateMode === "per_trigger" && (
+      {/* E-mail tem assunto, e o assunto e a unica parte que o cliente le antes
+          de decidir se abre. Por isso ele vem primeiro, e nao escondido dentro
+          do corpo. */}
+      {canal === "n8n_email" && (
+        <div className="space-y-2">
+          <input className="input-agro w-full text-xs"
+            placeholder={`Assunto do e-mail de "${t.label}"`}
+            value={t.email_subject}
+            onChange={(e) => onChange({ email_subject: e.target.value })} />
+          <div className="flex flex-wrap gap-1">
+            {VAR_HINTS.map((v) => (
+              <button key={v.key} type="button"
+                onClick={() => onChange({ email_body_html: t.email_body_html + v.key })}
+                className="text-[10px] px-1.5 py-0.5 rounded transition-colors hover:bg-white/10"
+                style={{ background: "rgba(63,176,108,0.06)", color: "#5a7a66", border: "1px solid rgba(63,176,108,0.12)" }}>
+                {v.key}
+              </button>
+            ))}
+          </div>
+          <textarea className="input-agro w-full resize-none text-xs font-mono" rows={5}
+            placeholder={"Corpo do e-mail em HTML. Ex.: <p>Olá {nome}, seu boleto de {valor} vence {status_vencimento}.</p>"}
+            value={t.email_body_html}
+            onChange={(e) => onChange({ email_body_html: e.target.value })} />
+          <p className="text-[10px] text-agro-muted-2 leading-relaxed">
+            Aceita HTML. As mesmas variáveis do WhatsApp valem aqui.
+          </p>
+        </div>
+      )}
+
+      {templateMode === "per_trigger" && canal !== "n8n_email" && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1">
             {VAR_HINTS.map((v) => (
@@ -307,7 +339,7 @@ function Step2({ s, patch }: { s: WState; patch: (p: Partial<WState>) => void })
         </div>
       )}
       {sorted.map((t) => (
-        <TriggerEditor key={t.key} t={t} templateMode={s.template_mode}
+        <TriggerEditor key={t.key} t={t} templateMode={s.template_mode} canalDaRegra={s.channel}
           onChange={(upd) => patchTrig(t.key, upd)}
           onRemove={() => patch({ triggers: s.triggers.filter((x) => x.key !== t.key) })} />
       ))}
@@ -783,7 +815,7 @@ function Step4({ s, onSave, saving }: { s: WState; onSave: (st: "draft"|"active"
     <div className="space-y-5 max-w-2xl mx-auto">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Canal",           value: s.channel === "z_api" ? "Z-API" : "Meta" },
+          { label: "Canal",           value: s.channel === "z_api" ? "Z-API" : s.channel === "meta" ? "Meta" : "E-mail" },
           { label: "Horario",         value: `${String(s.send_hour).padStart(2,"0")}:00` },
           { label: "Gatilhos ativos", value: String(triggers.length) },
           { label: "Destinatarios",   value: String(s.selectedRecipients.length) },
@@ -893,6 +925,7 @@ export function AutomationWizard() {
         triggers: (trigRes.data ?? []).map((t: any): TriggerDraft => ({
           key: crypto.randomUUID(), day_offset: t.day_offset, label: t.label ?? trigLabel(t.day_offset),
           channel: t.channel ?? null, z_api_connection_id: t.z_api_connection_id ?? null,
+          email_subject: t.email_subject ?? "", email_body_html: t.email_body_html ?? "",
           z_api_template_id: t.z_api_template_id ?? null, meta_connection_id: t.meta_connection_id ?? null,
           meta_template_id: t.meta_template_id ?? null, column_mapping: t.column_mapping ?? {},
           message_body: t.message_body ?? "", enabled: t.enabled,
@@ -909,7 +942,14 @@ export function AutomationWizard() {
   }, [ruleId, wsId]);
 
   function canProceed(): boolean {
-    if (s.step === 1) return s.name.trim().length > 0 && (s.channel === "z_api" ? !!s.z_api_connection_id : !!s.meta_connection_id);
+    if (s.step === 1) {
+      if (!s.name.trim()) return false;
+      /* E-mail nao exige conexao de WhatsApp: sai pelo N8N, ja configurado no
+         servidor. Exigir uma conexao aqui travaria o assistente num campo que
+         nao existe para este canal. */
+      if (s.channel === "n8n_email") return true;
+      return s.channel === "z_api" ? !!s.z_api_connection_id : !!s.meta_connection_id;
+    }
     if (s.step === 2) return s.triggers.filter((t) => t.enabled).length > 0;
     if (s.step === 3) return s.selectedRecipients.length > 0;
     return true;
@@ -951,6 +991,7 @@ export function AutomationWizard() {
           s.triggers.map((t) => ({
             rule_id: savedId, workspace_id: wsId, day_offset: t.day_offset, label: t.label,
             channel: t.channel, z_api_connection_id: t.z_api_connection_id || null,
+            email_subject: t.email_subject || null, email_body_html: t.email_body_html || null,
             z_api_template_id: t.z_api_template_id || null, meta_connection_id: t.meta_connection_id || null,
             meta_template_id: t.meta_template_id || null, column_mapping: t.column_mapping,
             message_body: t.message_body || null, enabled: t.enabled,

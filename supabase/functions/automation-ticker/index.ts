@@ -11,6 +11,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const Z_API_BASE   = "https://api.z-api.io/instances";
 const META_BASE    = "https://graph.facebook.com/v25.0";
+/* Mesmo webhook e mesmo segredo das campanhas: o fluxo no N8N nao precisa
+   saber se a lista veio de uma campanha ou de uma regua automatica. */
+const N8N_WEBHOOK    = Deno.env.get("N8N_WEBHOOK_URL");
+const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_CALLBACK_SECRET") ?? "";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -97,6 +101,8 @@ interface Trigger {
   z_api_template_id:   string | null;
   meta_connection_id:  string | null;
   meta_template_id:    string | null;
+  email_subject:       string | null;
+  email_body_html:     string | null;
   column_mapping:      Record<string, string>;
   message_body:        string | null;
   enabled:             boolean;
@@ -334,7 +340,7 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
         await writeLog(rule, trigger, recipient, effectiveChannel, "failed", { error_message: result.error });
       }
 
-    } else {
+    } else if (effectiveChannel === "meta") {
       // META channel
       const metaConnId   = trigger.meta_connection_id ?? rule.meta_connection_id;
       const metaTplId    = trigger.meta_template_id;
@@ -395,6 +401,98 @@ async function processOne(rule: Rule, trigger: Trigger, recipient: Recipient): P
         await writeLog(rule, trigger, recipient, effectiveChannel, "sent", { wamid: result.wamid });
       } else {
         await writeLog(rule, trigger, recipient, effectiveChannel, "failed", { error_message: result.error });
+      }
+    } else if (effectiveChannel === "n8n_email") {
+      /* ── E-mail pelo N8N ────────────────────────────────────────────
+      
+         Reusa o mesmo webhook e o MESMO FORMATO de payload das campanhas, de
+         propósito: o fluxo que já existe no N8N não precisa saber se a lista
+         veio de uma campanha ou de uma régua automática. Nada do disparo de
+         campanha é tocado — este é um caminho paralelo, com dedupe e log
+         próprios da automação.
+         
+         Uma mensagem por vez, e não em lote: a automação é por destinatário,
+         e cada um tem seu registro em automation_logs. Juntar em lote faria o
+         retorno do N8N não ter a quem se referir. */
+      if (!N8N_WEBHOOK) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: "N8N_WEBHOOK_URL não configurado" });
+        return;
+      }
+
+      // O e-mail não está em automation_recipients; vem do cadastro.
+      const { data: contato } = await db
+        .from("inbox_contacts")
+        .select("email, email_representante, name")
+        .eq("id", recipient.contact_id)
+        .maybeSingle();
+
+      const email = (contato?.email as string | undefined)?.trim();
+      if (!email) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: "Contato sem e-mail cadastrado" });
+        return;
+      }
+
+      const assunto = substituteAutoVars(trigger.email_subject ?? "", recipient, trigger.day_offset);
+      const corpo   = substituteAutoVars(
+        trigger.email_body_html ?? trigger.message_body ?? "", recipient, trigger.day_offset);
+      if (!corpo.trim()) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: "Gatilho sem corpo de e-mail" });
+        return;
+      }
+
+      // Crédito antes de entregar, como em todo canal.
+      const credito = await consumirCredito(db, rule.workspace_id, "mensagem", {
+        destino: email,
+        canal:   "email",
+        detalhe: { origem: "automacao", rule_id: rule.id, day_offset: trigger.day_offset },
+      });
+      if (!credito.permitido) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: `Sem créditos (saldo: ${credito.saldo})` });
+        return;
+      }
+
+      const resp = await fetch(N8N_WEBHOOK, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origem:          "automacao",
+          rule_id:         rule.id,
+          rule_name:       rule.name,
+          trigger_id:      trigger.id,
+          trigger_label:   trigger.label,
+          day_offset:      trigger.day_offset,
+          workspace_id:    rule.workspace_id,
+          dispatched_at:   new Date().toISOString(),
+          callback_secret: WEBHOOK_SECRET,
+          assunto,
+          corpo_html:      corpo,
+          recipients: [{
+            message_id:     recipient.id,
+            name:           contato?.name ?? recipient.contact_name,
+            email,
+            email_representante: contato?.email_representante ?? null,
+            phone:          recipient.contact_phone,
+            recipient_data: {
+              nome:       recipient.contact_name,
+              valor:      recipient.valor,
+              vencimento: recipient.vencimento,
+              numero_nf:  recipient.numero_nf,
+              codigo_barras: recipient.codigo_barras,
+            },
+          }],
+        }),
+      });
+
+      if (resp.ok) {
+        await writeLog(rule, trigger, recipient, effectiveChannel, "sent", { destino: email });
+      } else {
+        const txt = await resp.text().catch(() => "");
+        await writeLog(rule, trigger, recipient, effectiveChannel, "failed",
+                       { error_message: `N8N respondeu ${resp.status}: ${txt.slice(0, 200)}` });
       }
     }
   } catch (err) {
