@@ -4,9 +4,8 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   UserCog, UserPlus, UserMinus, Check, Loader2, X, Mail, User,
-  Send, LayoutGrid, Users, Upload, MessageSquare, Settings, Shield, AlertTriangle, GitBranch,
+  Shield, AlertTriangle, GitBranch, Link2,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Topbar } from "@/components/layout/Topbar";
 import {
   useAuth, ROLE_LABELS, ROLE_STYLE, initials,
@@ -17,6 +16,8 @@ import type { Department } from "@/types/inbox";
 import { SettingsDepartments } from "@/pages/settings/SettingsDepartments";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { FEATURE_DEFS } from "@/lib/permissoes";
+import { InviteLinkModal } from "@/pages/team/InviteLinkModal";
 
 
 type RoleOption = UserProfile["role"];
@@ -27,25 +28,6 @@ const AVATAR_COLORS = [
   "linear-gradient(135deg,#a78bfa,#7c3aed)",
   "linear-gradient(135deg,#f59e0b,#d97706)",
   "linear-gradient(135deg,#f87171,#ef4444)",
-];
-
-// ── Feature definitions ─────────────────────────────────────────
-
-interface FeatureDef {
-  key:   PermissionKey;
-  label: string;
-  desc:  string;
-  icon:  LucideIcon;
-}
-
-const FEATURE_DEFS: FeatureDef[] = [
-  { key: "can_shoot",            label: "Iniciar Disparos",    desc: "Iniciar e retomar campanhas de disparo em massa",     icon: Send         },
-  { key: "can_manage_campaigns", label: "Gerenciar Campanhas", desc: "Criar, pausar e cancelar campanhas",                  icon: LayoutGrid   },
-  { key: "can_manage_contacts",  label: "Gerenciar Contatos",  desc: "Criar, editar e excluir contatos e boletos",          icon: Users        },
-  { key: "can_import",           label: "Importar Planilhas",  desc: "Importar contatos em massa via CSV/Excel",            icon: Upload       },
-  { key: "can_inbox",            label: "Acessar Inbox",       desc: "Ver e responder conversas no Inbox",                  icon: MessageSquare },
-  { key: "can_manage_team",      label: "Gerenciar Equipe",    desc: "Convidar membros e alterar cargos",                   icon: UserCog      },
-  { key: "can_settings",         label: "Configurações",       desc: "Acessar e editar configurações do sistema",           icon: Settings     },
 ];
 
 // ── Toggle switch ────────────────────────────────────────────────
@@ -72,12 +54,13 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 // ── Permissions Modal ───────────────────────────────────────────
 
 interface PermissionsModalProps {
-  member:  UserProfile;
+  member:      UserProfile;
+  workspaceId: string;
   onClose: () => void;
   onSaved: (updated: UserProfile) => void;
 }
 
-function PermissionsModal({ member, onClose, onSaved }: PermissionsModalProps) {
+function PermissionsModal({ member, workspaceId, onClose, onSaved }: PermissionsModalProps) {
   const { toast } = useToast();
   const [perms,   setPerms]   = useState<Partial<Record<PermissionKey, boolean>>>(member.permissions ?? {});
   const [saving,  setSaving]  = useState(false);
@@ -108,10 +91,14 @@ function PermissionsModal({ member, onClose, onSaved }: PermissionsModalProps) {
 
   async function handleSave() {
     setSaving(true);
+    /* Grava na PARTICIPAÇÃO, não no perfil. Gravar em user_profiles mudava as
+       permissões da pessoa em todos os workspaces dela — um admin da empresa A
+       mexendo no acesso que ela tem na empresa B. */
     const { error } = await supabase
-      .from("user_profiles")
+      .from("workspace_members")
       .update({ permissions: perms })
-      .eq("id", member.id);
+      .eq("user_id", member.id)
+      .eq("workspace_id", workspaceId);
     setSaving(false);
     if (error) {
       toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
@@ -383,11 +370,14 @@ export function Team() {
   const [updating,         setUpdating]         = useState<string | null>(null);
   const [revoking,         setRevoking]         = useState<string | null>(null);
   const [showInvite,       setShowInvite]       = useState(false);
+  const [showLink,         setShowLink]         = useState(false);
   const [permTarget,       setPermTarget]       = useState<UserProfile | null>(null);
   const [confirmRemove,    setConfirmRemove]    = useState<UserProfile | null>(null);
   const [removing,         setRemoving]         = useState(false);
 
-  if (!myProfile || !["admin", "manager"].includes(myProfile.role)) {
+  /* workspaceId entra na guarda porque tudo nesta tela e por workspace: sem
+     um workspace ativo nao ha equipe para mostrar, nem para onde gravar. */
+  if (!myProfile || !workspaceId || !["admin", "manager"].includes(myProfile.role)) {
     return <Navigate to="/" replace />;
   }
 
@@ -399,7 +389,7 @@ export function Team() {
     const [membersRes, invitesRes, deptsRes] = await Promise.all([
       supabase
         .from("workspace_members")
-        .select("user_id, role, department_id, created_at")
+        .select("user_id, role, permissions, department_id, created_at")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: true }),
       isAdmin
@@ -438,7 +428,9 @@ export function Team() {
         const profiles = memberRows
           .map((row) => {
             const p = profileMap.get(row.user_id);
-            return p ? { ...p, role: row.role } : null;
+            /* Cargo e permissões desta empresa. permissions nulo herda o
+               perfil — participação antiga não perde ajuste nenhum. */
+            return p ? { ...p, role: row.role, permissions: row.permissions ?? p.permissions ?? {} } : null;
           })
           .filter(Boolean) as UserProfile[];
         setMembers(profiles);
@@ -571,10 +563,18 @@ export function Team() {
           </div>
 
           {isAdmin && (
-            <button onClick={() => setShowInvite(true)} className="btn-agro flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold text-white">
-              <UserPlus className="w-4 h-4" />
-              Convidar Membro
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <button onClick={() => setShowLink(true)}
+                      className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold text-agro-text transition-colors hover:bg-white/5"
+                      style={{ border: "1px solid rgba(63,176,108,0.25)" }}>
+                <Link2 className="w-4 h-4 text-agro-green" />
+                Link de convite
+              </button>
+              <button onClick={() => setShowInvite(true)} className="btn-agro flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2.5 rounded-xl text-sm font-semibold text-white">
+                <UserPlus className="w-4 h-4" />
+                Convidar por e-mail
+              </button>
+            </div>
           )}
         </div>
 
@@ -851,9 +851,18 @@ export function Team() {
         />
       )}
 
+      {showLink && (
+        <InviteLinkModal
+          workspaceId={workspaceId}
+          podeCriarAdmin={myProfile.role === "admin"}
+          onClose={() => setShowLink(false)}
+        />
+      )}
+
       {permTarget && (
         <PermissionsModal
           member={permTarget}
+          workspaceId={workspaceId}
           onClose={() => setPermTarget(null)}
           onSaved={(updated) => {
             setMembers((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));

@@ -62,3 +62,6 @@ verify_jwt = false
 # plataforma só provaria que existe sessão, não que é o dono da plataforma.
 [functions.workspaces-admin]
 verify_jwt = false
+
+[functions.invite-link]
+verify_jwt = false

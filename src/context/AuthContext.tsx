@@ -95,20 +95,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Fetch ALL workspaces the user belongs to (INNER JOIN skips deleted workspaces).
         // No LIMIT — a user may legitimately belong to multiple workspaces.
         supabase.from("workspace_members")
-          .select("workspace_id, role, workspaces!inner(id, name)")
+          .select("workspace_id, role, permissions, workspaces!inner(id, name)")
           .eq("user_id", userId)
           .order("created_at", { ascending: true }),
       ]);
-      if (profileRes.data) {
-        const prof = profileRes.data as UserProfile;
-        setProfile(prof);
-        // Alimenta o logger: a partir daqui todo log do frontend carrega
-        // user_id/role, o que permite responder "o que este usuário fez?".
-        setLogContext({ user_id: userId, role: prof.role });
-      }
+      const prof = (profileRes.data ?? null) as UserProfile | null;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wsList: WorkspaceInfo[] = ((wsRes.data ?? []) as any[]).map((m) => ({
+      const linhas = (wsRes.data ?? []) as any[];
+      const wsList: WorkspaceInfo[] = linhas.map((m) => ({
         id:   m.workspace_id as string,
         name: (m.workspaces as { name: string }).name,
         role: m.role as WorkspaceInfo["role"],
@@ -122,9 +117,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const stored = localStorage.getItem(WS_STORAGE_KEY);
         const valid  = wsList.find((w) => w.id === stored);
         const active = (valid ?? wsList[0]).id;
+
+        /* Cargo e permissões VÊM DA PARTICIPAÇÃO no workspace ativo, não do
+           perfil global. É o que faz "admin na empresa A, agente na B" ser
+           verdade de fato — e o que impede um admin de mexer no acesso que a
+           pessoa tem em outra empresa.
+
+           Como todo hasPermission() do sistema lê deste mesmo objeto, o
+           escopo passa a valer em toda tela de uma vez, sem precisar mudar
+           cada uma. permissions nulo herda o perfil: participação antiga não
+           perde ajuste nenhum. */
+        const minha = linhas.find((m) => m.workspace_id === active);
+        if (prof) {
+          setProfile({
+            ...prof,
+            role:        (minha?.role ?? prof.role) as UserProfile["role"],
+            permissions: (minha?.permissions ?? prof.permissions) ?? {},
+          });
+          setLogContext({ user_id: userId, role: minha?.role ?? prof.role });
+        }
+
         setWorkspaceId(active);
         setLogContext({ workspace_id: active });
         return;
+      }
+
+      // Sem workspace nenhum: só o perfil, que é o que existe.
+      if (prof) {
+        setProfile(prof);
+        setLogContext({ user_id: userId, role: prof.role });
       }
 
       // No valid workspace membership — check for a pending invite.
@@ -182,6 +203,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // fetchProfile runs again to pick up the workspace membership.
         if (setupTypeRef.current !== null) {
           console.warn("[auth] setup flow — keeping session alive for password setup");
+          return;
+        }
+        /* Na tela do convite por link a pessoa se autentica ANTES de virar
+           membro — o resgate acontece logo depois, com a sessão na mão.
+           Deslogar aqui derrubaria justamente o passo do meio, e o convite
+           nunca se completaria. */
+        if (/^\/entrar\/[a-f0-9]{64}$/.test(window.location.pathname)) {
+          console.warn("[auth] sem workspace, mas na tela de convite por link — mantendo a sessão");
           return;
         }
         console.warn("[auth] no workspace and no valid invite — access denied, signing out");

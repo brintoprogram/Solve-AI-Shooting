@@ -2290,6 +2290,7 @@ export type Database = {
           created_at: string | null
           department_id: string | null
           id: string
+          permissions: Json | null
           role: string
           user_id: string
           workspace_id: string
@@ -2298,6 +2299,7 @@ export type Database = {
           created_at?: string | null
           department_id?: string | null
           id?: string
+          permissions?: Json | null
           role?: string
           user_id: string
           workspace_id: string
@@ -2306,6 +2308,7 @@ export type Database = {
           created_at?: string | null
           department_id?: string | null
           id?: string
+          permissions?: Json | null
           role?: string
           user_id?: string
           workspace_id?: string

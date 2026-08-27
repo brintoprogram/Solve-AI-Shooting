@@ -31,6 +31,7 @@ import { AutomationWizard } from "@/pages/automations/AutomationWizard";
 import { AutomationDetail } from "@/pages/automations/AutomationDetail";
 import { SetPassword } from "@/pages/SetPassword";
 import { AcceptInvite } from "@/pages/AcceptInvite";
+import { JoinWorkspace } from "@/pages/JoinWorkspace";
 import { PrivacyPolicy } from "@/pages/PrivacyPolicy";
 import { TermsOfUse } from "@/pages/TermsOfUse";
 import { NegotiationPortal } from "@/pages/NegotiationPortal";
@@ -145,6 +146,12 @@ function AppRoutes() {
     if (!user) return <AcceptInvite />;
     return <Navigate to="/" replace />;
   }
+
+  // Public route: shareable invite link. Checked before the "!user" gate because
+  // the whole point is that the person opening it has no account yet — and also
+  // above it for someone who IS logged in, who just needs to join the workspace.
+  const entrarMatch = window.location.pathname.match(/^\/entrar\/([a-f0-9]{64})$/);
+  if (entrarMatch) return <JoinWorkspace token={entrarMatch[1]} />;
 
   // Public route: client negotiation portal — token-based, no Supabase Auth session at all.
   // Checked before the "!user" gate below so it works for anonymous WhatsApp contacts.
