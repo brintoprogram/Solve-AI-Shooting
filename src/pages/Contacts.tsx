@@ -466,6 +466,116 @@ function Avatar({ name }: { name: string | null }) {
   );
 }
 
+// ── Cartão do contato no celular ───────────────────────────────────
+//
+// A tabela tem minWidth 1200 e vive num overflow-auto. No computador isso é
+// certo — são doze colunas para comparar. No celular vira uma faixa de 390px
+// deslizando sobre 1200: para ler o saldo de alguém você rola até perder o
+// nome de vista, e conferir uma lista filtrada fica impossível.
+//
+// Aqui a mesma linha vira um bloco vertical. Três decisões que importam:
+//
+//   nome sem truncate  "Carlos Henrique Westphalen Scarpellini Filho E Out"
+//                      cortado não identifica ninguém. Ele quebra em duas
+//                      linhas, que é o que a tela vertical tem de sobra.
+//   e-mail break-all   endereço não tem espaço onde quebrar; sem isso ele
+//                      estoura a largura e empurra o cartão inteiro.
+//   valor grande       é o número que se monitora. No celular ele precisa ser
+//                      legível de relance, sem procurar.
+//
+// Isto NÃO aparece no computador — o container é md:hidden, e a tabela segue
+// intacta a partir de sm.
+function CartaoContato({
+  contact, inv, selecionado, onAbrir, onSelecionar,
+}: {
+  contact:      Contact;
+  inv:          { total: number; nextDue: string | null } | undefined;
+  selecionado:  boolean;
+  onAbrir:      () => void;
+  onSelecionar: () => void;
+}) {
+  const atraso  = inv?.nextDue ? diasDeAtraso(inv.nextDue) : null;
+  const vencido = atraso !== null && atraso > 0;
+  const sev     = vencido ? severidadeAtraso(atraso) : null;
+
+  return (
+    <li
+      onClick={onAbrir}
+      className="flex gap-3 px-4 py-3.5 active:bg-[#111a14] transition-colors"
+      style={{
+        borderBottom: "1px solid #1a2a1e",
+        background: selecionado ? "rgba(63,176,108,0.05)" : undefined,
+      }}
+    >
+      {/* Área de toque de 32px: o quadradinho de 16px sozinho é menor do que
+          um dedo acerta, e errar aqui abre o contato em vez de marcá-lo. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelecionar(); }}
+        aria-label={selecionado ? "Desmarcar contato" : "Marcar contato"}
+        aria-pressed={selecionado}
+        className="shrink-0 -m-2 p-2 flex items-start"
+      >
+        <span
+          className="w-4 h-4 mt-0.5 rounded flex items-center justify-center border transition-all"
+          style={selecionado
+            ? { background: "linear-gradient(135deg, #3fb06c, #16A34A)", border: "none" }
+            : { background: "transparent", borderColor: "#3a4d3e" }}
+        >
+          {selecionado && <span className="text-white text-[9px] leading-none font-bold">✓</span>}
+        </span>
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-medium text-white leading-snug break-words">
+          {contact.name ?? <span className="text-[#6b7f6e] italic">Sem nome</span>}
+        </p>
+        {contact.empresa && (
+          <p className="text-xs text-[#6b7f6e] break-words mt-0.5">{contact.empresa}</p>
+        )}
+
+        {/* O e-mail do representante entra quando o contato não tem o próprio:
+            numa base cobrada por e-mail, "sem e-mail" e "sem e-mail mas tem
+            representante" são situações diferentes — a segunda ainda é
+            alcançável, e some se a tela só mostrar um campo vazio. */}
+        {contact.email ? (
+          <p className="text-xs text-[#8fa896] break-all leading-snug mt-1">{contact.email}</p>
+        ) : contact.email_representante ? (
+          <p className="text-xs text-[#4a6b50] break-all leading-snug mt-1">
+            <span className="text-[#3a4d3e]">repr. </span>{contact.email_representante}
+          </p>
+        ) : (
+          <p className="text-xs text-[#3a4d3e] italic mt-1">sem e-mail</p>
+        )}
+
+        <div className="flex items-center justify-between gap-3 mt-2">
+          {inv && inv.total > 0 ? (
+            <span className="text-base font-bold text-amber-400 tabular-nums">
+              {formatBRL(inv.total)}
+            </span>
+          ) : (
+            <span className="text-sm text-[#3a4d3e]">—</span>
+          )}
+
+          {inv?.nextDue && (
+            <span
+              className="flex items-center gap-1 text-[11px] tabular-nums whitespace-nowrap shrink-0"
+              style={sev ? { color: sev.cor, fontWeight: 500 } : { color: "#6b7f6e" }}
+            >
+              {vencido && <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden />}
+              {formatDate(inv.nextDue)}
+              {vencido && (
+                <span className="px-1.5 py-0.5 rounded-md" style={{ background: sev!.fundo }}>
+                  {atraso === 1 ? "1 dia" : `${atraso} dias`}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
 // ── Pagination ─────────────────────────────────────────────────────
 
 function Pagination({
@@ -598,7 +708,7 @@ function FilterBar({
 }) {
   return (
     <div
-      className="px-6 py-3 shrink-0 flex flex-wrap items-center gap-4"
+      className="px-4 md:px-6 py-3 shrink-0 flex flex-wrap items-center gap-4"
       style={{ borderBottom: "1px solid #1e2e22", background: "rgba(13,26,17,0.6)" }}
     >
       {/* Sort */}
@@ -682,7 +792,12 @@ function BulkActionBar({
   if (count === 0) return null;
   return (
     <div
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-5 py-3 rounded-2xl shadow-2xl"
+      /* No celular ela era `left-1/2 -translate-x-1/2` com a largura do
+         conteudo: ~420px numa tela de 390 sai cortada dos dois lados. E
+         `bottom-6` a punha ATRAS da navegacao inferior, que e fixed e ocupa
+         56px mais a area segura. Aqui ela usa a largura util e sobe acima da
+         barra; a partir de md volta a ser a pilula centralizada de antes. */
+      className="fixed left-3 right-3 bottom-[calc(env(safe-area-inset-bottom,0px)+68px)] md:left-1/2 md:right-auto md:bottom-6 md:-translate-x-1/2 z-50 flex items-center justify-center gap-3 md:gap-4 px-4 md:px-5 py-3 rounded-2xl shadow-2xl"
       style={{
         background: "#0d1a11",
         border: "1px solid rgba(63,176,108,0.3)",
@@ -697,11 +812,15 @@ function BulkActionBar({
           {count}
         </div>
         <span className="text-sm text-white font-medium">
-          contato{count !== 1 ? "s" : ""} selecionado{count !== 1 ? "s" : ""}
+          {/* O numero ja esta no circulo ao lado, e "selecionados" sozinho
+              diz o que e. No celular a frase inteira empurra o botao de
+              excluir para fora da tela. */}
+          <span className="hidden md:inline">contato{count !== 1 ? "s" : ""} </span>
+          selecionado{count !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="h-4 w-px bg-[#2a3d30]" />
+      <div className="hidden md:block h-4 w-px bg-[#2a3d30]" />
 
       <button
         onClick={onDelete}
@@ -710,8 +829,9 @@ function BulkActionBar({
         onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.2)")}
         onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(239,68,68,0.12)")}
       >
-        <Trash2 className="w-3.5 h-3.5" />
-        Excluir selecionados
+        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+        <span className="md:hidden">Excluir</span>
+        <span className="hidden md:inline">Excluir selecionados</span>
       </button>
 
       <button
@@ -1132,7 +1252,7 @@ export function Contacts() {
     <div className="flex flex-col h-full overflow-hidden" style={{ background: "#0a110e" }}>
 
       {/* ── Topbar ───────────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderBottom: "1px solid #1e2e22" }}>
+      <div className="flex flex-col items-start gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-0 md:px-6 md:py-4 shrink-0" style={{ borderBottom: "1px solid #1e2e22" }}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-[#1e2e22] flex items-center justify-center">
             <Users className="w-5 h-5 text-[#3fb06c]" />
@@ -1146,7 +1266,7 @@ export function Contacts() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:flex-nowrap">
           <ControleExibicao prefs={prefs} />
           <button
             onClick={handleExport}
@@ -1184,7 +1304,7 @@ export function Contacts() {
       </div>
 
       {/* ── Main tabs ────────────────────────────────── */}
-      <div className="px-6 shrink-0 flex gap-1 pt-3" style={{ borderBottom: "1px solid #1e2e22" }}>
+      <div className="px-4 md:px-6 shrink-0 flex gap-1 pt-3" style={{ borderBottom: "1px solid #1e2e22" }}>
         {[
           { id: "lista"   as const, label: "Contatos",       icon: Users    },
           { id: "limpeza" as const, label: "Limpeza de Base", icon: Sparkles },
@@ -1212,7 +1332,7 @@ export function Contacts() {
 
       {/* ── Search + filter toggle ────────────────────── */}
       {mainTab === "lista" && (
-        <div className="px-6 py-3 shrink-0 flex items-center gap-3" style={{ borderBottom: showFilters ? "none" : "1px solid #1e2e22" }}>
+        <div className="px-4 md:px-6 py-3 shrink-0 flex items-center gap-3" style={{ borderBottom: showFilters ? "none" : "1px solid #1e2e22" }}>
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b7f6e]" />
             <input
@@ -1254,7 +1374,10 @@ export function Contacts() {
       {/* ── Summary strip ────────────────────────────── */}
       {mainTab === "lista" && total > 0 && (
         <div
-          className="px-6 py-2 shrink-0 flex items-center justify-between text-xs"
+          /* No celular o saldo filtrado e o motivo de abrir esta tela, e nao
+             cabe na mesma linha da contagem sem virar letra de bula. Empilha
+             abaixo de sm; a partir de sm volta a ser a faixa de uma linha. */
+          className="px-4 md:px-6 py-2.5 md:py-2 shrink-0 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between md:gap-0 text-xs"
           style={{ borderBottom: "1px solid #1e2e22", background: "rgba(10,17,14,0.8)" }}
         >
           <span className="text-[#6b7f6e]">
@@ -1263,7 +1386,7 @@ export function Contacts() {
             {(activeFilterCount > 0 || debouncedSearch) ? " (filtrado)" : ""}
           </span>
 
-          <span className="flex items-center gap-4">
+          <span className="flex flex-wrap items-center gap-x-4 gap-y-1 md:flex-nowrap md:gap-4">
             {/* Total filtrado — só aparece quando há filtro/busca ativo */}
             {(activeFilterCount > 0 || debouncedSearch) && (
               <span className="flex items-center gap-2">
@@ -1271,7 +1394,7 @@ export function Contacts() {
                 {filteredTotalLoading ? (
                   <Loader2 className="w-3 h-3 text-[#3fb06c] animate-spin" />
                 ) : filteredTotal !== null && filteredTotal > 0 ? (
-                  <span className="font-bold text-amber-400 text-sm tabular-nums">{formatBRL(filteredTotal)}</span>
+                  <span className="font-bold text-amber-400 text-base md:text-sm tabular-nums">{formatBRL(filteredTotal)}</span>
                 ) : (
                   <span className="text-[#3a4d3e]">—</span>
                 )}
@@ -1296,13 +1419,41 @@ export function Contacts() {
       {mainTab === "lista" && (<>
         <div className="flex-1 overflow-auto">
           {loading || filterLoading ? (
-            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
-              <LinhasEsqueleto colunas={2 + prefs.colunas.length + 1} pad={pad} />
-            </table>
+            <>
+              <ul className="md:hidden">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <li key={i} className="px-4 py-3.5 space-y-2 animate-pulse" style={{ borderBottom: "1px solid #1a2a1e" }}>
+                    <div className="h-4 w-2/3 rounded bg-[#1a2a1e]" />
+                    <div className="h-3 w-1/2 rounded bg-[#141f18]" />
+                    <div className="h-4 w-24 rounded bg-[#1a2a1e]" />
+                  </li>
+                ))}
+              </ul>
+              <table className="hidden md:table w-full text-sm" style={{ minWidth: 1200 }}>
+                <LinhasEsqueleto colunas={2 + prefs.colunas.length + 1} pad={pad} />
+              </table>
+            </>
           ) : contacts.length === 0 ? (
             <EmptyState search={debouncedSearch} hasFilters={activeFilterCount > 0} onImport={() => setShowImport(true)} />
           ) : (
-            <table className="w-full text-sm" style={{ minWidth: 1200 }}>
+            <>
+            {/* ── Celular: um cartao por contato ────────────────────
+                A tabela continua existindo logo abaixo, intacta, e volta a
+                aparecer a partir de md. */}
+            <ul className="md:hidden">
+              {contacts.map((contact) => (
+                <CartaoContato
+                  key={contact.id}
+                  contact={contact}
+                  inv={invoiceTotals[contact.id]}
+                  selecionado={selectedIds.has(contact.id)}
+                  onAbrir={() => setSelected(contact)}
+                  onSelecionar={() => toggleOne(contact.id)}
+                />
+              ))}
+            </ul>
+
+            <table className="hidden md:table w-full text-sm" style={{ minWidth: 1200 }}>
               {/* z-20 no cabecalho porque as celulas fixas da esquerda usam z-10:
                   sem isso o nome da linha passaria por cima do cabecalho ao rolar. */}
               <thead className="sticky top-0 z-20" style={{ background: "#0d1710", borderBottom: "1px solid #1e2e22" }}>
@@ -1543,6 +1694,7 @@ export function Contacts() {
                 })}
               </tbody>
             </table>
+            </>
           )}
         </div>
 
